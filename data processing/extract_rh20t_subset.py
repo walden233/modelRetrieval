@@ -50,18 +50,18 @@ def extract_data(source_dir, target_dir, n_scenes, m_cameras, allowed_cameras):
         print("未收集到任何场景，程序退出。")
         return
 
+    task_count=0
     # 2. 创建目标根目录
     os.makedirs(target_dir, exist_ok=True)
     print(f"数据将被提取到: {target_dir}")
 
     # 3. 遍历每个任务并提取数据
     for task_id, scene_paths in tqdm(scenes_by_task.items(), desc="处理任务"):
-        
+        task_count+=1
         # 为当前任务创建子目录
-        task_output_dir = os.path.join(target_dir, task_id)
+        task_output_dir = os.path.join(target_dir, "task_" + f"{task_count:04d}")
         os.makedirs(task_output_dir, exist_ok=True)
 
-        # --- 随机抽取n个场景 ---
         if len(scene_paths) > n_scenes:
             # selected_scenes = random.sample(scene_paths, n_scenes)
             selected_scenes=scene_paths[0:n_scenes]
