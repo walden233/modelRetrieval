@@ -190,8 +190,8 @@ class RH20TDataset(Dataset):
         return {
             "human_pixel_values": final_human_pixel_values,
             "robot_pixel_values": final_robot_pixel_values,
-            "human_poses": batch_human_poses, # 返回 numpy 数组的列表
-            "tcp_bases": batch_tcp_bases      # 返回 numpy 数组的列表
+            # "human_poses": batch_human_poses, # 返回 numpy 数组的列表
+            # "tcp_bases": batch_tcp_bases      # 返回 numpy 数组的列表
         }
 
 if __name__ == '__main__':
