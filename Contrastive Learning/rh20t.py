@@ -175,8 +175,12 @@ class RH20TDataset(Dataset):
                     [h_frames, r_frames], 
                     return_tensors="pt"
                 )
-                processed_human_videos.append(inputs.pixel_values[0])
-                processed_robot_videos.append(inputs.pixel_values[1])
+                if(hasattr(inputs, 'pixel_values')):
+                    processed_human_videos.append(inputs.pixel_values[0])
+                    processed_robot_videos.append(inputs.pixel_values[1])
+                else:
+                    processed_human_videos.append(inputs.pixel_values_videos[0])
+                    processed_robot_videos.append(inputs.pixel_values_videos[1])
             
             # 将处理后的张量堆叠成一个 batch
             # final_human_pixel_values = torch.stack(processed_human_videos)

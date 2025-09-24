@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from transformers import AutoConfig, AutoModel, VideoMAEImageProcessor
+from transformers import AutoConfig, AutoModel, VideoMAEImageProcessor,AutoVideoProcessor
 from tqdm.auto import tqdm
 import pandas as pd
 from decord import VideoReader, cpu
@@ -11,21 +11,36 @@ import seaborn as sns
 
 from rh20t import RH20TDataset
 from dataset import HumanRobotDataset
-from network import ContrastiveFineTuner
+from network import ContrastiveFineTuner, vjepaFineTuner
 from loss import InfoNCELoss
 
 # --- 设置参数 ---
-MODEL_NAME = "OpenGVLab/VideoMAEv2-Large"
-CSV_PATH = "dataset.csv"
+
 BATCH_SIZE = 2  # 可以设置得比训练时大一些，因为不需要存储梯度
-FEATURE_DIM = 128
+FEATURE_DIM = 256
 TEMPERATURE = 0.07
 
 # --- 初始化 ---
 print("Initializing components...")
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-processor = VideoMAEImageProcessor.from_pretrained(MODEL_NAME)
-# dataset = HumanRobotDataset(csv_file=CSV_PATH, processor=processor)
+
+
+# # VideoMAE
+# MODEL_NAME = "OpenGVLab/VideoMAEv2-Large"
+# processor = VideoMAEImageProcessor.from_pretrained(MODEL_NAME)
+# model = AutoModel.from_pretrained(MODEL_NAME,trust_remote_code=True)
+# hidden_size = model.model_config["embed_dim"] 
+# model = ContrastiveFineTuner(model,hidden_size,FEATURE_DIM).to(device)
+
+# vjepa2
+MODEL_NAME = "facebook/vjepa2-vitl-fpc64-256"
+processor = AutoVideoProcessor.from_pretrained(MODEL_NAME)
+model = AutoModel.from_pretrained(MODEL_NAME,trust_remote_code=True)
+hidden_size = model.config.hidden_size 
+model = vjepaFineTuner(model,hidden_size,FEATURE_DIM).to(device)
+
+
+
 
 DATASET_ROOT = './RH20T_subset' 
 dataset = RH20TDataset(
@@ -38,12 +53,6 @@ dataset = RH20TDataset(
 
 # 在评估时，shuffle=False 可以确保每次运行结果一致
 dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False)
-
-# 加载模型，此时它包含预训练权重
-model = ContrastiveFineTuner(model_name=MODEL_NAME, feature_dim=FEATURE_DIM).to(device)
-# config = AutoConfig.from_pretrained(MODEL_NAME, trust_remote_code=True)
-# model = AutoModel.from_pretrained(MODEL_NAME, config=config, trust_remote_code=True).to(device)
-
 loss_fn = InfoNCELoss(temperature=TEMPERATURE)
 
 # --- 开始评估 ---
@@ -73,9 +82,8 @@ with torch.no_grad():
         robot_videos = [t.to(device) for t in batch["robot_pixel_values"]]
         
         all_videos = torch.cat(human_videos + robot_videos, dim=0)
-
-        # all_videos = all_videos.permute(0, 2, 1, 3, 4)
         all_features = model(all_videos)
+
         human_features, robot_features = torch.chunk(all_features, 2, dim=0)
         all_human_features_list.append(human_features.cpu())
         all_robot_features_list.append(robot_features.cpu())
