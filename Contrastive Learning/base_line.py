@@ -42,11 +42,13 @@ model = vjepaFineTuner(model,hidden_size,FEATURE_DIM).to(device)
 
 
 
-DATASET_ROOT = './RH20T_subset' 
+DATASET_ROOT = './RH20T_subset/RH20T_cfg2' 
+SCENE_NUM = 1
+CAM_NUM = 1
 dataset = RH20TDataset(
         root_dir=DATASET_ROOT,
-        scene_num=2,
-        cam_num=2,
+        scene_num=SCENE_NUM,
+        cam_num=CAM_NUM,
         processor=processor,
         num_frames=16 
     )
@@ -211,7 +213,7 @@ def calculate_retrieval_metrics_grouped(similarity_matrix, group_size):
 
 print("\n--- Retrieval Performance Metrics ---")
 # retrieval_results = calculate_retrieval_metrics(similarity_matrix_np)
-retrieval_results = calculate_retrieval_metrics_grouped(similarity_matrix_np, 4)
+retrieval_results = calculate_retrieval_metrics_grouped(similarity_matrix_np, SCENE_NUM*CAM_NUM)
 for name, value in retrieval_results.items():
     if "Rank" in name:
         print(f"{name:<12}: {value:.2f}") # 排名保留两位小数

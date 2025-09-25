@@ -20,27 +20,20 @@ def collect_scenes_by_task(source_dir):
     scenes_by_task = defaultdict(list)
     print("正在扫描数据集，按任务收集场景...")
 
-    # 遍历所有配置文件夹 (RH20T_cfg1, RH20T_cfg2,...)
-    cfg_folders = glob.glob(os.path.join(source_dir, 'RH20T_cfg*'))
-    if not cfg_folders:
-        print(f"警告：在 '{source_dir}' 中未找到任何 'RH20T_cfg*' 文件夹。")
-        return scenes_by_task
+    # 查找所有场景文件夹，排除人类演示文件夹
+    scene_paths = glob.glob(os.path.join(source_dir, 'task_*_user_*_scene_*_cfg_*'))
+    robot_scene_paths = [p for p in scene_paths if not (p.endswith('_human') or p.endswith('_human_2'))]
 
-    for cfg_folder in tqdm(cfg_folders, desc="扫描配置文件夹"):
-        # 查找所有场景文件夹，排除人类演示文件夹
-        scene_paths = glob.glob(os.path.join(cfg_folder, 'task_*_user_*_scene_*_cfg_*'))
-        robot_scene_paths = [p for p in scene_paths if not p.endswith('_human')]
-
-        for scene_path in robot_scene_paths:
-            scene_name = os.path.basename(scene_path)
-            # 从场景名中提取任务ID，格式为 'task_xxxx'
-            task_id = scene_name.split('_user_')[0]
-            scenes_by_task[task_id].append(scene_path)
+    for scene_path in robot_scene_paths:
+        scene_name = os.path.basename(scene_path)
+        # 从场景名中提取任务ID，格式为 'task_xxxx'
+        task_id = scene_name.split('_user_')[0]
+        scenes_by_task[task_id].append(scene_path)
             
     print(f"扫描完成！共找到 {len(scenes_by_task)} 个独立任务。")
     return scenes_by_task
 
-def extract_data(source_dir, target_dir, n_scenes, m_cameras, allowed_cameras):
+def extract_data(source_dir, target_dir, n_scenes, m_cameras):
     """
     执行数据提取、采样和拷贝的核心函数。
     """
@@ -94,7 +87,7 @@ def extract_data(source_dir, target_dir, n_scenes, m_cameras, allowed_cameras):
             available_cam_serials = [os.path.basename(d) for d in available_cam_dirs]
             
             # 筛选出在允许列表中的相机
-            valid_cameras = [cam for cam in available_cam_serials if cam in allowed_cameras]
+            # valid_cameras = [cam for cam in available_cam_serials if cam in allowed_cameras]
             # if len(valid_cameras) > m_cameras:
             #     selected_cameras = random.sample(valid_cameras, m_cameras)
             # else:
@@ -102,11 +95,11 @@ def extract_data(source_dir, target_dir, n_scenes, m_cameras, allowed_cameras):
 
             # --- c. 拷贝人机视频文件 ---
             count=0
-            for cam_serial in valid_cameras:
+            for cam_serial in available_cam_serials:
                 # 机器人视频路径
-                robot_video_src = os.path.join(scene_path, cam_serial, 'color.mp4')
+                robot_video_src = os.path.join(scene_path, cam_serial,"color", 'color.mp4')
                 # 人类演示视频路径
-                human_video_src = os.path.join(human_scene_path, cam_serial, 'color.mp4')
+                human_video_src = os.path.join(human_scene_path, cam_serial,"color", 'color.mp4')
 
                 # 拷贝机器人视频
                 if os.path.exists(robot_video_src) and os.path.exists(human_video_src):
@@ -140,13 +133,13 @@ if __name__ == "__main__":
     # args = parser.parse_args()
 
     # 您指定需要筛选的相机序列号列表
-    ALLOWED_CAMERAS = [
-        'cam_f0172289',
-        'cam_038522062288',
-        'cam_104122063550',
-        'cam_104122062295',
-        'cam_104122062823',
-        'cam_104422070011'
-    ]
+    # ALLOWED_CAMERAS = [
+    #     'cam_f0172289',
+    #     'cam_038522062288',
+    #     'cam_104122063550',
+    #     'cam_104122062295',
+    #     'cam_104122062823',
+    #     'cam_104422070011'
+    # ]
 
-    extract_data("/home/ttt/BISE/RH20T", "/home/ttt/BISE/RH20T_subset", 4, 3, ALLOWED_CAMERAS)
+    extract_data("/mnt/d/RH20T_cfg2", "/home/ttt/BISE/RH20T_subset/RH20T_cfg2", 4, 3)

@@ -9,16 +9,6 @@ import torch
 from decord import VideoReader, cpu
 from torch.utils.data import Dataset
 
-
-ALLOWED_CAMERAS = [
-    'cam_f0172289',
-    'cam_038522062288',
-    'cam_104122063550',
-    'cam_104122062295',
-    'cam_104122062823',
-    'cam_104422070011'
-]
-
 def sample_frames(video_path, num_frames=16):
     """
     从给定的视频路径中均匀采样指定数量的帧。
@@ -92,12 +82,10 @@ class RH20TDataset(Dataset):
                 for f in os.listdir(scene_path):
                     if f.endswith('_human.mp4'):
                         cam_id = f.replace('_human.mp4', '')
-                        if cam_id in ALLOWED_CAMERAS:
-                            human_videos[cam_id] = os.path.join(scene_path, f)
+                        human_videos[cam_id] = os.path.join(scene_path, f)
                     elif f.endswith('_robot.mp4'):
                         cam_id = f.replace('_robot.mp4', '')
-                        if cam_id in ALLOWED_CAMERAS:
-                            robot_videos[cam_id] = os.path.join(scene_path, f)
+                        robot_videos[cam_id] = os.path.join(scene_path, f)
                 
                 # 确保 human 和 robot 视频成对存在
                 for cam_id, human_path in human_videos.items():
@@ -146,10 +134,10 @@ class RH20TDataset(Dataset):
                 selected_video_pairs = random.sample(scene.video_pairs, self.cam_num)
             
             # 3. 加载轨迹文件
-            human_pose = np.load(scene.human_pose_path,allow_pickle=True).item()
-            tcp_base = np.load(scene.tcp_base_path,allow_pickle=True).item()
-            batch_human_poses.append(human_pose)
-            batch_tcp_bases.append(tcp_base)
+            # human_pose = np.load(scene.human_pose_path,allow_pickle=True).item()
+            # tcp_base = np.load(scene.tcp_base_path,allow_pickle=True).item()
+            # batch_human_poses.append(human_pose)
+            # batch_tcp_bases.append(tcp_base)
             
             # 4. 加载并采样视频帧
             for human_path, robot_path in selected_video_pairs:
@@ -199,27 +187,6 @@ class RH20TDataset(Dataset):
         }
 
 if __name__ == '__main__':
-    # ----------------- 使用示例 -----------------
-    
-    # # 假设你有一个像 huggingface transformers 库中的 processor
-    # # 这里我们创建一个模拟的 processor 用于演示
-    # class MockProcessor:
-    #     def __call__(self, videos, return_tensors="pt"):
-    #         # 模拟 processor 的行为：归一化、调整尺寸、转换为 PyTorch 张量
-    #         # 假设输入视频帧是 (T, H, W, C) 的 numpy 数组
-    #         processed_videos = []
-    #         for video_frames in videos:
-    #             # (T, H, W, C) -> (C, T, H, W)
-    #             tensor = torch.tensor(np.array(video_frames), dtype=torch.float32).permute(3, 0, 1, 2)
-    #             # 假设进行归一化
-    #             tensor = tensor / 255.0
-    #             processed_videos.append(tensor)
-            
-    #         from collections import namedtuple
-    #         Output = namedtuple("Output", ["pixel_values"])
-    #         return Output(pixel_values=processed_videos)
-
-    
 
     DATASET_ROOT = './RH20T_subset' 
     dataset = RH20TDataset(
