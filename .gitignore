@@ -1,4 +1,9 @@
 RH20T/
 RH20T_*/
 rh20t_api/
+dataset/
 **/__pycache__
+*.egg-info/
+dist/
+build/
+.pytest_cache/
