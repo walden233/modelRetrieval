@@ -9,7 +9,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from src.data import RH20TDataset, WhirlDataset 
+from src.data import RH20TVideoDataset, WhirlDataset 
 from src.models import VideomaeFineTuner, vjepaFineTuner, InfoNCELoss
 from src.evalution import calculate_retrieval_metrics, calculate_retrieval_metrics_grouped
 
@@ -44,7 +44,7 @@ if __name__ == "__main__":
     DATASET_ROOT = './dataset/RH20T_subset/RH20T_cfg3' 
     SCENE_NUM = 1
     CAM_NUM = 1
-    dataset = RH20TDataset(
+    dataset = RH20TVideoDataset(
             root_dir=DATASET_ROOT,
             scene_num=SCENE_NUM,
             cam_num=CAM_NUM,

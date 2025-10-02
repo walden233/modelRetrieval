@@ -1,13 +1,15 @@
 import os
 import random
 from dataclasses import dataclass, field
-from typing import List, Tuple
-from transformers import VideoMAEImageProcessor
+from typing import List, Tuple, Dict
 
 import numpy as np
 import torch
 from decord import VideoReader, cpu
 from torch.utils.data import Dataset
+# from transformers import VideoMAEImageProcessor # 取消注释以在实际项目中使用
+
+# ----------------- 辅助函数和数据类 (保持不变) -----------------
 
 def sample_frames(video_path, num_frames=16):
     """
@@ -24,8 +26,6 @@ def sample_frames(video_path, num_frames=16):
         print(f"Error reading video file {video_path}: {e}")
         return None
 
-# ----------------- 数据集对象化实现 -----------------
-
 @dataclass
 class Scene:
     """用于存储单个场景信息的数据类"""
@@ -34,29 +34,22 @@ class Scene:
     human_pose_path: str = ""
     tcp_base_path: str = ""
 
-class RH20TDataset(Dataset):
+
+# ----------------- 1. 共享逻辑的基类 -----------------
+
+class _RH20TBaseDataset(Dataset):
     """
-    用于 RH20T 数据集的自定义 PyTorch Dataset 类。
-    每个 item 对应一个 task，并从中采样指定数量的 scenes 和 cameras。
+    RH20T 数据集的内部基类。
+    
+    主要功能是扫描数据集目录，构建一个包含所有 task 和 scene 信息的结构。
+    这个类不应该被直接实例化。
     """
-    def __init__(self, root_dir, scene_num, cam_num, processor=None, num_frames=16):
-        """
-        Args:
-            root_dir (str): 数据集根目录 (e.g., './RH20T_subset')。
-            scene_num (int): 每个 task 需要采样的 scene 数量。
-            cam_num (int): 每个 scene 需要采样的 camera 数量。
-            processor (object, optional): 用于视频帧预处理的对象 (例如来自 huggingface 的 processor)。
-            num_frames (int): 每个视频需要采样的帧数。
-        """
+    def __init__(self, root_dir: str):
         self.root_dir = root_dir
-        self.scene_num = scene_num
-        self.cam_num = cam_num
-        self.processor = processor
-        self.num_frames = num_frames
-        
         self.tasks = self._find_tasks()
 
-    def _find_tasks(self):
+    def _find_tasks(self) -> List[List[Scene]]:
+        """扫描根目录，找到所有 tasks 及其包含的 scenes。"""
         tasks = []
         task_folders = sorted([d for d in os.listdir(self.root_dir) if d.startswith('task_')])
         
@@ -71,14 +64,11 @@ class RH20TDataset(Dataset):
             for scene_folder in scene_folders:
                 scene_path = os.path.join(task_path, scene_folder)
                 
-                # 创建 Scene 对象
                 scene_obj = Scene(scene_path=scene_path)
                 scene_obj.human_pose_path = os.path.join(scene_path, 'human_pose.npy')
                 scene_obj.tcp_base_path = os.path.join(scene_path, 'tcp_base.npy')
 
-                # 查找并配对视频文件
-                human_videos = {}
-                robot_videos = {}
+                human_videos, robot_videos = {}, {}
                 for f in os.listdir(scene_path):
                     if f.endswith('_human.mp4'):
                         cam_id = f.replace('_human.mp4', '')
@@ -87,59 +77,69 @@ class RH20TDataset(Dataset):
                         cam_id = f.replace('_robot.mp4', '')
                         robot_videos[cam_id] = os.path.join(scene_path, f)
                 
-                # 确保 human 和 robot 视频成对存在
                 for cam_id, human_path in human_videos.items():
                     if cam_id in robot_videos:
-                        robot_path = robot_videos[cam_id]
-                        scene_obj.video_pairs.append((human_path, robot_path))
+                        scene_obj.video_pairs.append((human_path, robot_videos[cam_id]))
                 
+                # 只有当场景包含有效数据时才添加
+                # or (os.path.exists(scene_obj.human_pose_path) and os.path.exists(scene_obj.tcp_base_path))
                 if scene_obj.video_pairs:
                     current_task_scenes.append(scene_obj)
 
             if current_task_scenes:
                 tasks.append(current_task_scenes)
+                total_sence_num += len(current_task_scenes)
                 
         return tasks
 
-    def __len__(self):
+    def __len__(self) -> int:
         """返回 task 的总数"""
         return len(self.tasks)
+    
+    def __getitem__(self, idx: int) -> Dict:
+        """子类必须实现这个方法。"""
+        raise NotImplementedError("子类必须实现 __getitem__ 方法")
 
-    def __getitem__(self, idx):
-        """
-        根据 task 索引 idx, 获取数据。
-        返回一个包含 scene_num * cam_num 个视频对以及相应轨迹文件的字典。
-        """
+
+# ----------------- 2. 只处理人机视频对的数据集 -----------------
+
+class RH20TVideoDataset(_RH20TBaseDataset):
+    """
+    用于 RH20T 数据集的视频对 Dataset。
+    每个 item 对应一个 task，从中采样 scenes 和 cameras 的视频数据。
+    """
+    def __init__(self, root_dir: str, scene_num: int, cam_num: int, processor, num_frames: int = 16):
+        super().__init__(root_dir)
+        self.scene_num = scene_num
+        self.cam_num = cam_num
+        self.processor = processor
+        self.num_frames = num_frames
+        
+        if self.processor is None:
+            raise ValueError("必须提供一个有效的 processor 用于视频帧预处理")
+
+    def __getitem__(self, idx: int) -> Dict:
         task_scenes = self.tasks[idx]
 
-        # 1. 从 task 中采样指定数量的 scene
-        # 如果请求的 scene 数量超过拥有的数量，则返回所有sence
-        if self.scene_num > len(task_scenes):
-            print(f"警告: 请求的 scene 数量 ({self.scene_num}) 超过了 task {idx} 中的实际数量 ({len(task_scenes)})。")
+        # 1. 采样 scenes
+        if self.scene_num >= len(task_scenes):
             selected_scenes = task_scenes
         else:
             selected_scenes = random.sample(task_scenes, self.scene_num)
 
-        # 准备用于收集数据的列表
-        batch_human_frames = []
-        batch_robot_frames = []
-        batch_human_poses = []
-        batch_tcp_bases = []
+        batch_human_frames, batch_robot_frames = [], []
 
         for scene in selected_scenes:
-            # 2. 从每个 scene 中采样指定数量的 camera 视频对
-            if self.cam_num > len(scene.video_pairs):
+            if not scene.video_pairs:
+                continue
+
+            # 2. 采样 cameras
+            if self.cam_num >= len(scene.video_pairs):
                 selected_video_pairs = scene.video_pairs
             else:
                 selected_video_pairs = random.sample(scene.video_pairs, self.cam_num)
             
-            # 3. 加载轨迹文件
-            # human_pose = np.load(scene.human_pose_path,allow_pickle=True).item()
-            # tcp_base = np.load(scene.tcp_base_path,allow_pickle=True).item()
-            # batch_human_poses.append(human_pose)
-            # batch_tcp_bases.append(tcp_base)
-            
-            # 4. 加载并采样视频帧
+            # 3. 加载并采样视频帧
             for human_path, robot_path in selected_video_pairs:
                 human_frames = sample_frames(human_path, self.num_frames)
                 robot_frames = sample_frames(robot_path, self.num_frames)
@@ -148,77 +148,149 @@ class RH20TDataset(Dataset):
                     batch_human_frames.append(human_frames)
                     batch_robot_frames.append(robot_frames)
 
-        if not batch_human_frames: # 如果所有视频都读取失败
-            return None
+        if not batch_human_frames:
+            # 如果所有视频都读取失败，可以返回一个空字典或递归调用自身处理下一个样本
+            print(f"警告: Task {idx} 中所有选定视频均读取失败。")
+            return self.__getitem__((idx + 1) % len(self)) if len(self) > 0 else None
 
-        # 5. 使用 processor (如果提供) 进行预处理
-        # 假设 processor 能处理一个视频对的帧列表
-        # 注意: 您的 processor 示例是一次处理一对 [human_frames, robot_frames]
-        # 这里我们将所有视频对分别处理并收集结果
-        if self.processor:
-            processed_human_videos = []
-            processed_robot_videos = []
-            for h_frames, r_frames in zip(batch_human_frames, batch_robot_frames):          
-                inputs = self.processor(
-                    [h_frames, r_frames], 
-                    return_tensors="pt"
-                )
-                if(hasattr(inputs, 'pixel_values')):
-                    processed_human_videos.append(inputs.pixel_values[0])
-                    processed_robot_videos.append(inputs.pixel_values[1])
-                else:
-                    processed_human_videos.append(inputs.pixel_values_videos[0])
-                    processed_robot_videos.append(inputs.pixel_values_videos[1])
+        # 4. 预处理
+        processed_human, processed_robot = [], []
+        for h_frames, r_frames in zip(batch_human_frames, batch_robot_frames):
+            inputs = self.processor([h_frames, r_frames], return_tensors="pt")
             
-            # 将处理后的张量堆叠成一个 batch
-            # final_human_pixel_values = torch.stack(processed_human_videos)
-            # final_robot_pixel_values = torch.stack(processed_robot_videos)
-            final_human_pixel_values = processed_human_videos
-            final_robot_pixel_values = processed_robot_videos
-        else:
-            raise ValueError("必须提供一个有效的 processor 用于视频帧预处理")
-
+            pixel_values = inputs.get('pixel_values') or inputs.get('pixel_values_videos')
+            if pixel_values is not None:
+                processed_human.append(pixel_values[0])
+                processed_robot.append(pixel_values[1])
 
         return {
-            "human_pixel_values": final_human_pixel_values,
-            "robot_pixel_values": final_robot_pixel_values,
-            # "human_poses": batch_human_poses, # 返回 numpy 数组的列表
-            # "tcp_bases": batch_tcp_bases      # 返回 numpy 数组的列表
+            "human_pixel_values": processed_human,
+            "robot_pixel_values": processed_robot,
         }
 
-if __name__ == '__main__':
+# ----------------- 3. 只处理人机轨迹对的数据集 -----------------
 
-    DATASET_ROOT = './RH20T_subset' 
-    dataset = RH20TDataset(
-        root_dir=DATASET_ROOT,
-        scene_num=2,
-        cam_num=1,
-        processor=VideoMAEImageProcessor(),
-        num_frames=16 
+class RH20TTraceDataset(Dataset):
+    """
+    用于 RH20T 数据集的轨迹对 Dataset。
+
+    - 每个 item 对应一个 scene。
+    - 初始化时，扫描并加载所有有效的 scene 路径。
+    - __getitem__ 返回该 scene 内，按 camera_id 聚合的轨迹对。
+    """
+    def __init__(self, root_dir: str):
+        self.root_dir = root_dir
+        # self.scenes 是一个扁平化的列表，包含所有有效的 Scene 对象
+        self.scenes = self._find_all_valid_scenes()
+        
+        if not self.scenes:
+            raise ValueError(f"在目录 {root_dir} 中没有找到任何有效的场景。")
+
+    def _find_all_valid_scenes(self) -> List[Scene]:
+        """扫描根目录，找到所有包含有效轨迹文件的 scenes。"""
+        all_scenes = []
+        task_folders = sorted([d for d in os.listdir(self.root_dir) if d.startswith('task_')])
+        
+        for task_folder in task_folders:
+            task_path = os.path.join(self.root_dir, task_folder)
+            if not os.path.isdir(task_path):
+                continue
+
+            scene_folders = sorted([d for d in os.listdir(task_path) if d.startswith('scene_')])
+            
+            for scene_folder in scene_folders:
+                scene_path = os.path.join(task_path, scene_folder)
+                
+                human_pose_path = os.path.join(scene_path, 'human_pose.npy')
+                tcp_base_path = os.path.join(scene_path, 'tcp_base.npy')
+
+                # 预先检查文件是否存在，只将有效的 scene 加入列表
+                if os.path.exists(human_pose_path) and os.path.exists(tcp_base_path):
+                    scene_obj = Scene(
+                        scene_path=scene_path,
+                        human_pose_path=human_pose_path,
+                        tcp_base_path=tcp_base_path
+                    )
+                    all_scenes.append(scene_obj)
+        
+        print(f"初始化完成：共找到 {len(all_scenes)} 个有效场景。")
+        return all_scenes
+
+    def __len__(self) -> int:
+        """返回数据集中有效场景的总数。"""
+        return len(self.scenes)
+    
+    def __getitem__(self, idx: int) -> Dict[str, List[torch.Tensor]]:
+        """
+        根据场景索引 idx，加载并处理该场景的轨迹数据。
+        返回一个字典，其中包含按 camera_id 对齐的轨迹张量列表。
+        """
+        scene = self.scenes[idx]
+        
+        try:
+            human_pose_dict = np.load(scene.human_pose_path, allow_pickle=True).item()
+            tcp_base_dict = np.load(scene.tcp_base_path, allow_pickle=True).item()
+        except Exception as e:
+            print(f"警告: 加载场景 {scene.scene_path} 的轨迹文件失败: {e}。将尝试加载下一个样本。")
+            return self.__getitem__((idx + 1) % len(self))
+
+        # 确定当前 scene 中共有的 camera_id
+        common_cam_ids = sorted(list(human_pose_dict.keys() & tcp_base_dict.keys()))
+
+        if not common_cam_ids:
+            print(f"警告: 场景 {scene.scene_path} 中无共同相机ID的轨迹数据。将尝试加载下一个样本。")
+            return self.__getitem__((idx + 1) % len(self))
+
+        pose_tensors = []
+        tcp_tensors = []
+
+        for cam_id in common_cam_ids:
+            # --- 处理 human_pose ---
+            valid_landmarks = [
+                frame['hands_landmarks'][0] 
+                for frame in human_pose_dict[cam_id] 
+                if frame.get('hands_landmarks') # 使用 .get() 更安全
+            ]
+            if not valid_landmarks:
+                continue # 如果该相机下没有有效的人手关键点，则跳过此相机
+
+            # --- 处理 tcp_base ---
+            all_tcps = [rec['tcp'] for rec in tcp_base_dict[cam_id]]
+            if not all_tcps:
+                continue # 如果该相机下没有TCP数据，也跳过
+
+            # --- 拼接并转换为 Tensor ---
+            pose_trajectory = np.stack(valid_landmarks, axis=0)
+            tcp_trajectory = np.stack(all_tcps, axis=0)
+            
+            pose_tensors.append(torch.from_numpy(pose_trajectory).float())
+            tcp_tensors.append(torch.from_numpy(tcp_trajectory).float())
+
+        # 如果遍历完所有相机后，没有任何一对有效数据被处理
+        if not pose_tensors:
+             print(f"警告: 场景 {scene.scene_path} 中所有共同相机均无有效轨迹对。将尝试加载下一个样本。")
+             return self.__getitem__((idx + 1) % len(self))
+
+        return {
+            "human_poses": pose_tensors,
+            "tcp_bases": tcp_tensors
+        }
+
+if __name__ == "__main__":
+    from transformers import VideoMAEImageProcessor
+
+    # --- 初始化数据集 ---
+    DATASET_ROOT = '/home/ttt/BISE/dataset/RH20T_subset/RH20T_cfg3' 
+    dataset = RH20TTraceDataset(
+        root_dir=DATASET_ROOT
     )
 
-    # 4. 验证 Dataset
-    print(f"发现的任务 (Task) 总数: {len(dataset)}")
-    
-    if len(dataset) > 0:
-        # 获取第一个 task 的数据
-        # 注意：这会调用 sample_frames，在真实数据上才能成功
-        data_item = dataset[0] 
-        
-        if data_item:
-            print("成功获取一个数据项 (来自 task 0)！")
-            print("数据结构:")
-            for key, value in data_item.items():
-                if isinstance(value, torch.Tensor):
-                    print(f"  - {key}: torch.Tensor with shape {value.shape}")
-                elif isinstance(value, list):
-                    # 打印列表内元素的类型和数量
-                    item_type = type(value[0]) if value else 'N/A'
-                    print(f"  - {key}: list of {len(value)} items, item type: {item_type}")
-
-            # 验证输出的维度
-            # B, C, T, H, W (B = scene_num * cam_num = 2 * 1 = 2)
-            assert len(data_item['human_pixel_values']) == 2 
-            assert len(data_item['human_poses']) == 2 # scene_num = 2
-            print(f"shape:{data_item['human_pixel_values'][0].shape}")
-            print("\n数据维度验证通过！")
+    print(f"数据集初始化完成，共有 {len(dataset)} 个任务。")
+    sample = dataset[0]
+    print("示例数据键:", sample.keys())
+    print("人类轨迹数量:", len(sample["human_poses"]))
+    print("机器人轨迹数量:", len(sample["tcp_bases"]))
+    if sample["human_poses"]:
+        print("单个人类轨迹形状:", sample["human_poses"][0].shape)
+    if sample["tcp_bases"]:
+        print("单个机器人轨迹形状:", sample["tcp_bases"][0].shape)

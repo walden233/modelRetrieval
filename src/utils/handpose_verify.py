@@ -63,5 +63,5 @@ if __name__ == "__main__":
     # parser = argparse.ArgumentParser(description="验证生成的human_pose.npy文件。")
     # parser.add_argument('--scene_path', type=str, required=True, help='包含human_pose.npy的场景目录路径。')
     # args = parser.parse_args()
-    scene_path = "/home/ttt/BISE/RH20T_subset/task_0001/scene_1"
+    scene_path = "/home/ttt/BISE/dataset/RH20T_subset/RH20T_cfg3/task_0001/scene_1"
     verify_output(scene_path)
