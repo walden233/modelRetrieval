@@ -166,6 +166,7 @@ class RH20TVideoDataset(_RH20TBaseDataset):
         return {
             "human_pixel_values": processed_human,
             "robot_pixel_values": processed_robot,
+            'task_idx': idx
         }
 
 # ----------------- 3. 只处理人机轨迹对的数据集 -----------------
@@ -273,18 +274,61 @@ class RH20TTraceDataset(Dataset):
 
         return {
             "human_poses": pose_tensors,
-            "tcp_bases": tcp_tensors
+            "tcp_bases": tcp_tensors,
+            'scene_idx': idx
         }
+from torch.nn.utils.rnn import pad_sequence
 
+def collate_trajectories(batch):
+    """
+    自定义的 collate 函数，用于处理包含可变长度轨迹的批次。
+    它将批次内的所有人类轨迹和机器人轨迹分别进行填充，并生成注意力掩码。
+    """
+    all_human_poses =[]
+    all_tcp_bases =[]
+    
+    # scene_indices 用于标识每个轨迹属于哪个场景
+    human_scene_indices =[]
+    robot_scene_indices =[]
+
+    for item in batch:
+        # item['scene_idx'] 标识了它在批次中的原始场景
+        # 我们用它来构建损失函数的标签
+        all_human_poses.extend(item['human_poses'])
+        human_scene_indices.extend([item['scene_idx']] * len(item['human_poses']))
+        
+        all_tcp_bases.extend(item['tcp_bases'])
+        robot_scene_indices.extend([item['scene_idx']] * len(item['tcp_bases']))
+
+    # 对人类轨迹进行填充
+    # pad_sequence 要求输入是张量列表
+    human_lengths = [len(p) for p in all_human_poses]
+    padded_human_poses = pad_sequence(all_human_poses, batch_first=True, padding_value=0.0)
+
+    # 对机器人轨迹进行填充
+    tcp_lengths = [len(t) for t in all_tcp_bases]
+    padded_tcp_bases = pad_sequence(all_tcp_bases, batch_first=True, padding_value=0.0)
+
+    # 创建注意力掩码
+    # 掩码形状为 (batch_size, seq_len)
+    # 在 Transformer 中，通常 padding 的位置为 False 或 0
+    human_mask = torch.arange(padded_human_poses.size(1))[None, :] < torch.tensor(human_lengths)[:, None]
+    tcp_mask = torch.arange(padded_tcp_bases.size(1))[None, :] < torch.tensor(tcp_lengths)[:, None]
+
+    return {
+        'human_poses': padded_human_poses,
+        'human_mask': human_mask,
+        'tcp_bases': padded_tcp_bases,
+        'tcp_mask': tcp_mask,
+        'human_scene_indices': torch.tensor(human_scene_indices, dtype=torch.long),
+        'robot_scene_indices': torch.tensor(robot_scene_indices, dtype=torch.long)
+    }
 if __name__ == "__main__":
-    from transformers import VideoMAEImageProcessor
-
     # --- 初始化数据集 ---
     DATASET_ROOT = '/home/ttt/BISE/dataset/RH20T_subset/RH20T_cfg3' 
     dataset = RH20TTraceDataset(
         root_dir=DATASET_ROOT
     )
-
     print(f"数据集初始化完成，共有 {len(dataset)} 个任务。")
     sample = dataset[0]
     print("示例数据键:", sample.keys())

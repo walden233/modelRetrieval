@@ -1,2 +1,99 @@
-git config --global http.proxy "127.0.0.1:7890"  
-git config --global https.proxy "127.0.0.1:7890"  
+class RH20TTraceDataset(_RH20TBaseDataset):
+    """
+    用于 RH20T 数据集的轨迹对 Dataset。
+    每个 item 对应一个 task，从中采样 scenes 的轨迹数据。
+    """
+    def __init__(self, root_dir: str, scene_num: int):
+        super().__init__(root_dir)
+        self.scene_num = scene_num
+
+    def __getitem__(self, idx: int) -> Dict:
+        task_scenes = self.tasks[idx]
+
+        # 1. 采样 scenes
+        if self.scene_num >= len(task_scenes):
+            selected_scenes = task_scenes
+        else:
+            selected_scenes = random.sample(task_scenes, self.scene_num)
+        
+        batch_human_poses, batch_tcp_bases = [], []
+
+        for scene in selected_scenes:
+            # 2. 加载轨迹文件
+            try:
+                human_pose = np.load(scene.human_pose_path, allow_pickle=True)
+                tcp_base = np.load(scene.tcp_base_path, allow_pickle=True)
+                #注意，这里错误，human_pose和tcp_base都是字典
+                batch_human_poses.append(torch.from_numpy(human_pose.astype(np.float32)))
+                batch_tcp_bases.append(torch.from_numpy(tcp_base.astype(np.float32)))
+            except FileNotFoundError:
+                print(f"警告: 在 scene {scene.scene_path} 中找不到轨迹文件，已跳过。")
+                continue
+            except Exception as e:
+                print(f"加载轨迹文件时出错: {e}, 已跳过。")
+                continue
+
+        if not batch_human_poses:
+            print(f"警告: Task {idx} 中所有选定轨迹均加载失败。")
+            return self.__getitem__((idx + 1) % len(self)) if len(self) > 0 else None
+
+        return {
+            "human_poses": batch_human_poses,
+            "tcp_bases": batch_tcp_bases
+        }
+
+human_pose和tcp_base都是字典，结构如下：成功加载文件: /home/ttt/BISE/dataset/RH20T_subset/RH20T_cfg3/task_0001/scene_1/tcp_base.npy
+--------------------------------------------------
+1. 整体数据分析:
+   - 加载后数据的类型: <class 'numpy.ndarray'>
+   - 数据是一个被Numpy数组包裹的Python对象。
+   - 取出后，对象类型为: <class 'dict'>
+--------------------------------------------------
+2. 数据内容详解:
+   - 这是一个字典，包含 8 个键。
+   - 字典的键 (通常是相机序列号): ['045322071843', '104122062823', '038522062288', '104422070011', '036422060909', '104122062295', '104122063550', 'f0172289']
+
+   --- 以键 '038522062288' 为例进行分析 ---
+   - 键 '038522062288' 对应值的类型: <class 'list'>
+   - 这是一个列表，包含 186 个时间点的记录。
+
+   - 列表内第一个元素 (第一个时间点) 的内容:
+     {'timestamp': 1630845137632, 'tcp': array([ 5.43713987e-01,  2.38899980e-03,  2.00036004e-01,  2.24760632e-04,
+        3.96366406e-03, -9.99982741e-01, -4.33095810e-03]), 'robot_ft': array([-22.30684471, -12.73883724, -19.09943581,   4.5570817 ,
+        -9.63603687,   0.47019935])}
+     类型: <class 'dict'>
+
+   - 对第一个时间点的数据进行格式解析:
+     - 时间戳 (timestamp): 1630845137632
+     - TCP位姿 (tcp): [ 5.43713987e-01  2.38899980e-03  2.00036004e-01  2.24760632e-04
+  3.96366406e-03 -9.99982741e-01 -4.33095810e-03]
+     - TCP位姿的数据类型: <class 'numpy.ndarray'>
+     - TCP位姿的形状 (shape): (7,)
+       (这应该是 (7,)，代表 xyz + 四元数quat)
+
+-----
+成功加载文件: /home/ttt/BISE/dataset/RH20T_subset/RH20T_cfg3/task_0001/scene_1/human_pose.npy
+--------------------------------------------------
+1. 整体数据分析:
+   - 加载后数据的类型: <class 'numpy.ndarray'>
+   - 数据是一个被Numpy数组包裹的Python对象。
+   - 取出后，对象类型为: <class 'dict'>
+--------------------------------------------------
+2. 数据内容详解:
+   - 这是一个字典，包含 3 个键。
+   - 字典的键 (通常是相机序列号): ['104422070011', '038522062288', 'f0172289']
+
+   --- 以键 '038522062288' 为例进行分析 ---
+   - 键 '038522062288' 对应值的类型: <class 'list'>
+   - 这是一个列表，包含 45 个时间点的记录。
+
+   - 列表内第一个元素 (第一个时间点) 的内容:
+     {'frame_index': 0, 'hands_landmarks': [array([[-0.00400612, -0.05435592,  0.08098136],
+      ...], dtype=float32)]}
+     类型: <class 'dict'> 注意其中单帧画面中检测到手（已限制最多一只），hands_landmarks对应的列表就有一个array，否则没有
+-----
+现在要求令原始的
+        return {
+            "human_poses": batch_human_poses,
+            "tcp_bases": batch_tcp_bases
+        } 返回的内容batch_human_poses和batch_tcp_bases分别对应human_pose.npy和tcp_base.npy的内容，human_pose.npy字典的键是tcp_base.npy字典键的子集，假设为3个，则batch_human_poses和batch_tcp_bases是两个len为3的列表of torch tensor，顺序上一一对应，注意跳过hands_landmarks为空列表的人类帧，即顺序拼接有内容的hands_landmarks
