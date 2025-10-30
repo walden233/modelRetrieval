@@ -227,8 +227,8 @@ class RH20TTraceDataset(Dataset):
         返回一个字典，其中包含按 camera_id 对齐的轨迹张量列表。
         """
         scene = self.scenes[idx]
-        if(scene.scene_path=="/home/ttt/BISE/dataset/RH20T_subset/RH20T_cfg2/task_0087/scene_3"):
-            pass
+        # if(scene.scene_path=="/home/ttt/BISE/dataset/RH20T_subset/RH20T_cfg2/task_0087/scene_3"):
+        #     pass
         try:
             human_pose_dict = np.load(scene.human_pose_path, allow_pickle=True).item()
             tcp_base_dict = np.load(scene.tcp_base_path, allow_pickle=True).item()
