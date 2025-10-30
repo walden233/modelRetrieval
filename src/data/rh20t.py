@@ -227,7 +227,8 @@ class RH20TTraceDataset(Dataset):
         返回一个字典，其中包含按 camera_id 对齐的轨迹张量列表。
         """
         scene = self.scenes[idx]
-        
+        if(scene.scene_path=="/home/ttt/BISE/dataset/RH20T_subset/RH20T_cfg2/task_0087/scene_3"):
+            pass
         try:
             human_pose_dict = np.load(scene.human_pose_path, allow_pickle=True).item()
             tcp_base_dict = np.load(scene.tcp_base_path, allow_pickle=True).item()
@@ -279,10 +280,16 @@ class RH20TTraceDataset(Dataset):
         }
 from torch.nn.utils.rnn import pad_sequence
 
+import torch
+from torch.nn.utils.rnn import pad_sequence
+import math
+
 def collate_trajectories(batch):
     """
     自定义的 collate 函数，用于处理包含可变长度轨迹的批次。
     它将批次内的所有人类轨迹和机器人轨迹分别进行填充，并生成注意力掩码。
+    
+    (修改)：此版本对长度超过 999 的机器人轨迹进行动态降采样。
     """
     all_human_poses =[]
     all_tcp_bases =[]
@@ -291,14 +298,54 @@ def collate_trajectories(batch):
     human_scene_indices =[]
     robot_scene_indices =[]
 
+    # 定义我们的目标最大长度
+    # 要求是 "小于 1000"，所以最大允许长度是 999
+    MAX_ROBOT_LEN = 999
+
     for item in batch:
+        # --- 人类轨迹 (不变) ---
         # item['scene_idx'] 标识了它在批次中的原始场景
         # 我们用它来构建损失函数的标签
         all_human_poses.extend(item['human_poses'])
         human_scene_indices.extend([item['scene_idx']] * len(item['human_poses']))
         
-        all_tcp_bases.extend(item['tcp_bases'])
+        # --- 机器人轨迹 (动态采样) ---
+        
+        # 1. 创建一个临时列表来存放采样后的轨迹
+        sampled_tcp_bases_for_item = []
+        
+        # 2. 遍历此 item 中的每一个机器人轨迹
+        for trajectory in item['tcp_bases']:
+            original_length = len(trajectory)
+            
+            if original_length == 0:
+                # 处理空轨迹
+                sampled_tcp_bases_for_item.append(trajectory)
+                continue
+
+            # 3. 计算动态步长 (stride)
+            # stride = ceil(L / MAX_LEN)。确保 stride 至少为 1。
+            stride = max(1, int(math.ceil(original_length / MAX_ROBOT_LEN)))
+            
+            # 4. 使用步长进行采样
+            # trajectory[::stride] 会从头到尾每隔 stride 个点取一个
+            sampled_trajectory = trajectory[::stride]
+            
+            # 5. 添加到临时列表
+            sampled_tcp_bases_for_item.append(sampled_trajectory)
+
+            # (调试) 检查新长度是否符合要求
+            # assert len(sampled_trajectory) < 1000
+
+        # 6. 将此 item 中所有 *采样后* 的轨迹添加到主列表
+        all_tcp_bases.extend(sampled_tcp_bases_for_item)
+        
+        # 7. 添加场景索引。
+        # 注意：这里的 len(item['tcp_bases']) 必须使用原始列表的长度，
+        # 因为采样并没有改变轨迹的 *数量*，只是改变了它们的 *长度*。
         robot_scene_indices.extend([item['scene_idx']] * len(item['tcp_bases']))
+
+    # --- 后续处理 (不变) ---
 
     # 对人类轨迹进行填充
     # pad_sequence 要求输入是张量列表
@@ -306,6 +353,7 @@ def collate_trajectories(batch):
     padded_human_poses = pad_sequence(all_human_poses, batch_first=True, padding_value=0.0)
 
     # 对机器人轨迹进行填充
+    # 这里的 tcp_lengths 现在是 *采样后* 的长度
     tcp_lengths = [len(t) for t in all_tcp_bases]
     padded_tcp_bases = pad_sequence(all_tcp_bases, batch_first=True, padding_value=0.0)
 
@@ -323,9 +371,11 @@ def collate_trajectories(batch):
         'human_scene_indices': torch.tensor(human_scene_indices, dtype=torch.long),
         'robot_scene_indices': torch.tensor(robot_scene_indices, dtype=torch.long)
     }
+
+
 if __name__ == "__main__":
     # --- 初始化数据集 ---
-    DATASET_ROOT = '/home/ttt/BISE/dataset/RH20T_subset/RH20T_cfg3' 
+    DATASET_ROOT = '/home/ttt/BISE/dataset/RH20T_subset/RH20T_cfg2' 
     dataset = RH20TTraceDataset(
         root_dir=DATASET_ROOT
     )

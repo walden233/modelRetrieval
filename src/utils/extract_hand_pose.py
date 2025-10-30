@@ -43,9 +43,8 @@ def find_scenes_to_process(root_dir: str) -> List:
                 match = cam_pattern.match(filename)
                 if match:
                     camera_serial = match.group(1)
-                    if camera_serial in ALLOWED_CAMERAS:
-                        video_path = os.path.join(dirpath, filename)
-                        tasks.append((dirpath, video_path, camera_serial))
+                    video_path = os.path.join(dirpath, filename)
+                    tasks.append((dirpath, video_path, camera_serial))
     print(f"[+] 发现 {len(tasks)} 个有效视频任务。")
     return tasks
 
@@ -123,7 +122,7 @@ if __name__ == "__main__":
     # parser = argparse.ArgumentParser(description="从RH20T数据集中提取人类手部姿态。")
     # parser.add_argument('--dataset_root', type=str, required=True, help='RH20T数据集子集的根目录路径。')
     # args = parser.parse_args()
-    dataset_root="/home/ttt/BISE/RH20T_subset"
+    dataset_root="/home/ttt/BISE/dataset/RH20T_subset/RH20T_cfg2/task_0031/scene_2"
 
     all_tasks = find_scenes_to_process(dataset_root)
     grouped_tasks = group_tasks_by_scene(all_tasks)

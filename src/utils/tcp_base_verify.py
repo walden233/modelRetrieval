@@ -2,7 +2,7 @@ import numpy as np
 
 # --- 请将这里替换为您自己的 tcp_base.npy 文件路径 ---
 # 示例路径: '/home/ttt/BISE/RH20T/RH20T_cfg3/task_0001_user_0016_scene_0008_cfg_0003/transformed/tcp_base.npy'
-file_path = '/home/ttt/BISE/dataset/RH20T_subset/RH20T_cfg3/task_0001/scene_1/human_pose.npy'
+file_path = '/home/ttt/BISE/dataset/RH20T_subset/RH20T_cfg2/task_0032/scene_3/tcp_base.npy'
 
 try:
     # 加载 .npy 文件

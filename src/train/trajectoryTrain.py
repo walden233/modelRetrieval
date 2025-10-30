@@ -50,7 +50,8 @@ def train_one_epoch(model, dataloader, optimizer, device):
         human_scenes = batch['human_scene_indices'].to(device)
         robot_scenes = batch['robot_scene_indices'].to(device)
 
-        human_embeds, robot_embeds, logit_scale = model(human_poses, human_mask, tcp_bases, tcp_mask)
+        #这里设置tcp_sample_factor，通过采样缩短机器人轨迹序列长度
+        human_embeds, robot_embeds, logit_scale = model(human_poses, human_mask, tcp_bases, tcp_mask,tcp_sample_factor=3)
         
         loss = symmetric_contrastive_loss(human_embeds, robot_embeds, human_scenes, robot_scenes, logit_scale)
         
@@ -114,10 +115,10 @@ def evaluate(model, dataloader, device):
 # --- 主执行流程 ---
 if __name__ == '__main__':
     # 设置超参数
-    DATASET_ROOT = '/home/ttt/BISE/dataset/RH20T_subset/RH20T_cfg3' # 请替换为您的数据集路径
-    BATCH_SIZE = 6 # 每个批次包含的场景数
+    DATASET_ROOT = '/home/ttt/BISE/dataset/RH20T_subset/RH20T_cfg2' 
+    BATCH_SIZE = 10 # 每个批次包含的场景数
     NUM_EPOCHS = 50
-    LEARNING_RATE = 5e-5
+    LEARNING_RATE = 1e-4
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
     # 模型超参数
@@ -137,7 +138,7 @@ if __name__ == '__main__':
         'd_model': 128,
         'nhead': 8,
         'num_layers': 4,
-        'dim_feedforward': 1024,
+        'dim_feedforward': 512,
         'proj_dim': 128,
         'dropout': 0.1
     }

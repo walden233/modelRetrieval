@@ -97,9 +97,9 @@ def extract_data(source_dir, target_dir, n_scenes, m_cameras):
             count=0
             for cam_serial in available_cam_serials:
                 # 机器人视频路径
-                robot_video_src = os.path.join(scene_path, cam_serial,"color", 'color.mp4')
+                robot_video_src = os.path.join(scene_path, cam_serial, 'color.mp4')
                 # 人类演示视频路径
-                human_video_src = os.path.join(human_scene_path, cam_serial,"color", 'color.mp4')
+                human_video_src = os.path.join(human_scene_path, cam_serial, 'color.mp4')
 
                 # 拷贝机器人视频
                 if os.path.exists(robot_video_src) and os.path.exists(human_video_src):
@@ -142,4 +142,4 @@ if __name__ == "__main__":
     #     'cam_104422070011'
     # ]
 
-    extract_data("/mnt/d/RH20T_cfg2", "/home/ttt/BISE/RH20T_subset/RH20T_cfg2", 4, 3)
+    extract_data("/mnt/d/RH20T_cfg2", "/home/ttt/BISE/dataset/RH20T_subset/RH20T_cfg2", 4, 3)
