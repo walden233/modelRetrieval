@@ -17,7 +17,7 @@ if __name__ == '__main__':
     NUM_EPOCHS_CFG3 = NUM_EPOCHS_CFG2 // 2 # cfg3 的 epoch 取 cfg2 的一半
     LEARNING_RATE = 1e-4
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-    BEST_MODEL_PATH = 'model_weigth/best_trajectory_model.pth' # 统一的最佳模型保存路径
+    BEST_MODEL_PATH = 'model_weight/best_trajectory_model.pth' # 统一的最佳模型保存路径
 
     model_params = {
         'human_input_dim': 21 * 3,

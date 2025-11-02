@@ -40,8 +40,8 @@ def train_one_epoch(model, dataloader, optimizer, device):
 if __name__ == '__main__':
     # 设置超参数
     DATASET_ROOT = '/home/ttt/BISE/dataset/RH20T_subset/RH20T_cfg2' 
-    BATCH_SIZE = 20 # 每个批次包含的场景数
-    NUM_EPOCHS = 65
+    BATCH_SIZE = 16 # 每个批次包含的场景数
+    NUM_EPOCHS = 60
     LEARNING_RATE = 1e-4
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
     
@@ -50,7 +50,7 @@ if __name__ == '__main__':
         'robot_input_dim': 7,
         'd_model': 256,
         'nhead': 8,
-        'num_layers': 5,
+        'num_layers': 4,
         'dim_feedforward': 1024,
         'proj_dim': 128,
         'dropout': 0.15
@@ -95,7 +95,7 @@ if __name__ == '__main__':
         if result['mean_percentage_rank'] < best_mean_rank_percen:
             best_mean_rank_percen = result['mean_percentage_rank']
             best_result = result
-            torch.save(model.state_dict(), 'model_weigth/best_trajectory_model.pth')
+            torch.save(model.state_dict(), 'model_weight/best_trajectory_model.pth')
             print("Saved new best model.")
 
     print("训练完成。best_result:", best_result)
