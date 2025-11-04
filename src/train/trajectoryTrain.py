@@ -24,7 +24,7 @@ def train_one_epoch(model, dataloader, optimizer, device):
         robot_scenes = batch['robot_scene_indices'].to(device)
 
         #这里设置tcp_sample_factor，通过采样缩短机器人轨迹序列长度
-        human_embeds, robot_embeds, logit_scale = model(human_poses, human_mask, tcp_bases, tcp_mask,tcp_sample_factor=4)
+        human_embeds, robot_embeds, logit_scale = model(human_poses, human_mask, tcp_bases, tcp_mask)
         
         loss = trajectory_symmetric_contrastive_loss(human_embeds, robot_embeds, human_scenes, robot_scenes, logit_scale)
         
@@ -42,18 +42,19 @@ if __name__ == '__main__':
     DATASET_ROOT = '/home/ttt/BISE/dataset/RH20T_subset/RH20T_cfg2' 
     BATCH_SIZE = 16 # 每个批次包含的场景数
     NUM_EPOCHS = 60
-    LEARNING_RATE = 1e-4
+    LEARNING_RATE = 2e-4
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
     
     model_params = {
         'human_input_dim': 21 * 3,
         'robot_input_dim': 7,
-        'd_model': 256,
+        'd_model': 128,
         'nhead': 8,
-        'num_layers': 4,
-        'dim_feedforward': 1024,
+        'num_layers': 5,
+        'dim_feedforward': 512,
         'proj_dim': 128,
-        'dropout': 0.15
+        'dropout': 0.15,
+        'tcp_sample_factor':4
     }
 
         # 模型超参数

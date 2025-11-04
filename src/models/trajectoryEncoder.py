@@ -107,63 +107,87 @@ class TrajectoryEncoder(nn.Module):
 
 class CrossModalTrajectoryModel(nn.Module):
     """
-    完整的跨模态轨迹匹配模型，采用双编码器结构和共享权重。
-    human_input_dim = 21 * 3 
-    robot_input_dim = 7
+    (已修改) 完整的跨模态轨迹匹配模型。
+    添加了独立的 'forward_human' 和 'forward_robot' 方法，用于模态内训练。
     """
-    def __init__(self, human_input_dim, robot_input_dim, d_model, nhead, num_layers, dim_feedforward, proj_dim, dropout=0.1):
+    def __init__(self, human_input_dim, robot_input_dim, d_model, nhead, num_layers, dim_feedforward, proj_dim, dropout=0.1, tcp_sample_factor=1):
         super().__init__()
         
-        # 共享的 Transformer 编码器
+        # 编码器 (不变)
         self.human_encoder = TrajectoryEncoder(
-            input_dim=human_input_dim,
-            d_model=d_model,
-            nhead=nhead,
-            num_encoder_layers=num_layers,
-            dim_feedforward=dim_feedforward,
-            dropout=dropout
+            input_dim=human_input_dim, d_model=d_model, nhead=nhead,
+            num_encoder_layers=num_layers, dim_feedforward=dim_feedforward, dropout=dropout
         )
         self.robot_encoder = TrajectoryEncoder(
-            input_dim=robot_input_dim,
-            d_model=d_model,
-            nhead=nhead,
-            num_encoder_layers=num_layers,
-            dim_feedforward=dim_feedforward,
-            dropout=dropout
+            input_dim=robot_input_dim, d_model=d_model, nhead=nhead,
+            num_encoder_layers=num_layers, dim_feedforward=dim_feedforward, dropout=dropout
         )
         
-        # 投射头，用于对比学习
+        # 投射头 (不变)
         self.projection_head = nn.Sequential(
             nn.Linear(d_model, d_model),
             nn.ReLU(),
             nn.Linear(d_model, proj_dim)
         )
         
-        # 可学习的温度参数
+        # 温度参数 (不变)
         self.logit_scale = nn.Parameter(torch.ones(1) * np.log(1 / 0.07))
+        
+        # L2 Norm 辅助函数 (不变)
+        self.eps = 1e-8
+        self.tcp_sample_factor = tcp_sample_factor
 
-    def forward(self, human_poses, human_mask, tcp_bases, tcp_mask, tcp_sample_factor=1):
-        if torch.isinf(human_poses).any() or torch.isinf(tcp_bases).any():
-            print("!!! 警告：检测到输入数据中存在 inf !!!")
-        if torch.isnan(human_poses).any() or torch.isnan(tcp_bases).any():
-            print("!!! 警告：检测到输入数据中存在 nan !!!")
-        # 展平人类姿态数据
-        #(  batch_size, seq_len, 21, 3 ) -> ( batch_size, seq_len, 63 )
+    def safe_l2norm(self, x):
+        return x / (x.norm(p=2, dim=-1, keepdim=True).clamp(min=self.eps))
+
+    # --- NEW: forward_human ---
+    def forward_human(self, human_poses, human_mask):
+        """
+        处理人类轨迹：展平 -> 编码 -> 投影 -> 归一化
+        """
+        if torch.isinf(human_poses).any():
+            print("!!! 警告：human_poses 输入中存在 inf !!!")
+        if torch.isnan(human_poses).any():
+            print("!!! 警告：human_poses 输入中存在 nan !!!")
+
+        # 1. 展平人类姿态数据
+        # (batch_size, seq_len, 21, 3) -> (batch_size, seq_len, 63)
         human_poses_flat = human_poses.view(human_poses.size(0), human_poses.size(1), -1)
         
-        # 编码
+        # 2. 编码
         human_features = self.human_encoder(human_poses_flat, human_mask)
-        robot_features = self.robot_encoder(tcp_bases, tcp_mask,tcp_sample_factor)
         
-        # 通过投射头
+        # 3. 通过投射头
         human_embeddings = self.projection_head(human_features)
+        
+        # 4. L2 归一化
+        return self.safe_l2norm(human_embeddings)
+
+    # --- NEW: forward_robot ---
+    def forward_robot(self, tcp_bases, tcp_mask):
+        """
+        处理机器人轨迹：(采样) -> 编码 -> 投影 -> 归一化
+        """
+        if torch.isinf(tcp_bases).any():
+            print("!!! 警告：tcp_bases 输入中存在 inf !!!")
+        if torch.isnan(tcp_bases).any():
+            print("!!! 警告：tcp_bases 输入中存在 nan !!!")
+
+        # 1. 编码 (采样在编码器内部完成)
+        robot_features = self.robot_encoder(tcp_bases, tcp_mask, sample_factor=self.tcp_sample_factor)
+        
+        # 2. 通过投射头
         robot_embeddings = self.projection_head(robot_features)
-        def safe_l2norm(x, eps=1e-8):
-            return x / (x.norm(p=2, dim=-1, keepdim=True).clamp(min=eps))
-        # L2 归一化
-        # human_embeddings = F.normalize(human_embeddings, p=2, dim=-1)
-        # robot_embeddings = F.normalize(robot_embeddings, p=2, dim=-1)
-        human_embeddings = safe_l2norm(human_embeddings)
-        robot_embeddings = safe_l2norm(robot_embeddings)
+        
+        # 3. L2 归一化
+        return self.safe_l2norm(robot_embeddings)
+
+    # --- MODIFIED: forward (now uses sub-methods) ---
+    def forward(self, human_poses, human_mask, tcp_bases, tcp_mask):
+        """
+        标准的前向传播，用于跨模态损失计算和评估。
+        """
+        human_embeddings = self.forward_human(human_poses, human_mask)
+        robot_embeddings = self.forward_robot(tcp_bases, tcp_mask)
         
         return human_embeddings, robot_embeddings, self.logit_scale.exp()

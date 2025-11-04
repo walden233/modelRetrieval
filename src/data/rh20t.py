@@ -2,7 +2,9 @@ import os
 import random
 from dataclasses import dataclass, field
 from typing import List, Tuple, Dict
-
+import torch
+from torch.nn.utils.rnn import pad_sequence
+import math
 import numpy as np
 import torch
 from decord import VideoReader, cpu
@@ -278,11 +280,8 @@ class RH20TTraceDataset(Dataset):
             "tcp_bases": tcp_tensors,
             'scene_idx': idx
         }
-from torch.nn.utils.rnn import pad_sequence
 
-import torch
-from torch.nn.utils.rnn import pad_sequence
-import math
+
 
 def collate_trajectories(batch):
     """
