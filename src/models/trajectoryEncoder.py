@@ -130,8 +130,10 @@ class CrossModalTrajectoryModel(nn.Module):
             nn.Linear(d_model, proj_dim)
         )
         
-        # 温度参数 (不变)
-        self.logit_scale = nn.Parameter(torch.ones(1) * np.log(1 / 0.07))
+        # 用于 Inter-modal (跨模态)
+        self.logit_scale_inter = nn.Parameter(torch.ones(1) * np.log(1 / 0.07))
+        # 用于 Intra-modal (模态内)
+        self.logit_scale_intra = nn.Parameter(torch.ones(1) * np.log(1 / 0.07))
         
         # L2 Norm 辅助函数 (不变)
         self.eps = 1e-8
@@ -190,4 +192,4 @@ class CrossModalTrajectoryModel(nn.Module):
         human_embeddings = self.forward_human(human_poses, human_mask)
         robot_embeddings = self.forward_robot(tcp_bases, tcp_mask)
         
-        return human_embeddings, robot_embeddings, self.logit_scale.exp()
+        return human_embeddings, robot_embeddings, self.logit_scale_inter.exp()

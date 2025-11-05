@@ -6,7 +6,6 @@ import os
 import json
 import random
 import datetime
-import matplotlib.pyplot as plt
 
 # 确保 'src' 目录在路径中
 sys.path.append('.')  # 添加 src 目录到系统路径
@@ -17,7 +16,7 @@ from src.data import RH20TTraceDataset, collate_trajectories
 from src.models import CrossModalTrajectoryModel
 from src.evalution.trajectory_functions import evaluate_gemini #, evaluate
 from src.loss.functions import trajectory_symmetric_contrastive_loss
-
+from src.utils import save_trial_results
 
 # --- 训练和评估函数 (来自您的代码) ---
 def train_one_epoch(model, dataloader, optimizer, device):
@@ -79,55 +78,6 @@ def sample_hyperparameters():
 
     return model_params, batch_size, learning_rate
 
-def save_trial_results(run_dir, config, history, best_result):
-    """
-    将单次试验的结果保存到指定目录。
-    """
-    # 1. 保存参数
-    with open(os.path.join(run_dir, 'params.json'), 'w') as f:
-        # 自定义一个转换器以处理非序列化类型
-        def default_converter(o):
-            if isinstance(o, (torch.device, datetime.datetime)):
-                return str(o)
-            raise TypeError(f"Object of type {o.__class__.__name__} is not JSON serializable")
-        
-        json.dump(config, f, indent=4, default=default_converter)
-    
-    # 2. 保存最终指标
-    if best_result:
-        with open(os.path.join(run_dir, 'best_metrics.json'), 'w') as f:
-            json.dump(best_result, f, indent=4)
-            
-    # 3. 绘制并保存曲线
-    try:
-        plt.figure(figsize=(14, 6))
-        
-        # 绘制训练损失
-        plt.subplot(1, 2, 1)
-        plt.plot(history['train_loss'], label='Train Loss')
-        plt.title('Training Loss over Epochs')
-        plt.xlabel('Epoch')
-        plt.ylabel('Loss')
-        plt.legend()
-        plt.grid(True)
-        
-        # 绘制 Mean Percentage Rank
-        plt.subplot(1, 2, 2)
-        plt.plot(history['val_mean_p_rank'], label='Val Mean % Rank', color='orange')
-        plt.title('Validation Mean Percentage Rank')
-        plt.xlabel('Epoch')
-        plt.ylabel('Mean % Rank (Lower is Better)')
-        plt.legend()
-        plt.grid(True)
-        
-        plt.suptitle(f"Run: {os.path.basename(run_dir)}")
-        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-        plt.savefig(os.path.join(run_dir, 'curves.png'))
-        plt.close() # 关闭图像，释放内存
-        
-    except Exception as e:
-        print(f"绘制图表时出错: {e}")
-
 
 # --- 主执行流程 ---
 if __name__ == '__main__':
@@ -138,7 +88,7 @@ if __name__ == '__main__':
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
     
     # 设置超参数搜索的根目录
-    SEARCH_OUTPUT_DIR = 'hyperparam_search_results'
+    SEARCH_OUTPUT_DIR = 'results/hyperparam_search_results'
     os.makedirs(SEARCH_OUTPUT_DIR, exist_ok=True)
     
     # 存放全局最佳模型的路径

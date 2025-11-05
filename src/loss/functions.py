@@ -1,4 +1,6 @@
 import torch.nn.functional as F
+import torch
+
 def trajectory_symmetric_contrastive_loss(human_embeds, robot_embeds, human_scenes, robot_scenes, logit_scale):
     """
     计算对称式对比损失。
@@ -27,3 +29,28 @@ def trajectory_symmetric_contrastive_loss(human_embeds, robot_embeds, human_scen
     loss_r_h = F.kl_div(F.log_softmax(logits_per_robot, dim=1), labels_r_h, reduction='batchmean')
 
     return (loss_h_r + loss_r_h) / 2
+
+def intra_modal_contrastive_loss(z1: torch.Tensor, z2: torch.Tensor, temperature: float) -> torch.Tensor:
+    """
+    计算模态内的对比损失 (SimCLR-style)。
+    z1, z2: 两个增强视图的嵌入, 形状 [N, D]
+    temperature: 温度参数
+    """
+    N = z1.shape[0]
+    if N == 0:
+        return torch.tensor(0.0, device=z1.device)
+        
+    device = z1.device
+    
+    # 计算 z1 -> z2 的损失
+    sim_z1_z2 = (z1 @ z2.T) / temperature # [N, N]
+    
+    # 计算 z2 -> z1 的损失
+    sim_z2_z1 = (z2 @ z1.T) / temperature # [N, N]
+    
+    labels = torch.arange(N, device=device)
+    
+    loss_z1 = F.cross_entropy(sim_z1_z2, labels)
+    loss_z2 = F.cross_entropy(sim_z2_z1, labels)
+    
+    return (loss_z1 + loss_z2) / 2.0

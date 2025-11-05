@@ -2,7 +2,7 @@ RH20T/
 RH20T_*/
 rh20t_api/
 dataset/
-hyperparam_search_results/
+results/
 model_weight/
 **/__pycache__
 *.egg-info/
