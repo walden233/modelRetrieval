@@ -101,11 +101,11 @@ if __name__ == '__main__':
     NUM_EPOCHS = 55
     LEARNING_RATE = 2e-4
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-    INTRA_LOSS_WEIGHT = 6 # --- NEW ---: 模态内损失的权重
+    INTRA_LOSS_WEIGHT = 2 # --- NEW ---: 模态内损失的权重
     OUTPUT_DIR = './results/trajectory_augment_results'
 
     model_params = {
-        'human_input_dim': 21 * 3,
+        'human_input_dim': 6 * 3,
         'robot_input_dim': 7,
         'd_model': 128,
         'nhead': 8,
@@ -113,7 +113,7 @@ if __name__ == '__main__':
         'dim_feedforward': 512,
         'proj_dim': 128,
         'dropout': 0.15,
-        'tcp_sample_factor':4
+        'tcp_sample_factor':5
     }
     history = {'train_loss': [],'train_loss_inter': [],'train_loss_intra': [], 'val_mean_p_rank': []}
     run_name = f"augment_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -130,7 +130,7 @@ if __name__ == '__main__':
     os.makedirs(run_dir, exist_ok=True)
 
     # 1. 初始化数据集和数据加载器 (不变)
-    dataset = RH20TTraceDataset(root_dir=DATASET_ROOT)
+    dataset = RH20TTraceDataset(root_dir=DATASET_ROOT, use_6_keypoints=True)
     train_size = int(0.8 * len(dataset))
     val_size = len(dataset) - train_size
     train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])

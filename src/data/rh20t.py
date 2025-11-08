@@ -180,9 +180,33 @@ class RH20TTraceDataset(Dataset):
     - 每个 item 对应一个 scene。
     - 初始化时，扫描并加载所有有效的 scene 路径。
     - __getitem__ 返回该 scene 内，按 camera_id 聚合的轨迹对。
+    
+    (修改): 
+    - 增加了 use_6_keypoints 参数，
+      用于在 __getitem__ 中直接将21个人手关键点采样为6个。
     """
-    def __init__(self, root_dir: str):
+    
+    def __init__(self, root_dir: str, use_6_keypoints: bool = False):
+        """
+        初始化 Dataset。
+        
+        Args:
+            root_dir (str): 数据集根目录。
+            use_6_keypoints (bool, optional): 
+                是否将21个人手关键点采样为6个 (手腕+5指尖)。
+                默认为 True。
+        """
         self.root_dir = root_dir
+        self.use_6_keypoints = use_6_keypoints
+        
+        # 0=手腕, 4=拇指尖, 8=食指尖, 12=中指尖, 16=无名指尖, 20=小指尖
+        self.KEYPOINT_INDICES = [0, 4, 8, 12, 16, 20]
+        
+        if self.use_6_keypoints:
+            print(f"RH20TTraceDataset: [启用] 6关键点采样 (手腕 + 5个指尖)。")
+        else:
+            print(f"RH20TTraceDataset: [禁用] 6关键点采样 (使用全部21个关键点)。")
+
         # self.scenes 是一个扁平化的列表，包含所有有效的 Scene 对象
         self.scenes = self._find_all_valid_scenes()
         
@@ -229,21 +253,21 @@ class RH20TTraceDataset(Dataset):
         返回一个字典，其中包含按 camera_id 对齐的轨迹张量列表。
         """
         scene = self.scenes[idx]
-        # if(scene.scene_path=="/home/ttt/BISE/dataset/RH20T_subset/RH20T_cfg2/task_0087/scene_3"):
-        #     pass
+        
         try:
             human_pose_dict = np.load(scene.human_pose_path, allow_pickle=True).item()
             tcp_base_dict = np.load(scene.tcp_base_path, allow_pickle=True).item()
         except Exception as e:
             print(f"警告: 加载场景 {scene.scene_path} 的轨迹文件失败: {e}。将尝试加载下一个样本。")
-            return self.__getitem__((idx + 1) % len(self))
+            # 确保在数据集非空时才递归
+            return self.__getitem__((idx + 1) % len(self)) if len(self) > 0 else {}
 
         # 确定当前 scene 中共有的 camera_id
         common_cam_ids = sorted(list(human_pose_dict.keys() & tcp_base_dict.keys()))
 
         if not common_cam_ids:
             print(f"警告: 场景 {scene.scene_path} 中无共同相机ID的轨迹数据。将尝试加载下一个样本。")
-            return self.__getitem__((idx + 1) % len(self))
+            return self.__getitem__((idx + 1) % len(self)) if len(self) > 0 else {}
 
         pose_tensors = []
         tcp_tensors = []
@@ -263,19 +287,31 @@ class RH20TTraceDataset(Dataset):
             if not all_tcps:
                 continue # 如果该相机下没有TCP数据，也跳过
 
-            # --- 拼接并转换为 Tensor ---
+            # --- 拼接、采样并转换为 Tensor ---
+            
+            # 1. 堆叠 (seq_len, 21, 3)
             pose_trajectory = np.stack(valid_landmarks, axis=0)
+            
+            # 2. 【*** 此处为修改点 ***】
+            #    根据 __init__ 中的设置进行条件采样
+            if self.use_6_keypoints:
+                # 从 (seq_len, 21, 3) 采样为 (seq_len, 6, 3)
+                pose_trajectory = pose_trajectory[:, self.KEYPOINT_INDICES, :]
+            
+            # 3. 堆叠机器人轨迹
             tcp_trajectory = np.stack(all_tcps, axis=0)
             
+            # 4. 转换并添加
             pose_tensors.append(torch.from_numpy(pose_trajectory).float())
             tcp_tensors.append(torch.from_numpy(tcp_trajectory).float())
 
         # 如果遍历完所有相机后，没有任何一对有效数据被处理
         if not pose_tensors:
-             print(f"警告: 场景 {scene.scene_path} 中所有共同相机均无有效轨迹对。将尝试加载下一个样本。")
-             return self.__getitem__((idx + 1) % len(self))
+              print(f"警告: 场景 {scene.scene_path} 中所有共同相机均无有效轨迹对。将尝试加载下一个样本。")
+              return self.__getitem__((idx + 1) % len(self)) if len(self) > 0 else {}
 
         return {
+            # "human_poses" 列表中的张量现在是 (L, 6, 3) 或 (L, 21, 3)
             "human_poses": pose_tensors,
             "tcp_bases": tcp_tensors,
             'scene_idx': idx
