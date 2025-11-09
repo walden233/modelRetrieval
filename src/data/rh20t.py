@@ -90,7 +90,6 @@ class _RH20TBaseDataset(Dataset):
 
             if current_task_scenes:
                 tasks.append(current_task_scenes)
-                total_sence_num += len(current_task_scenes)
                 
         return tasks
 

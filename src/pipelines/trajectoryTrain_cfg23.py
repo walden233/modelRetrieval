@@ -5,8 +5,8 @@ import sys
 sys.path.append('.')  # 添加 src 目录到系统路径
 from src.data import RH20TTraceDataset, collate_trajectories
 from src.models import CrossModalTrajectoryModel    
-from src.evalution.trajectory_functions import evaluate_gemini,evaluate
-from src.train.trajectoryTrain import train_one_epoch
+from src.evaluation.trajectory_functions import evaluate_gemini,evaluate
+from src.pipelines.trajectoryTrain import train_one_epoch
 
 # --- 主执行流程 ---
 if __name__ == '__main__':

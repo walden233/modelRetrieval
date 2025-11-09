@@ -14,7 +14,7 @@ sys.path.append('.')  # 添加 src 目录到系统路径
 
 from src.data import RH20TTraceDataset, collate_trajectories
 from src.models import CrossModalTrajectoryModel
-from src.evalution.trajectory_functions import evaluate_gemini #, evaluate
+from src.evaluation.trajectory_functions import evaluate_gemini #, evaluate
 from src.loss.functions import trajectory_symmetric_contrastive_loss
 from src.utils import save_trial_results
 

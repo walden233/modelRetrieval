@@ -1,17 +1,16 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from transformers import AutoConfig, AutoModel, VideoMAEImageProcessor,AutoVideoProcessor
+from transformers import  AutoModel,AutoVideoProcessor
 from tqdm.auto import tqdm
-import pandas as pd
-from decord import VideoReader, cpu
-import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-
-from src.data import RH20TVideoDataset, WhirlDataset 
-from src.models import VideomaeFineTuner, vjepaFineTuner, InfoNCELoss
-from src.evalution import calculate_retrieval_metrics, calculate_retrieval_metrics_grouped
+import sys
+sys.path.append('.')  # 添加 src 目录到系统路径
+from src.data import RH20TVideoDataset
+from src.models import VideomaeFineTuner, vjepaFineTuner
+from src.loss import InfoNCELoss
+from src.evaluation import calculate_retrieval_metrics, calculate_retrieval_metrics_grouped
 
 
 if __name__ == "__main__":
@@ -41,7 +40,7 @@ if __name__ == "__main__":
 
 
 
-    DATASET_ROOT = './dataset/RH20T_subset/RH20T_cfg3' 
+    DATASET_ROOT = './dataset/RH20T_subset/RH20T_cfg2' 
     SCENE_NUM = 1
     CAM_NUM = 1
     dataset = RH20TVideoDataset(

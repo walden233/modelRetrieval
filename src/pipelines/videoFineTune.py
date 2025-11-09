@@ -6,7 +6,8 @@ import torch
 
 # 修改导入路径
 from src.data import WhirlDataset
-from src.models import VideomaeFineTuner, InfoNCELoss
+from src.models import VideomaeFineTuner
+from src.loss import InfoNCELoss
 
 # --- 1. 设置超参数 ---
 MODEL_NAME = "OpenGVLab/VideoMAEv2-Large"
