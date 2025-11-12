@@ -1,7 +1,7 @@
 import os
 import random
 from dataclasses import dataclass, field
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 import torch
 from torch.nn.utils.rnn import pad_sequence
 import math
@@ -35,6 +35,7 @@ class Scene:
     video_pairs: List[Tuple[str, str]] = field(default_factory=list)
     human_pose_path: str = ""
     tcp_base_path: str = ""
+    task_idx: Optional[int] = None
 
 
 # ----------------- 1. 共享逻辑的基类 -----------------
@@ -193,7 +194,7 @@ class RH20TTraceDataset(Dataset):
             root_dir (str): 数据集根目录。
             use_6_keypoints (bool, optional): 
                 是否将21个人手关键点采样为6个 (手腕+5指尖)。
-                默认为 True。
+                默认为 False。
         """
         self.root_dir = root_dir
         self.use_6_keypoints = use_6_keypoints
@@ -217,7 +218,7 @@ class RH20TTraceDataset(Dataset):
         all_scenes = []
         task_folders = sorted([d for d in os.listdir(self.root_dir) if d.startswith('task_')])
         
-        for task_folder in task_folders:
+        for task_idx, task_folder in enumerate(task_folders):
             task_path = os.path.join(self.root_dir, task_folder)
             if not os.path.isdir(task_path):
                 continue
@@ -235,7 +236,8 @@ class RH20TTraceDataset(Dataset):
                     scene_obj = Scene(
                         scene_path=scene_path,
                         human_pose_path=human_pose_path,
-                        tcp_base_path=tcp_base_path
+                        tcp_base_path=tcp_base_path,
+                        task_idx=task_idx
                     )
                     all_scenes.append(scene_obj)
         
@@ -313,7 +315,8 @@ class RH20TTraceDataset(Dataset):
             # "human_poses" 列表中的张量现在是 (L, 6, 3) 或 (L, 21, 3)
             "human_poses": pose_tensors,
             "tcp_bases": tcp_tensors,
-            'scene_idx': idx
+            'scene_idx': idx,
+            'task_idx': scene.task_idx if scene.task_idx is not None else -1
         }
 
 
@@ -331,6 +334,8 @@ def collate_trajectories(batch):
     # scene_indices 用于标识每个轨迹属于哪个场景
     human_scene_indices =[]
     robot_scene_indices =[]
+    human_task_indices = []
+    robot_task_indices = []
 
     # 定义我们的目标最大长度
     # 要求是 "小于 1000"，所以最大允许长度是 999
@@ -340,8 +345,13 @@ def collate_trajectories(batch):
         # --- 人类轨迹 (不变) ---
         # item['scene_idx'] 标识了它在批次中的原始场景
         # 我们用它来构建损失函数的标签
+        task_idx = item.get('task_idx')
+        if task_idx is None or task_idx < 0:
+            # 退化为场景级别标识，避免不同场景误判为同一任务
+            task_idx = -(item['scene_idx'] + 1)
         all_human_poses.extend(item['human_poses'])
         human_scene_indices.extend([item['scene_idx']] * len(item['human_poses']))
+        human_task_indices.extend([task_idx] * len(item['human_poses']))
         
         # --- 机器人轨迹 (动态采样) ---
         
@@ -378,6 +388,7 @@ def collate_trajectories(batch):
         # 注意：这里的 len(item['tcp_bases']) 必须使用原始列表的长度，
         # 因为采样并没有改变轨迹的 *数量*，只是改变了它们的 *长度*。
         robot_scene_indices.extend([item['scene_idx']] * len(item['tcp_bases']))
+        robot_task_indices.extend([task_idx] * len(item['tcp_bases']))
 
     # --- 后续处理 (不变) ---
 
@@ -403,7 +414,9 @@ def collate_trajectories(batch):
         'tcp_bases': padded_tcp_bases,
         'tcp_mask': tcp_mask,
         'human_scene_indices': torch.tensor(human_scene_indices, dtype=torch.long),
-        'robot_scene_indices': torch.tensor(robot_scene_indices, dtype=torch.long)
+        'robot_scene_indices': torch.tensor(robot_scene_indices, dtype=torch.long),
+        'human_task_indices': torch.tensor(human_task_indices, dtype=torch.long),
+        'robot_task_indices': torch.tensor(robot_task_indices, dtype=torch.long)
     }
 
 

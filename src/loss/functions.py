@@ -1,24 +1,28 @@
 import torch.nn.functional as F
 import torch
 
-def trajectory_symmetric_contrastive_loss(human_embeds, robot_embeds, human_scenes, robot_scenes, logit_scale):
+def trajectory_symmetric_contrastive_loss(human_embeds, robot_embeds, human_labels, robot_labels, logit_scale):
     """
     计算对称式对比损失。
     Args:
         human_embeds: (N, D) 形状的人类轨迹嵌入
         robot_embeds: (M, D) 形状的机器人轨迹嵌入
-        human_scenes: (N,) 形状，表示每个人类轨迹所属的场景索引
-        robot_scenes: (M,) 形状，表示每个机器人轨迹所属的场景索引
+        human_labels: (N,) 形状，表示每个人类轨迹所属的标签（场景或任务）
+        robot_labels: (M,) 形状，表示每个机器人轨迹所属的标签（场景或任务）
         logit_scale: 温度参数
     """
+    device = human_embeds.device
+    human_labels = human_labels.to(device)
+    robot_labels = robot_labels.to(device)
+
     # 计算相似度矩阵
     logits_per_human = logit_scale * human_embeds @ robot_embeds.t()
     logits_per_robot = logits_per_human.t()
 
     # 创建目标标签
-    # 如果 human_i 和 robot_j 来自同一个场景，则它们是正样本对
+    # 如果 human_i 和 robot_j 共享相同标签，则它们是正样本对
     # (N, M)
-    labels = (human_scenes.unsqueeze(1) == robot_scenes.unsqueeze(0)).float().to(logits_per_human.device)
+    labels = (human_labels.unsqueeze(1) == robot_labels.unsqueeze(0)).float()
     
     # 由于一个场景有多个正样本，我们需要对标签进行归一化
     labels_h_r = labels / labels.sum(dim=1, keepdim=True).clamp(min=1.0)

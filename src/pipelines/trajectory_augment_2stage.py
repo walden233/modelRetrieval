@@ -60,11 +60,13 @@ def train_one_epoch_intra_only(model, dataloader, optimizer, device):
 
 
 # --- NEW: 阶段 2 训练函数 (Combined) ---
-def train_one_epoch_combined(model, dataloader, optimizer, device, intra_loss_weight):
+def train_one_epoch_combined(model, dataloader, optimizer, device, intra_loss_weight, use_task_labels: bool = False):
     model.train()
     total_loss = 0
     total_loss_inter = 0
     total_loss_intra = 0
+    human_label_key = 'human_task_indices' if use_task_labels else 'human_scene_indices'
+    robot_label_key = 'robot_task_indices' if use_task_labels else 'robot_scene_indices'
     
     for batch in tqdm(dataloader, desc="Stage 2 Finetuning (Combined)"):
         optimizer.zero_grad()
@@ -74,8 +76,8 @@ def train_one_epoch_combined(model, dataloader, optimizer, device, intra_loss_we
         human_mask = batch['human_mask'].to(device)
         tcp_bases = batch['tcp_bases'].to(device)
         tcp_mask = batch['tcp_mask'].to(device)
-        human_scenes = batch['human_scene_indices'].to(device)
-        robot_scenes = batch['robot_scene_indices'].to(device)
+        human_labels = batch[human_label_key].to(device)
+        robot_labels = batch[robot_label_key].to(device)
 
         # 2. 创建增强视图
         human_poses_aug1 = augment_human_poses_rotation(human_poses)
@@ -99,7 +101,7 @@ def train_one_epoch_combined(model, dataloader, optimizer, device, intra_loss_we
         
         # 阶段 2 损失 (Inter-modal)
         loss_inter = trajectory_symmetric_contrastive_loss(
-            human_embeds_orig, robot_embeds_orig, human_scenes, robot_scenes, logit_scale
+            human_embeds_orig, robot_embeds_orig, human_labels, robot_labels, logit_scale
         )
         
         # 阶段 1 损失 (Intra-modal)
@@ -137,7 +139,9 @@ if __name__ == '__main__':
     PRETRAIN_EPOCHS = 30  # 阶段 1: 仅 Intra-modal 预训练
     FINETUNE_EPOCHS = 56  # 阶段 2: 组合损失微调 (你原来的 NUM_EPOCHS)
     INTRA_LOSS_WEIGHT = 3.0 # 阶段 2 中 intra-loss 的权重
-    
+    TRAIN_TASK_POSITIVES = False
+    EVALUATE_TASK_POSITIVES = False
+    USE_6_KEYPOINTS=False
     # --- MODIFIED: model_params ---
     model_params = {
         'human_input_dim': 6 * 3,
@@ -164,12 +168,15 @@ if __name__ == '__main__':
         'model_params': model_params,
         'batch_size': BATCH_SIZE,
         'learning_rate': LEARNING_RATE,
-        'intra_loss_weight': INTRA_LOSS_WEIGHT
+        'intra_loss_weight': INTRA_LOSS_WEIGHT,
+        'train_task_positives': TRAIN_TASK_POSITIVES,
+        'evaluate_task_positives': EVALUATE_TASK_POSITIVES,
+        'use_6_keypoints': USE_6_KEYPOINTS
     }
     os.makedirs(run_dir, exist_ok=True)
 
     # 1. 初始化数据集和数据加载器 (不变)
-    dataset = RH20TTraceDataset(root_dir=DATASET_ROOT,use_6_keypoints=True)
+    dataset = RH20TTraceDataset(root_dir=DATASET_ROOT,use_6_keypoints=USE_6_KEYPOINTS)
     train_size = int(0.8 * len(dataset))
     val_size = len(dataset) - train_size
     train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
@@ -216,11 +223,11 @@ if __name__ == '__main__':
     for epoch in range(FINETUNE_EPOCHS):
         # 使用 'train_one_epoch_combined'
         train_loss, train_loss_inter, train_loss_intra = train_one_epoch_combined(
-            model, train_loader, optimizer, DEVICE, INTRA_LOSS_WEIGHT
+            model, train_loader, optimizer, DEVICE, INTRA_LOSS_WEIGHT, use_task_labels=TRAIN_TASK_POSITIVES
         )
         
         # 评估部分不变
-        result = evaluate_gemini(model, val_loader, DEVICE)
+        result = evaluate_gemini(model, val_loader, DEVICE, group_by_task=EVALUATE_TASK_POSITIVES)
         recalls = result['recalls']
         
         # 记录历史

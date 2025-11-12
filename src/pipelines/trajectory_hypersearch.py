@@ -19,9 +19,11 @@ from src.loss.functions import trajectory_symmetric_contrastive_loss
 from src.utils import save_trial_results
 
 # --- 训练和评估函数 (来自您的代码) ---
-def train_one_epoch(model, dataloader, optimizer, device):
+def train_one_epoch(model, dataloader, optimizer, device, use_task_labels: bool = False):
     model.train()
     total_loss = 0
+    human_label_key = 'human_task_indices' if use_task_labels else 'human_scene_indices'
+    robot_label_key = 'robot_task_indices' if use_task_labels else 'robot_scene_indices'
     # 使用tqdm显示训练进度
     pbar = tqdm(dataloader, desc="Training Epoch", leave=False)
     for batch in pbar:
@@ -31,12 +33,12 @@ def train_one_epoch(model, dataloader, optimizer, device):
         human_mask = batch['human_mask'].to(device)
         tcp_bases = batch['tcp_bases'].to(device)
         tcp_mask = batch['tcp_mask'].to(device)
-        human_scenes = batch['human_scene_indices'].to(device)
-        robot_scenes = batch['robot_scene_indices'].to(device)
+        human_labels = batch[human_label_key].to(device)
+        robot_labels = batch[robot_label_key].to(device)
 
         human_embeds, robot_embeds, logit_scale = model(human_poses, human_mask, tcp_bases, tcp_mask, tcp_sample_factor=4)
         
-        loss = trajectory_symmetric_contrastive_loss(human_embeds, robot_embeds, human_scenes, robot_scenes, logit_scale)
+        loss = trajectory_symmetric_contrastive_loss(human_embeds, robot_embeds, human_labels, robot_labels, logit_scale)
         
         loss.backward()
         optimizer.step()
@@ -86,6 +88,9 @@ if __name__ == '__main__':
     NUM_EPOCHS = 56 # 每次试验的 Epochs 数
     NUM_TRIALS = 20 # 总共要进行的试验次数
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+    TRAIN_TASK_POSITIVES = False
+    EVALUATE_TASK_POSITIVES = False
+    USE_6_KEYPOINTS=False
     
     # 设置超参数搜索的根目录
     SEARCH_OUTPUT_DIR = 'results/hyperparam_search_results'
@@ -105,7 +110,7 @@ if __name__ == '__main__':
 
     # 1. 初始化数据集 (只需要执行一次)
     try:
-        dataset = RH20TTraceDataset(root_dir=DATASET_ROOT)
+        dataset = RH20TTraceDataset(root_dir=DATASET_ROOT,use_6_keypoints=USE_6_KEYPOINTS)
         # 固定训练集和验证集的划分，确保所有试验都在相同的数据上进行
         train_size = int(0.8 * len(dataset))
         val_size = len(dataset) - train_size
@@ -144,7 +149,10 @@ if __name__ == '__main__':
             'num_epochs': NUM_EPOCHS,
             'model_params': model_params,
             'batch_size': batch_size,
-            'learning_rate': learning_rate
+            'learning_rate': learning_rate,
+            'train_task_positives': TRAIN_TASK_POSITIVES,
+            'evaluate_task_positives': EVALUATE_TASK_POSITIVES,
+            'use_6_keypoints': USE_6_KEYPOINTS
         }
         print("试验配置:")
         print(json.dumps(trial_config, indent=2))
@@ -166,12 +174,12 @@ if __name__ == '__main__':
         
         for epoch in range(NUM_EPOCHS):
             print(f"Epoch {epoch+1}/{NUM_EPOCHS}")
-            train_loss = train_one_epoch(model, train_loader, optimizer, DEVICE)
+            train_loss = train_one_epoch(model, train_loader, optimizer, DEVICE, use_task_labels=TRAIN_TASK_POSITIVES)
             
             # 使用 no_grad 进行评估
             with torch.no_grad():
                 model.eval() # 切换到评估模式
-                result = evaluate_gemini(model, val_loader, DEVICE)
+                result = evaluate_gemini(model, val_loader, DEVICE, group_by_task=EVALUATE_TASK_POSITIVES)
             
             # 记录历史数据
             history['train_loss'].append(train_loss)

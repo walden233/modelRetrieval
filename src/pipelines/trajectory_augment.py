@@ -17,11 +17,13 @@ from src.loss import intra_modal_contrastive_loss
 
 # --- MODIFIED: train_one_epoch ---
 
-def train_one_epoch_augment(model, dataloader, optimizer, device, intra_loss_weight):
+def train_one_epoch_augment(model, dataloader, optimizer, device, intra_loss_weight, use_task_labels: bool = False):
     model.train()
     total_loss = 0
     total_loss_inter = 0
     total_loss_intra = 0
+    human_label_key = 'human_task_indices' if use_task_labels else 'human_scene_indices'
+    robot_label_key = 'robot_task_indices' if use_task_labels else 'robot_scene_indices'
     
     for batch in tqdm(dataloader, desc="Training"):
         optimizer.zero_grad()
@@ -31,8 +33,8 @@ def train_one_epoch_augment(model, dataloader, optimizer, device, intra_loss_wei
         human_mask = batch['human_mask'].to(device)
         tcp_bases = batch['tcp_bases'].to(device)
         tcp_mask = batch['tcp_mask'].to(device)
-        human_scenes = batch['human_scene_indices'].to(device)
-        robot_scenes = batch['robot_scene_indices'].to(device)
+        human_labels = batch[human_label_key].to(device)
+        robot_labels = batch[robot_label_key].to(device)
 
         # 2. (新增) 创建两个不同的增强视图
         # 注意：kornia 的旋转是确定性的，因此我们为 aug1 和 aug2 分别调用它
@@ -65,7 +67,7 @@ def train_one_epoch_augment(model, dataloader, optimizer, device, intra_loss_wei
         
         # 阶段 2 损失 (Inter-modal)
         loss_inter = trajectory_symmetric_contrastive_loss(
-            human_embeds_orig, robot_embeds_orig, human_scenes, robot_scenes, logit_scale
+            human_embeds_orig, robot_embeds_orig, human_labels, robot_labels, logit_scale
         )
         
         # 阶段 1 损失 (Intra-modal)
@@ -102,10 +104,13 @@ if __name__ == '__main__':
     LEARNING_RATE = 2e-4
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
     INTRA_LOSS_WEIGHT = 2 # --- NEW ---: 模态内损失的权重
+    TRAIN_TASK_POSITIVES = True
+    EVALUATE_TASK_POSITIVES = True
+    USE_6_KEYPOINTS = True
     OUTPUT_DIR = './results/trajectory_augment_results'
 
     model_params = {
-        'human_input_dim': 6 * 3,
+        'human_input_dim': (6 if USE_6_KEYPOINTS else 21) * 3,
         'robot_input_dim': 7,
         'd_model': 128,
         'nhead': 8,
@@ -125,12 +130,15 @@ if __name__ == '__main__':
         'model_params': model_params,
         'batch_size': BATCH_SIZE,
         'learning_rate': LEARNING_RATE,
-        'intra_loss_weight': INTRA_LOSS_WEIGHT
+        'intra_loss_weight': INTRA_LOSS_WEIGHT,
+        'train_task_positives': TRAIN_TASK_POSITIVES,
+        'evaluate_task_positives': EVALUATE_TASK_POSITIVES,
+        'use_6_keypoints': USE_6_KEYPOINTS
     }
     os.makedirs(run_dir, exist_ok=True)
 
     # 1. 初始化数据集和数据加载器 (不变)
-    dataset = RH20TTraceDataset(root_dir=DATASET_ROOT, use_6_keypoints=True)
+    dataset = RH20TTraceDataset(root_dir=DATASET_ROOT, use_6_keypoints=USE_6_KEYPOINTS)
     train_size = int(0.8 * len(dataset))
     val_size = len(dataset) - train_size
     train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
@@ -148,11 +156,11 @@ if __name__ == '__main__':
     for epoch in range(NUM_EPOCHS):
         # --- MODIFIED ---: 传入权重并接收多个损失
         train_loss, train_loss_inter, train_loss_intra = train_one_epoch_augment(
-            model, train_loader, optimizer, DEVICE, INTRA_LOSS_WEIGHT
+            model, train_loader, optimizer, DEVICE, INTRA_LOSS_WEIGHT, use_task_labels=TRAIN_TASK_POSITIVES
         )
         
         # 评估部分不变
-        result = evaluate_gemini(model, val_loader, DEVICE)
+        result = evaluate_gemini(model, val_loader, DEVICE, group_by_task=EVALUATE_TASK_POSITIVES)
         recalls = result['recalls']
         history['train_loss'].append(train_loss)
         history['train_loss_inter'].append(train_loss_inter)

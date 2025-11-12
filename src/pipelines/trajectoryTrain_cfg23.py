@@ -18,6 +18,8 @@ if __name__ == '__main__':
     LEARNING_RATE = 1e-4
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
     BEST_MODEL_PATH = 'model_weight/best_trajectory_model.pth' # 统一的最佳模型保存路径
+    TRAIN_TASK_POSITIVES = False
+    EVALUATE_TASK_POSITIVES = False
 
     model_params = {
         'human_input_dim': 21 * 3,
@@ -59,8 +61,8 @@ if __name__ == '__main__':
     best_result_cfg2 = None
 
     for epoch in range(NUM_EPOCHS_CFG2):
-        train_loss = train_one_epoch(model, train_loader_cfg2, optimizer, DEVICE)
-        result = evaluate_gemini(model, val_loader_cfg2, DEVICE)
+        train_loss = train_one_epoch(model, train_loader_cfg2, optimizer, DEVICE, use_task_labels=TRAIN_TASK_POSITIVES)
+        result = evaluate_gemini(model, val_loader_cfg2, DEVICE, group_by_task=EVALUATE_TASK_POSITIVES)
         recalls = result['recalls']
         
         print(f"[CFG2] Epoch {epoch+1}/{NUM_EPOCHS_CFG2}, Train Loss: {train_loss:.4f}")
@@ -99,8 +101,8 @@ if __name__ == '__main__':
     best_result_cfg3 = None
 
     for epoch in range(NUM_EPOCHS_CFG3):
-        train_loss = train_one_epoch(model, train_loader_cfg3, optimizer, DEVICE)
-        result = evaluate_gemini(model, val_loader_cfg3, DEVICE)
+        train_loss = train_one_epoch(model, train_loader_cfg3, optimizer, DEVICE, use_task_labels=TRAIN_TASK_POSITIVES)
+        result = evaluate_gemini(model, val_loader_cfg3, DEVICE, group_by_task=EVALUATE_TASK_POSITIVES)
         recalls = result['recalls']
         
         print(f"[CFG3] Epoch {epoch+1}/{NUM_EPOCHS_CFG3}, Train Loss: {train_loss:.4f}")
@@ -132,7 +134,7 @@ if __name__ == '__main__':
 
     # 使用 cfg2 的验证加载器进行评估
     print(f"在 {DATASET_DIRS[0]} 的验证集上评估最终模型...")
-    final_result_on_cfg2 = evaluate_gemini(model, val_loader_cfg2, DEVICE)
+    final_result_on_cfg2 = evaluate_gemini(model, val_loader_cfg2, DEVICE, group_by_task=EVALUATE_TASK_POSITIVES)
 
     print("\n--- 最终评估结果 (最终模型 vs CFG2 验证集) ---")
     recalls = final_result_on_cfg2['recalls']

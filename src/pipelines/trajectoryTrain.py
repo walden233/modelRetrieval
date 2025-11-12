@@ -1,3 +1,5 @@
+import datetime
+import os
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -8,11 +10,14 @@ from src.data import RH20TTraceDataset, collate_trajectories
 from src.models import CrossModalTrajectoryModel    
 from src.evaluation.trajectory_functions import evaluate_gemini,evaluate
 from src.loss.functions import trajectory_symmetric_contrastive_loss 
+from src.utils import save_trial_results
 
 
-def train_one_epoch(model, dataloader, optimizer, device):
+def train_one_epoch(model, dataloader, optimizer, device, use_task_labels: bool = False):
     model.train()
     total_loss = 0
+    human_label_key = 'human_task_indices' if use_task_labels else 'human_scene_indices'
+    robot_label_key = 'robot_task_indices' if use_task_labels else 'robot_scene_indices'
     for batch in tqdm(dataloader, desc="Training"):
         optimizer.zero_grad()
         
@@ -20,13 +25,13 @@ def train_one_epoch(model, dataloader, optimizer, device):
         human_mask = batch['human_mask'].to(device)
         tcp_bases = batch['tcp_bases'].to(device)
         tcp_mask = batch['tcp_mask'].to(device)
-        human_scenes = batch['human_scene_indices'].to(device)
-        robot_scenes = batch['robot_scene_indices'].to(device)
+        human_labels = batch[human_label_key].to(device)
+        robot_labels = batch[robot_label_key].to(device)
 
         #这里设置tcp_sample_factor，通过采样缩短机器人轨迹序列长度
         human_embeds, robot_embeds, logit_scale = model(human_poses, human_mask, tcp_bases, tcp_mask)
         
-        loss = trajectory_symmetric_contrastive_loss(human_embeds, robot_embeds, human_scenes, robot_scenes, logit_scale)
+        loss = trajectory_symmetric_contrastive_loss(human_embeds, robot_embeds, human_labels, robot_labels, logit_scale)
         
         loss.backward()
         optimizer.step()
@@ -44,9 +49,15 @@ if __name__ == '__main__':
     NUM_EPOCHS = 60
     LEARNING_RATE = 2e-4
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+    TRAIN_TASK_POSITIVES = True
+    EVALUATE_TASK_POSITIVES = False
+
+    USE_6_KEYPOINTS=True
+    OUTPUT_DIR = './results/trajectory_train_runs'
     
     model_params = {
-        'human_input_dim': 21 * 3,
+        'human_input_dim': (6 if USE_6_KEYPOINTS else 21) * 3,
         'robot_input_dim': 7,
         'd_model': 128,
         'nhead': 8,
@@ -69,7 +80,7 @@ if __name__ == '__main__':
     # | dropout | 0.1 | 标准的正则化手段，防止过拟合。 |
 
     # 1. 初始化数据集和数据加载器
-    dataset = RH20TTraceDataset(root_dir=DATASET_ROOT)
+    dataset = RH20TTraceDataset(root_dir=DATASET_ROOT, use_6_keypoints=USE_6_KEYPOINTS)
     # 假设 80% 训练，20% 验证
     train_size = int(0.8 * len(dataset))
     val_size = len(dataset) - train_size
@@ -82,21 +93,44 @@ if __name__ == '__main__':
     model = CrossModalTrajectoryModel(**model_params).to(DEVICE)
     optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE)
 
+    # 记录/输出目录
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    run_name = f"trajectory_train_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    run_dir = os.path.join(OUTPUT_DIR, run_name)
+    os.makedirs(run_dir, exist_ok=True)
+    history = {'train_loss': [], 'val_mean_p_rank': []}
+    trial_config = {
+        'run_name': run_name,
+        'device': str(DEVICE),
+        'num_epochs': NUM_EPOCHS,
+        'model_params': model_params,
+        'batch_size': BATCH_SIZE,
+        'learning_rate': LEARNING_RATE,
+        'dataset_root': DATASET_ROOT,
+        'train_task_positives': TRAIN_TASK_POSITIVES,
+        'evaluate_task_positives': EVALUATE_TASK_POSITIVES,
+        'use_6_keypoints': USE_6_KEYPOINTS
+    }
+
     # 3. 训练和验证循环
     best_result = None
     best_mean_rank_percen = 1.0
     for epoch in range(NUM_EPOCHS):
-        train_loss = train_one_epoch(model, train_loader, optimizer, DEVICE)
-        result = evaluate_gemini(model, val_loader, DEVICE)
+        train_loss = train_one_epoch(model, train_loader, optimizer, DEVICE, use_task_labels=TRAIN_TASK_POSITIVES)
+        result = evaluate_gemini(model, val_loader, DEVICE, group_by_task=EVALUATE_TASK_POSITIVES)
         recalls = result['recalls']
         print(f"Epoch {epoch+1}/{NUM_EPOCHS}, Train Loss: {train_loss:.4f}")
         print(f"Validation Recalls: R@1: {recalls[1]:.4f}, R@5: {recalls[5]:.4f}, R@10: {recalls[10]:.4f}")
         print(f"Mean Rank: {result['mean_rank']:.2f}, MRR: {result['mrr']:.4f}, Mean Percentage Rank: {result['mean_percentage_rank']:.4f}")
 
+        history['train_loss'].append(train_loss)
+        history['val_mean_p_rank'].append(result['mean_percentage_rank'])
+
         if result['mean_percentage_rank'] < best_mean_rank_percen:
             best_mean_rank_percen = result['mean_percentage_rank']
             best_result = result
-            torch.save(model.state_dict(), 'model_weight/best_trajectory_model.pth')
+            torch.save(model.state_dict(), os.path.join(run_dir,'best_trajectory_model.pth'))
             print("Saved new best model.")
 
     print("训练完成。best_result:", best_result)
+    save_trial_results(run_dir, trial_config, history, best_result)
