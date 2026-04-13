@@ -1,0 +1,10 @@
+{
+  "python.defaultInterpreterPath": "/home/ttt/miniconda3/envs/torch2/bin/python",
+  "python.terminal.activateEnvironment": true,
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}/src"
+  ],
+  "python.autoComplete.extraPaths": [
+    "${workspaceFolder}/src"
+  ]
+}

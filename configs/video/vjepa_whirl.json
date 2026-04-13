@@ -1,0 +1,13 @@
+{
+  "experiment_name": "video_vjepa_whirl",
+  "model_type": "vjepa",
+  "model_name": "facebook/vjepa2-vitl-fpc64-256",
+  "csv_path": "dataset/whirl_videos/dataset.csv",
+  "output_dir": "artifacts/runs/video",
+  "batch_size": 4,
+  "num_epochs": 5,
+  "learning_rate": 1e-05,
+  "feature_dim": 128,
+  "temperature": 0.07,
+  "num_frames": 16
+}

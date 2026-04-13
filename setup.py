@@ -1,20 +1,25 @@
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 setup(
     name="bise",
     version="0.1",
-    packages=find_packages(),
+    package_dir={"": "src"},
+    packages=find_packages(where="src"),
     install_requires=[
-        'torch',
-        'torchvision',
-        'transformers',
-        'numpy',
-        'pandas',
-        'decord',
-        'opencv-python',
-        'mediapipe',
-        'tqdm',
-        'matplotlib',
-        'seaborn'
+        "torch",
+        "torchvision",
+        "transformers",
+        "numpy",
+        "pandas",
+        "decord",
+        "opencv-python",
+        "mediapipe",
+        "tqdm",
+        "matplotlib",
+        "seaborn",
+        "kornia",
+        "flask",
+        "faiss-cpu",
+        "pytest",
     ],
 )

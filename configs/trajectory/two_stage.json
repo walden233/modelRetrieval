@@ -1,0 +1,26 @@
+{
+  "experiment_name": "trajectory_two_stage",
+  "mode": "two_stage",
+  "data_root": "dataset/RH20T_subset/RH20T_cfg2",
+  "output_dir": "artifacts/runs/trajectory",
+  "batch_size": 16,
+  "pretrain_epochs": 30,
+  "finetune_epochs": 56,
+  "learning_rate": 0.0002,
+  "seed": 42,
+  "train_task_positives": false,
+  "evaluate_task_positives": false,
+  "use_6_keypoints": false,
+  "intra_loss_weight": 3.0,
+  "model_params": {
+    "human_input_dim": 63,
+    "robot_input_dim": 7,
+    "d_model": 128,
+    "nhead": 8,
+    "num_layers": 5,
+    "dim_feedforward": 512,
+    "proj_dim": 128,
+    "dropout": 0.15,
+    "tcp_sample_factor": 4
+  }
+}

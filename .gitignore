@@ -4,6 +4,7 @@ rh20t_api/
 dataset/
 results/
 model_weight/
+artifacts/
 **/__pycache__
 *.egg-info/
 dist/
