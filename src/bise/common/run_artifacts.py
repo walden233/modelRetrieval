@@ -23,10 +23,11 @@ def _plot_series(ax, values, title: str, ylabel: str, color: str | None = None) 
         return
 
     epochs, clean_values = zip(*points)
-    ax.plot(epochs, clean_values, color=color)
-    ax.set_title(title)
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel(ylabel)
+    ax.plot(epochs, clean_values, color=color, linewidth=2.2)
+    ax.set_title(title, fontsize=16)
+    ax.set_xlabel("Epoch", fontsize=14)
+    ax.set_ylabel(ylabel, fontsize=14)
+    ax.tick_params(axis="both", labelsize=12)
     ax.grid(True)
 
 
@@ -62,7 +63,7 @@ def save_run_artifacts(
     num_plots = len(active_specs)
     num_cols = 2 if num_plots > 1 else 1
     num_rows = math.ceil(num_plots / num_cols)
-    fig, axes = plt.subplots(num_rows, num_cols, figsize=(7 * num_cols, 5 * num_rows))
+    fig, axes = plt.subplots(num_rows, num_cols, figsize=(7.5 * num_cols, 5.5 * num_rows))
     axes = axes if isinstance(axes, (list, tuple)) else axes
     if not isinstance(axes, (list, tuple)):
         axes = [axes]
@@ -81,7 +82,6 @@ def save_run_artifacts(
     for ax in flattened_axes[len(active_specs):]:
         ax.set_visible(False)
 
-    fig.suptitle(output_dir.name)
     fig.tight_layout()
-    fig.savefig(output_dir / "curves.png")
+    fig.savefig(output_dir / "curves.png", dpi=300, bbox_inches="tight")
     plt.close(fig)

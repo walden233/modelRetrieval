@@ -50,6 +50,7 @@ def _quat_mul(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     return torch.stack([rx, ry, rz, rw], dim=-1)
 
 
+# SO(3) 旋转，可改成单z轴旋转
 def augment_human_poses_rotation(
     poses_batch: torch.Tensor,
     root_index: int = 0,

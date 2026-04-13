@@ -34,6 +34,7 @@ def pretrain_intra_modal_epoch(model, dataloader, optimizer, device):
 
     for batch in tqdm(dataloader, desc="Stage 1 Pre-training"):
         optimizer.zero_grad()
+        #config=两阶段，本函数为第一阶段 问题：同一个task的不同sence会被当成负样本（同一个sence好像也会）
         human_poses = batch["human_poses"].to(device)
         human_mask = batch["human_mask"].to(device)
         tcp_bases = batch["tcp_bases"].to(device)
@@ -81,6 +82,8 @@ def train_augmented_trajectory_epoch(
         human_mask = batch["human_mask"].to(device)
         tcp_bases = batch["tcp_bases"].to(device)
         tcp_mask = batch["tcp_mask"].to(device)
+
+        #config=augment 目前只被用于inter，intra存在假负样本
         human_labels = batch[human_label_key].to(device)
         robot_labels = batch[robot_label_key].to(device)
 

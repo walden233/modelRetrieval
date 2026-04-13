@@ -44,6 +44,18 @@ def collate_trajectories(batch):
     human_mask = torch.arange(padded_human_poses.size(1))[None, :] < torch.tensor(human_lengths)[:, None]
     tcp_mask = torch.arange(padded_tcp_bases.size(1))[None, :] < torch.tensor(tcp_lengths)[:, None]
 
+#   - human_poses: 补齐后的人手轨迹张量，形状大致是 [N_human, T_h, K, 3]
+#   - human_mask: 人手轨迹的有效时间步掩码，True 表示真实帧，False 表示 padding
+#   - tcp_bases: 补齐后的机器人 TCP 轨迹张量，形状大致是 [N_robot, T_r, 7]
+#   - tcp_mask: 机器人轨迹的有效时间步掩码
+#   - human_scene_indices: 每条 human 轨迹属于哪个 scene
+#   - robot_scene_indices: 每条 robot 轨迹属于哪个 scene
+#   - human_task_indices: 每条 human 轨迹属于哪个 task
+#   - robot_task_indices: 每条 robot 轨迹属于哪个 task
+
+#   这些索引的用途是：
+#   - 训练时，如果按 scene 定义正样本，就用 *_scene_indices
+#   - 训练时，如果按 task 定义正样本，就用 *_task_indices
     return {
         "human_poses": padded_human_poses,
         "human_mask": human_mask,
