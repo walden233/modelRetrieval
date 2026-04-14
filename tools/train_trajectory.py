@@ -69,7 +69,15 @@ def main():
 
     if mode == "two_stage":
         for epoch in range(config["pretrain_epochs"]):
-            intra_loss = pretrain_intra_modal_epoch(model, train_loader, optimizer, device)
+            intra_loss = pretrain_intra_modal_epoch(
+                model,
+                train_loader,
+                optimizer,
+                device,
+                intra_task_positive_weight=config.get("intra_task_positive_weight", 0.0),
+                augmentation_noise_std=config.get("augmentation_noise_std", 0.005),
+                augmentation_max_rotation_degrees=config.get("augmentation_max_rotation_degrees", 10.0),
+            )
             history["train_loss_intra"].append(intra_loss)
             history["train_loss"].append(None)
             history["train_loss_inter"].append(None)
@@ -88,6 +96,9 @@ def main():
                 device,
                 config.get("intra_loss_weight", 1.0),
                 use_task_labels=config.get("train_task_positives", False),
+                intra_task_positive_weight=config.get("intra_task_positive_weight", 0.0),
+                augmentation_noise_std=config.get("augmentation_noise_std", 0.005),
+                augmentation_max_rotation_degrees=config.get("augmentation_max_rotation_degrees", 10.0),
             )
             history["train_loss_inter"].append(inter_loss)
             history["train_loss_intra"].append(intra_loss)

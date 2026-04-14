@@ -1,43 +1,42 @@
+import math
+
 import torch
 import torch.nn.functional as F
 
 
-def _rand_unit_quaternion(batch: int, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
-    quaternion = torch.randn(batch, 4, device=device, dtype=dtype)
-    return F.normalize(quaternion, dim=1)
+def _rand_z_rotation(batch: int, device: torch.device, dtype: torch.dtype, max_angle_degrees: float) -> tuple[torch.Tensor, torch.Tensor]:
+    if max_angle_degrees <= 0:
+        rotmats = torch.eye(3, device=device, dtype=dtype).unsqueeze(0).expand(batch, -1, -1).clone()
+        quaternions = torch.tensor([0.0, 0.0, 0.0, 1.0], device=device, dtype=dtype).unsqueeze(0).expand(batch, -1).clone()
+        return rotmats, quaternions
 
+    max_angle_radians = math.radians(max_angle_degrees)
+    angles = (torch.rand(batch, device=device, dtype=dtype) * 2.0 - 1.0) * max_angle_radians
+    cos_theta = torch.cos(angles)
+    sin_theta = torch.sin(angles)
 
-def _quat_to_rotmat(quaternion: torch.Tensor) -> torch.Tensor:
-    x, y, z, w = quaternion.unbind(dim=1)
-    xx = x * x
-    yy = y * y
-    zz = z * z
-    ww = w * w
-    xy = x * y
-    xz = x * z
-    xw = x * w
-    yz = y * z
-    yw = y * w
-    zw = z * w
-
-    m00 = ww + xx - yy - zz
-    m01 = 2 * (xy - zw)
-    m02 = 2 * (xz + yw)
-    m10 = 2 * (xy + zw)
-    m11 = ww - xx + yy - zz
-    m12 = 2 * (yz - xw)
-    m20 = 2 * (xz - yw)
-    m21 = 2 * (yz + xw)
-    m22 = ww - xx - yy + zz
-
-    return torch.stack(
+    zeros = torch.zeros_like(cos_theta)
+    ones = torch.ones_like(cos_theta)
+    rotmats = torch.stack(
         [
-            torch.stack([m00, m01, m02], dim=1),
-            torch.stack([m10, m11, m12], dim=1),
-            torch.stack([m20, m21, m22], dim=1),
+            torch.stack([cos_theta, -sin_theta, zeros], dim=1),
+            torch.stack([sin_theta, cos_theta, zeros], dim=1),
+            torch.stack([zeros, zeros, ones], dim=1),
         ],
         dim=1,
-    ).permute(1, 0, 2).contiguous()
+    )
+
+    half_angles = angles / 2.0
+    quaternions = torch.stack(
+        [
+            zeros,
+            zeros,
+            torch.sin(half_angles),
+            torch.cos(half_angles),
+        ],
+        dim=1,
+    )
+    return rotmats, quaternions
 
 
 def _quat_mul(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
@@ -50,23 +49,19 @@ def _quat_mul(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     return torch.stack([rx, ry, rz, rw], dim=-1)
 
 
-# SO(3) 旋转，可改成单z轴旋转
 def augment_human_poses_rotation(
     poses_batch: torch.Tensor,
     root_index: int = 0,
     rotate_about_root: bool = True,
-    same_rotation_per_sample: bool = True,
+    noise_std: float = 0.005,
+    max_angle_degrees: float = 10.0,
 ) -> torch.Tensor:
     batch_size, seq_len, num_keypoints, _ = poses_batch.shape
     device = poses_batch.device
     dtype = poses_batch.dtype
 
-    if same_rotation_per_sample:
-        rotmats = _quat_to_rotmat(_rand_unit_quaternion(batch_size, device=device, dtype=dtype))
-    else:
-        rotmats = _quat_to_rotmat(_rand_unit_quaternion(batch_size * seq_len, device=device, dtype=dtype)).view(
-            batch_size, seq_len, 3, 3
-        )
+    rotmats, _ = _rand_z_rotation(batch_size, device=device, dtype=dtype, max_angle_degrees=max_angle_degrees)
+    rotation = rotmats.unsqueeze(1).expand(-1, seq_len, -1, -1)
 
     points = poses_batch.view(batch_size, seq_len, num_keypoints, 3)
     if rotate_about_root:
@@ -76,7 +71,6 @@ def augment_human_poses_rotation(
         root_pos = None
         centered = points
 
-    rotation = rotmats.unsqueeze(1).expand(-1, seq_len, -1, -1) if same_rotation_per_sample else rotmats
     rotation_flat = rotation.reshape(batch_size * seq_len, 3, 3)
     centered_flat = centered.permute(0, 1, 3, 2).reshape(batch_size * seq_len, 3, num_keypoints)
     rotated_flat = torch.bmm(rotation_flat, centered_flat)
@@ -84,31 +78,45 @@ def augment_human_poses_rotation(
 
     if root_pos is not None:
         rotated = rotated + root_pos
+    if noise_std > 0:
+        rotated = rotated + torch.randn_like(rotated) * noise_std
     return rotated
 
 
-def augment_robot_tcp_rotation(tcp_batch: torch.Tensor, same_rotation_per_sample: bool = True) -> torch.Tensor:
+def augment_robot_tcp_rotation(
+    tcp_batch: torch.Tensor,
+    noise_std: float = 0.005,
+    max_angle_degrees: float = 10.0,
+    rotate_about_first_position: bool = True,
+) -> torch.Tensor:
     batch_size, seq_len, _ = tcp_batch.shape
     device = tcp_batch.device
     dtype = tcp_batch.dtype
     positions = tcp_batch[..., :3]
     quaternions = tcp_batch[..., 3:]
 
-    if same_rotation_per_sample:
-        q_rot = _rand_unit_quaternion(batch_size, device=device, dtype=dtype)
-        rotation = _quat_to_rotmat(q_rot)
-        expanded_rotation = rotation.unsqueeze(1).expand(-1, seq_len, -1, -1).reshape(batch_size * seq_len, 3, 3)
-        pos_flat = positions.reshape(batch_size * seq_len, 3).unsqueeze(-1)
-        rotated_positions = torch.bmm(expanded_rotation, pos_flat).squeeze(-1).view(batch_size, seq_len, 3)
-        q_rot_expanded = q_rot.unsqueeze(1).expand(-1, seq_len, -1)
-        new_quaternions = _quat_mul(q_rot_expanded.reshape(batch_size * seq_len, 4), quaternions.reshape(batch_size * seq_len, 4)).view(
-            batch_size, seq_len, 4
-        )
+    rotation, q_rot = _rand_z_rotation(batch_size, device=device, dtype=dtype, max_angle_degrees=max_angle_degrees)
+    expanded_rotation = rotation.unsqueeze(1).expand(-1, seq_len, -1, -1).reshape(batch_size * seq_len, 3, 3)
+
+    if rotate_about_first_position:
+        origin = positions[:, :1, :]
+        centered_positions = positions - origin
     else:
-        q_rot = _rand_unit_quaternion(batch_size * seq_len, device=device, dtype=dtype)
-        rotation = _quat_to_rotmat(q_rot)
-        pos_flat = positions.reshape(batch_size * seq_len, 3).unsqueeze(-1)
-        rotated_positions = torch.bmm(rotation, pos_flat).squeeze(-1).view(batch_size, seq_len, 3)
-        new_quaternions = _quat_mul(q_rot, quaternions.reshape(batch_size * seq_len, 4)).view(batch_size, seq_len, 4)
+        origin = None
+        centered_positions = positions
+
+    pos_flat = centered_positions.reshape(batch_size * seq_len, 3).unsqueeze(-1)
+    rotated_positions = torch.bmm(expanded_rotation, pos_flat).squeeze(-1).view(batch_size, seq_len, 3)
+    if origin is not None:
+        rotated_positions = rotated_positions + origin
+    if noise_std > 0:
+        rotated_positions = rotated_positions + torch.randn_like(rotated_positions) * noise_std
+
+    q_rot_expanded = q_rot.unsqueeze(1).expand(-1, seq_len, -1)
+    new_quaternions = _quat_mul(
+        q_rot_expanded.reshape(batch_size * seq_len, 4),
+        quaternions.reshape(batch_size * seq_len, 4),
+    ).view(batch_size, seq_len, 4)
+    new_quaternions = F.normalize(new_quaternions, dim=-1)
 
     return torch.cat([rotated_positions, new_quaternions], dim=-1)

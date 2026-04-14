@@ -1,0 +1,63 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Train Trajectory",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "/home/ttt/miniconda3/envs/torch2/bin/python",
+      "program": "${workspaceFolder}/tools/train_trajectory.py",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "args": [
+        "--config",
+        "${workspaceFolder}/configs/trajectory/baseline.json"
+      ]
+    },
+    {
+      "name": "Train Video",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "/home/ttt/miniconda3/envs/torch2/bin/python",
+      "program": "${workspaceFolder}/tools/train_video.py",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "args": [
+        "--config",
+        "${workspaceFolder}/configs/video/vjepa_whirl.json"
+      ]
+    },
+    {
+      "name": "Evaluate Retrieval",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "/home/ttt/miniconda3/envs/torch2/bin/python",
+      "program": "${workspaceFolder}/tools/evaluate_retrieval.py",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "args": [
+        "--config",
+        "${input:trajectoryEvalConfig}",
+        "--checkpoint",
+        "${input:trajectoryCheckpoint}"
+      ]
+    }
+  ],
+  "inputs": [
+    {
+      "id": "trajectoryEvalConfig",
+      "type": "promptString",
+      "description": "Path to the trajectory evaluation config",
+      "default": "${workspaceFolder}/configs/trajectory/augment_fair.json"
+    },
+    {
+      "id": "trajectoryCheckpoint",
+      "type": "promptString",
+      "description": "Path to the checkpoint for evaluation",
+      "default": "${workspaceFolder}/artifacts/runs/trajectory/trajectory_augment_fair_20260413_234320/best_model.pth"
+    }
+  ]
+}
