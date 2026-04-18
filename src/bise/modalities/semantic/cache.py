@@ -1,4 +1,5 @@
 import json
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -18,3 +19,11 @@ class JsonCache:
         self._cache[key] = value
         self.cache_path.parent.mkdir(parents=True, exist_ok=True)
         self.cache_path.write_text(json.dumps(self._cache, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    @staticmethod
+    def build_cache_key(*parts: Any) -> str:
+        digest = hashlib.sha256()
+        for part in parts:
+            digest.update(str(part).encode("utf-8"))
+            digest.update(b"\0")
+        return digest.hexdigest()

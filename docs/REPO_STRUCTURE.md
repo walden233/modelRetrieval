@@ -12,6 +12,12 @@
 - `artifacts/` 统一承接运行产物，避免源码和模型/曲线/索引混放。
 - 目录优先按领域组织，再按技术层细分。
 
+## 关键文档
+
+- `docs/REPO_STRUCTURE.md`：仓库结构、目录职责和迁移原则。
+- `docs/SEMANTIC_VLM_MODULE_PLAN.md`：语义层 VLM 模块完整开发方案，覆盖技术栈、数据组织、测试、指标和实验呈现。
+- `docs/SEMANTIC_VLM_IMPLEMENTATION_GUIDE.md`：语义层 VLM 模块开发实现文档，面向具体代码实现、文件职责、数据流和分阶段落地。
+
 ## 新目录结构
 
 ```text

@@ -1,0 +1,5 @@
+{
+  "query_annotations_path": "artifacts/semantic/annotations/normalized_annotations.jsonl",
+  "gallery_annotations_path": "artifacts/semantic/annotations/normalized_annotations.jsonl",
+  "exclude_self": false
+}

@@ -1,0 +1,18 @@
+{
+  "version": "taxonomy_v1",
+  "allowed_tags": [
+    "grasp",
+    "transport",
+    "place",
+    "insert",
+    "rotate",
+    "pour"
+  ],
+  "tag_aliases": {
+    "pick": "grasp",
+    "pick_up": "grasp",
+    "pickup": "grasp",
+    "move": "transport",
+    "put": "place"
+  }
+}

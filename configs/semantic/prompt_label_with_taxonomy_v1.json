@@ -1,0 +1,15 @@
+{
+  "version": "label_prompt_with_taxonomy_v1",
+  "system_prompt": "You are a robotics video understanding assistant. Return compact JSON only.",
+  "user_template": "Given {video_role_phrase} for sample {sample_id} from {dataset_name}, extract capability tags and action slots from this single video only. Use the allowed taxonomy tags only. action_slots.object and action_slots.target are required.",
+  "output_schema": {
+    "capability_tags": [
+      "string"
+    ],
+    "action_slots": {
+      "object": "string",
+      "target": "string",
+      "verb": "string"
+    }
+  }
+}

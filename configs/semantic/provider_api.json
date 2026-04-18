@@ -1,0 +1,8 @@
+{
+  "provider_name": "glm-4.6v",
+  "base_url": "https://open.bigmodel.cn/api/paas/v4",
+  "api_key": "bec3761cde904f628bedc6ae196991c2.YpJHS1JpwO3YUgJA",
+  "model_name": "glm-4.6v",
+  "timeout_seconds": 30,
+  "max_retries": 3
+}

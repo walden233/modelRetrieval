@@ -1,0 +1,8 @@
+{
+  "version": "description_prompt_v1",
+  "system_prompt": "You are a robotics video understanding assistant. Return compact JSON only.",
+  "user_template": "Given {video_role_phrase} for sample {sample_id} from {dataset_name}, produce one concise task description sentence. Focus on the main action, manipulated object, and target visible in this single video only.",
+  "output_schema": {
+    "task_description": "string"
+  }
+}
