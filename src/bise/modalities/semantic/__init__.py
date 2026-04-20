@@ -2,7 +2,6 @@ from .cache import JsonCache
 from .paths import materialize_pipeline_paths, semantic_output_root
 from .prompts import LABEL_PROMPT, TASK_DESCRIPTION_PROMPT, build_description_prompt, build_label_prompt
 from .schemas import (
-    ActionSlots,
     DescriptionReviewRecord,
     LabelEvaluationRecord,
     ParsedLabelResult,
@@ -22,7 +21,6 @@ from .vlm_client import (
 )
 
 __all__ = [
-    "ActionSlots",
     "DescriptionReviewRecord",
     "JsonCache",
     "LABEL_PROMPT",

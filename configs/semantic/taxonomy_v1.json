@@ -1,18 +1,42 @@
 {
   "version": "taxonomy_v1",
-  "allowed_tags": [
-    "grasp",
-    "transport",
-    "place",
-    "insert",
-    "rotate",
-    "pour"
+  "capability_tags": {
+    "allowed_tags": [
+      "grasp",
+      "transport",
+      "place",
+      "insert",
+      "rotate",
+      "pour"
+    ],
+    "tag_aliases": {
+      "pick": "grasp",
+      "pick_up": "grasp",
+      "pickup": "grasp",
+      "move": "transport",
+      "put": "place"
+    }
+  },
+  "task_complexity_options": [
+    "高",
+    "中",
+    "低",
+    "unknown"
   ],
-  "tag_aliases": {
-    "pick": "grasp",
-    "pick_up": "grasp",
-    "pickup": "grasp",
-    "move": "transport",
-    "put": "place"
-  }
+  "environment_tags": {
+    "allowed_tags": [
+      "有障碍物",
+      "无障碍物",
+      "动态环境",
+      "unknown"
+    ],
+    "tag_aliases": {}
+  },
+  "scene_category_options": [
+    "工业",
+    "家庭",
+    "医疗",
+    "室外",
+    "unknown"
+  ]
 }

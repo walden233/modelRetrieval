@@ -17,12 +17,15 @@ def test_parse_label_response_from_code_fence():
     payload = """```json
     {
       "capability_tags": ["grasp", "place"],
-      "action_slots": {"object": "cup", "target": "shelf"}
+      "task_complexity": "中",
+      "environment_tags": ["无障碍物"],
+      "scene_category": "家庭"
     }
     ```"""
     parsed = parse_label_response(payload)
     assert parsed.capability_tags == ["grasp", "place"]
-    assert parsed.action_slots.target == "shelf"
+    assert parsed.task_complexity == "中"
+    assert parsed.scene_category == "家庭"
 
 
 def test_parse_invalid_json_raises():

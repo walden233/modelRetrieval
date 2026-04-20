@@ -6,7 +6,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from bise.modalities.semantic.evaluator import evaluate_semantic_retrieval_by_task, split_cross_role_annotations
-from bise.modalities.semantic.schemas import ActionSlots, SemanticAnnotation
+from bise.modalities.semantic.schemas import SemanticAnnotation
 
 
 def test_semantic_retrieval_by_task():
@@ -36,8 +36,10 @@ def test_split_default_cross_role_sets_prefers_human_to_robot():
             cam_id="cam_0",
             task_description="robot does task a",
             capability_tags=["grasp"],
-            action_slots=ActionSlots(object="cup", target="shelf"),
-            label_canonical_text="capabilities: grasp; object: cup; target: shelf",
+            task_complexity="低",
+            environment_tags=["无障碍物"],
+            scene_category="工业",
+            label_canonical_text="capabilities: grasp; task_complexity: 低; environment: 无障碍物; scene_category: 工业",
             metadata={"text_embedding": [1.0, 0.0], "label_embedding": [1.0, 0.0]},
         ),
         SemanticAnnotation(
@@ -52,8 +54,10 @@ def test_split_default_cross_role_sets_prefers_human_to_robot():
             cam_id="cam_0",
             task_description="human does task a",
             capability_tags=["grasp"],
-            action_slots=ActionSlots(object="cup", target="shelf"),
-            label_canonical_text="capabilities: grasp; object: cup; target: shelf",
+            task_complexity="低",
+            environment_tags=["无障碍物"],
+            scene_category="工业",
+            label_canonical_text="capabilities: grasp; task_complexity: 低; environment: 无障碍物; scene_category: 工业",
             metadata={"text_embedding": [1.0, 0.0], "label_embedding": [1.0, 0.0]},
         ),
     ]

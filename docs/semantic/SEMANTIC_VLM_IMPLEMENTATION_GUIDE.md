@@ -26,7 +26,9 @@
 
 - `task_description`
 - `capability_tags`
-- `action_slots`
+- `task_complexity`
+- `environment_tags`
+- `scene_category`
 - `text_embedding`
 - `label_embedding`
 
@@ -112,7 +114,6 @@ configs/semantic/
 负责定义语义模块所有核心数据结构。建议至少包含：
 
 - `SemanticManifestRecord`
-- `ActionSlots`
 - `SemanticAnnotation`
 - `SemanticEmbeddingRecord`
 - `LabelEvaluationRecord`
@@ -121,14 +122,6 @@ configs/semantic/
 建议结构如下：
 
 ```python
-@dataclass
-class ActionSlots:
-    object: str
-    target: str
-    verb: str = ""
-    tool: str = ""
-
-
 @dataclass
 class SemanticAnnotation:
     sample_id: str
@@ -141,14 +134,16 @@ class SemanticAnnotation:
     cam_id: str
     task_description: str
     capability_tags: list[str]
-    action_slots: ActionSlots
+    task_complexity: str
+    environment_tags: list[str]
+    scene_category: str
     label_canonical_text: str
     metadata: dict[str, Any] = field(default_factory=dict)
 ```
 
 实现要求：
 
-- `action_slots.object` 和 `action_slots.target` 必填
+- `task_complexity`、`environment_tags`、`scene_category` 使用固定 taxonomy 约束
 - 提供 `to_dict()` / `from_dict()` 能力
 - 尽量与 [src/bise/common/schemas.py](/home/ttt/BISE/src/bise/common/schemas.py) 的 `EmbeddingSample` 对齐
 
@@ -169,9 +164,10 @@ def build_label_prompt(..., use_taxonomy: bool) -> str: ...
 要求：
 
 - 描述 prompt 只要求输出 `task_description`
-- 标签 prompt 只要求输出 `capability_tags` 和 `action_slots`
+- 标签 prompt 只要求输出 `capability_tags`、`task_complexity`、`environment_tags`、`scene_category`
 - `with_taxonomy` 和 `without_taxonomy` 仅在标签 prompt 上切换
 - prompt 模板不要硬编码长文本，优先从 `configs/semantic/*.json` 读取
+- 描述 prompt 必须明确要求忽略任何颜色信息
 
 ### 4.3 `vlm_client.py`
 
@@ -226,14 +222,16 @@ def parse_label_response(raw_response: dict[str, Any]) -> dict[str, Any]: ...
 建议功能：
 
 - `normalize_capability_tags()`
-- `normalize_action_slots()`
+- `normalize_task_complexity()`
+- `normalize_environment_tags()`
+- `normalize_scene_category()`
 - `build_label_canonical_text()`
 - `validate_annotation()`
 
 要求：
 
 - taxonomy 映射、别名归一在这里完成
-- `object` 和 `target` 空值直接判为非法结果
+- `task_complexity` 和 `scene_category` 非法值回退到 `unknown`
 - `label_canonical_text` 统一格式，保证 `label_embedding` 输入稳定
 
 ### 4.6 `embedder.py`
@@ -296,7 +294,7 @@ def run_semantic_annotation_pipeline(config: dict[str, Any]) -> None: ...
 5. 解析该单视频的 `task_description`
 6. 生成标签 prompt
 7. 调用标签 VLM
-8. 解析该单视频的 `capability_tags` 和 `action_slots`
+8. 解析该单视频的 `capability_tags`、`task_complexity`、`environment_tags`、`scene_category`
 9. 做标准化和合法性校验
 10. 构造 `label_canonical_text`
 11. 生成 `text_embedding`
@@ -446,11 +444,20 @@ def run_semantic_annotation_pipeline(config: dict[str, Any]) -> None: ...
 {
   "version": "taxonomy_v1",
   "allowed_tags": ["grasp", "transport", "place", "insert", "rotate", "pour"],
-  "tag_aliases": {
-    "pick": "grasp",
-    "pick_up": "grasp",
-    "put": "place"
-  }
+  "capability_tags": {
+    "allowed_tags": ["grasp", "transport", "place", "insert", "rotate", "pour"],
+    "tag_aliases": {
+      "pick": "grasp",
+      "pick_up": "grasp",
+      "put": "place"
+    }
+  },
+  "task_complexity_options": ["高", "中", "低", "unknown"],
+  "environment_tags": {
+    "allowed_tags": ["有障碍物", "无障碍物", "动态环境", "unknown"],
+    "tag_aliases": {}
+  },
+  "scene_category_options": ["工业", "家庭", "医疗", "室外", "unknown"]
 }
 ```
 

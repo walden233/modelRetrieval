@@ -5,32 +5,6 @@ from typing import Any, Dict, List, Optional
 
 
 @dataclass
-class ActionSlots:
-    object: str
-    target: str
-    verb: str = ""
-    tool: str = ""
-
-    def __post_init__(self) -> None:
-        if not str(self.object).strip():
-            raise ValueError("action_slots.object is required.")
-        if not str(self.target).strip():
-            raise ValueError("action_slots.target is required.")
-
-    def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
-
-    @classmethod
-    def from_dict(cls, payload: Dict[str, Any]) -> "ActionSlots":
-        return cls(
-            object=str(payload.get("object", "")).strip(),
-            target=str(payload.get("target", "")).strip(),
-            verb=str(payload.get("verb", "")).strip(),
-            tool=str(payload.get("tool", "")).strip(),
-        )
-
-
-@dataclass
 class SemanticManifestRecord:
     sample_id: str
     pair_id: str
@@ -83,15 +57,15 @@ class SemanticAnnotation:
     cam_id: str
     task_description: str
     capability_tags: List[str]
-    action_slots: ActionSlots
+    task_complexity: str
+    environment_tags: List[str]
+    scene_category: str
     label_canonical_text: str
     status: str = "success"
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
-        payload = asdict(self)
-        payload["action_slots"] = self.action_slots.to_dict()
-        return payload
+        return asdict(self)
 
     @classmethod
     def from_dict(cls, payload: Dict[str, Any]) -> "SemanticAnnotation":
@@ -107,7 +81,9 @@ class SemanticAnnotation:
             cam_id=str(payload.get("cam_id", "")),
             task_description=str(payload["task_description"]).strip(),
             capability_tags=[str(tag).strip() for tag in payload.get("capability_tags", []) if str(tag).strip()],
-            action_slots=ActionSlots.from_dict(payload["action_slots"]),
+            task_complexity=str(payload.get("task_complexity", "unknown")).strip(),
+            environment_tags=[str(tag).strip() for tag in payload.get("environment_tags", []) if str(tag).strip()],
+            scene_category=str(payload.get("scene_category", "unknown")).strip(),
             label_canonical_text=str(payload.get("label_canonical_text", "")).strip(),
             status=str(payload.get("status", "success")),
             metadata=dict(payload.get("metadata", {})),
@@ -128,12 +104,15 @@ class SemanticEmbeddingRecord:
 @dataclass
 class LabelEvaluationRecord:
     sample_id: str
-    predicted_tags: List[str]
-    gold_tags: List[str]
-    precision: float
-    recall: float
-    f1: float
-    exact_match: bool
+    predicted_capability_tags: List[str]
+    gold_capability_tags: List[str]
+    capability_precision: float
+    capability_recall: float
+    capability_f1: float
+    capability_exact_match: bool
+    task_complexity_match: bool
+    scene_category_match: bool
+    environment_exact_match: bool
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -167,5 +146,7 @@ class PromptTemplate:
 @dataclass
 class ParsedLabelResult:
     capability_tags: List[str]
-    action_slots: ActionSlots
+    task_complexity: str
+    environment_tags: List[str]
+    scene_category: str
     raw_payload: Optional[Dict[str, Any]] = None

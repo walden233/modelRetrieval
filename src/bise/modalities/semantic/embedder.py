@@ -33,7 +33,8 @@ class TransformersTextEmbedder(TextEmbedder):
         import torch
 
         self.torch = torch
-        self.device = torch.device(device)
+        resolved_device = _resolve_device(torch, device)
+        self.device = torch.device(resolved_device)
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.model = AutoModel.from_pretrained(model_name).to(self.device)
         self.model.eval()
@@ -77,7 +78,14 @@ def build_text_embedder(config: Dict[str, Any]) -> TextEmbedder:
     if provider_name == "transformers":
         return TransformersTextEmbedder(
             model_name=str(config["model_name"]),
-            device=str(config.get("device", "cpu")),
+            device=str(config.get("device", "auto")),
             max_length=int(config.get("max_length", 256)),
         )
     raise ValueError(f"Unsupported text embedder provider: {provider_name}")
+
+
+def _resolve_device(torch_module: Any, device: str) -> str:
+    normalized = str(device).strip().lower()
+    if normalized == "auto":
+        return "cuda" if torch_module.cuda.is_available() else "cpu"
+    return normalized

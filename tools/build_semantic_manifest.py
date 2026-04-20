@@ -142,6 +142,8 @@ def main():
                 "data_root": str(data_root) if data_root else "",
                 "output": str(output_path),
                 "count": len(records),
+                "manifest_start_index": config.get("manifest_start_index", 0),
+                "manifest_end_index": config.get("manifest_end_index"),
             },
             indent=2,
             ensure_ascii=False,

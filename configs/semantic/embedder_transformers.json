@@ -1,6 +1,6 @@
 {
   "provider_name": "transformers",
   "model_name": "BAAI/bge-m3",
-  "device": "cpu",
+  "device": "auto",
   "max_length": 256
 }

@@ -22,15 +22,20 @@
 
 - `task_description`
 - `capability_tags`
-- `action_slots`
+- `task_complexity`
+- `environment_tags`
+- `scene_category`
 - `text_embedding`
 - `label_embedding`
 
 说明：
 
 - `task_description` 是单条规范化任务描述，用于检索和展示。
+- `task_description` 必须忽略物体颜色、背景颜色、服饰颜色等颜色信息。
 - `capability_tags` 是受控多标签能力标签。
-- `action_slots` 是结构化动作槽位，其中 `object` 和 `target` 必须存在。
+- `task_complexity` 是任务复杂度标签，取值为 `高 / 中 / 低 / unknown`。
+- `environment_tags` 是环境特征标签，取值来自固定 taxonomy。
+- `scene_category` 是场景类别标签，取值为 `工业 / 家庭 / 医疗 / 室外 / unknown`。
 - `text_embedding` 是对 `task_description` 编码得到的语义向量。
 - `label_embedding` 是对规范标签文本编码得到的语义向量。
 
@@ -45,7 +50,7 @@
 前提：
 
 - 所有样本已经完成语义提取。
-- 每个样本都已经保存 `task_description`、`capability_tags`、`action_slots`、`text_embedding`、`label_embedding`。
+- 每个样本都已经保存 `task_description`、`capability_tags`、`task_complexity`、`environment_tags`、`scene_category`、`text_embedding`、`label_embedding`。
 
 目标：
 
@@ -127,7 +132,7 @@
 
 ### 3.2 Taxonomy
 
-`taxonomy` 是受控标签体系，用来约束 `capability_tags` 的取值范围。
+`taxonomy` 是受控标签体系，用来约束多维标签字段的取值范围。
 
 示例：
 
@@ -182,34 +187,47 @@ the robot grasps a cup and places it onto the shelf
 - 支持多标签。
 - 顺序不重要。
 
-### 4.3 action_slots
+### 4.3 task_complexity
 
 定义：
 
-- 对任务关键动作要素的结构化表示。
+- 对任务整体复杂度的单标签判断。
 
-最小要求：
+取值：
 
-```json
-{
-  "object": "cup",
-  "target": "shelf"
-}
-```
+- `高`
+- `中`
+- `低`
+- `unknown`
 
-说明：
+### 4.4 environment_tags
 
-- `object` 必填。
-- `target` 必填。
-- 其他字段可以按后续需要扩展，例如 `verb`、`tool`、`phase_count`，但当前不作为必须项。
+定义：
 
-作用：
+- 对环境特征的多标签判断。
 
-- 补足仅靠标签无法表达的对象和目标关系。
-- 支持规则校验，例如描述中出现的对象和目标是否与槽位一致。
-- 为后续对外接口或更细粒度检索预留结构化扩展位。
+取值示例：
 
-### 4.4 text_embedding
+- `有障碍物`
+- `无障碍物`
+- `动态环境`
+- `unknown`
+
+### 4.5 scene_category
+
+定义：
+
+- 对场景类别的单标签判断。
+
+取值：
+
+- `工业`
+- `家庭`
+- `医疗`
+- `室外`
+- `unknown`
+
+### 4.6 text_embedding
 
 定义：
 
@@ -220,7 +238,7 @@ the robot grasps a cup and places it onto the shelf
 - 支持基于自然语言描述的语义检索。
 - 适合匹配表达更丰富的查询。
 
-### 4.5 label_embedding
+### 4.7 label_embedding
 
 定义：
 
@@ -229,7 +247,7 @@ the robot grasps a cup and places it onto the shelf
 标签文本建议按模板拼接：
 
 ```text
-capabilities: grasp, transport, place; object: cup; target: shelf
+capabilities: grasp, transport, place; task_complexity: 中; environment: 无障碍物; scene_category: 家庭
 ```
 
 作用：
@@ -310,7 +328,9 @@ artifacts/semantic/
 - `label_embedding`
 - `metadata.semantic.task_description`
 - `metadata.semantic.capability_tags`
-- `metadata.semantic.action_slots`
+- `metadata.semantic.task_complexity`
+- `metadata.semantic.environment_tags`
+- `metadata.semantic.scene_category`
 
 这样可以直接接入仓库已有的 `FeatureStore` 和后续索引构建流程。
 
@@ -338,11 +358,12 @@ artifacts/semantic/
 两套 prompt 的职责分别是：
 
 - 描述提取 prompt：只输出 `task_description`
-- 标签提取 prompt：输出 `capability_tags` 与 `action_slots`
+- 标签提取 prompt：输出 `capability_tags`、`task_complexity`、`environment_tags`、`scene_category`
 
 taxonomy 约束只作用于标签提取 prompt。
 
 两套 prompt 都必须是单视频表述，不能再使用双视频联合输入的文案。
+描述 prompt 还必须明确要求忽略颜色信息。
 
 因此本阶段的 prompt 组合为：
 
@@ -355,9 +376,9 @@ taxonomy 约束只作用于标签提取 prompt。
 标准化步骤建议为：
 
 1. 调用描述提取 prompt，生成 `task_description`。
-2. 调用标签提取 prompt，生成 `capability_tags` 和 `action_slots`。
+2. 调用标签提取 prompt，生成 `capability_tags`、`task_complexity`、`environment_tags`、`scene_category`。
 3. 将 `capability_tags` 映射到 taxonomy。
-4. 检查 `action_slots.object` 和 `action_slots.target` 是否存在。
+4. 将 `task_complexity`、`environment_tags`、`scene_category` 映射到 taxonomy。
 5. 生成规范标签文本。
 6. 生成 `text_embedding` 和 `label_embedding`。
 
@@ -447,7 +468,7 @@ tests/test_semantic_pipeline.py
 
 重点验证：
 
-- schema 是否要求 `action_slots.object` 和 `action_slots.target`
+- schema 是否包含 `task_complexity`、`environment_tags`、`scene_category`
 - 描述 prompt 和标签 prompt 是否按预期渲染
 - taxonomy 映射是否正确
 - 解析失败样本是否进入错误池
@@ -632,8 +653,8 @@ tests/test_semantic_pipeline.py
 
 ## 12. 对当前代码的直接建议
 
-1. 扩展 `src/bise/modalities/semantic/schemas.py`，固定输出为 `task_description`、`capability_tags`、`action_slots`、`text_embedding`、`label_embedding`。
-2. 将 `action_slots.object` 和 `action_slots.target` 设为必填。
+1. 扩展 `src/bise/modalities/semantic/schemas.py`，固定输出为 `task_description`、`capability_tags`、`task_complexity`、`environment_tags`、`scene_category`、`text_embedding`、`label_embedding`。
+2. 在描述 prompt 中明确约束忽略颜色信息。
 3. 重写 `src/bise/modalities/semantic/prompts.py`，改为两套 prompt：描述提取 prompt 和标签提取 prompt；其中标签提取 prompt 支持 `with_taxonomy` / `without_taxonomy` 两个版本。
 4. 重写 `src/bise/modalities/semantic/vlm_client.py`，支持本地部署模型或远程 API。
 5. 新增 `normalizer.py` 和 `embedder.py`，将标签结果稳定写入 `label_embedding`。

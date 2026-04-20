@@ -40,10 +40,12 @@ class VLMClient:
 class StubVLMClient(VLMClient):
     def __init__(self, description_response: Optional[Dict[str, Any]] = None, label_response: Optional[Dict[str, Any]] = None):
         super().__init__(provider_name="stub", model_name="stub-model")
-        self._description_response = description_response or {"task_description": "the robot moves an object to a target"}
+        self._description_response = description_response or {"task_description": "the robot moves an object to a target location"}
         self._label_response = label_response or {
             "capability_tags": ["transport"],
-            "action_slots": {"object": "object", "target": "target", "verb": "move"},
+            "task_complexity": "低",
+            "environment_tags": ["无障碍物"],
+            "scene_category": "工业",
         }
 
     def annotate_description(self, payload: Dict[str, Any]) -> VLMResponse:
@@ -61,12 +63,14 @@ class OpenAICompatibleVLMClient(VLMClient):
         api_key: str = "",
         timeout_seconds: int = 120,
         max_retries: int = 3,
+        thinking_type: str = "enabled",
     ):
         super().__init__(provider_name="openai_compatible", model_name=model_name)
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.timeout_seconds = timeout_seconds
         self.max_retries = max_retries
+        self.thinking_type = _validate_thinking_type(thinking_type)
 
     def annotate_description(self, payload: Dict[str, Any]) -> VLMResponse:
         return self._chat_completion(payload)
@@ -115,6 +119,7 @@ class OpenAICompatibleVLMClient(VLMClient):
             "model": payload.get("model", self.model_name),
             "messages": messages,
             "temperature": payload.get("temperature", 0.0),
+            "thinking": {"type": payload.get("thinking_type", self.thinking_type)},
         }
         max_tokens = payload.get("max_tokens")
         if max_tokens is not None:
@@ -142,11 +147,22 @@ def build_vlm_client(config: Dict[str, Any]) -> VLMClient:
         return StubVLMClient()
     if provider_name == "openai_compatible":
         api_key = config.get("api_key", "")
+        api_key_env = config.get("api_key_env", "")
+        if not api_key and api_key_env:
+            api_key = os.environ.get(api_key_env, "")
         return OpenAICompatibleVLMClient(
             base_url=str(config["base_url"]),
             model_name=str(config["model_name"]),
             api_key=str(api_key),
             timeout_seconds=int(config.get("timeout_seconds", 120)),
             max_retries=int(config.get("max_retries", 3)),
+            thinking_type=str(config.get("thinking_type", "enabled")),
         )
     raise ValueError(f"Unsupported VLM provider: {provider_name}")
+
+
+def _validate_thinking_type(value: str) -> str:
+    normalized = str(value).strip().lower()
+    if normalized not in {"enabled", "disabled"}:
+        raise ValueError("thinking_type must be 'enabled' or 'disabled'.")
+    return normalized

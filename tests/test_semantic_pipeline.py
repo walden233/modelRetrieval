@@ -6,7 +6,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from bise.modalities.semantic.pipeline import run_semantic_annotation_pipeline
+from bise.modalities.semantic.pipeline import run_semantic_annotation_pipeline, slice_manifest_records
+from bise.modalities.semantic.schemas import SemanticManifestRecord
 
 
 def _write_json(path: Path, payload):
@@ -52,7 +53,12 @@ def test_semantic_pipeline_runs_end_to_end(tmp_path: Path):
     taxonomy_path = tmp_path / "taxonomy.json"
     _write_json(
         taxonomy_path,
-        {"allowed_tags": ["transport"], "tag_aliases": {"move": "transport"}},
+        {
+            "capability_tags": {"allowed_tags": ["transport"], "tag_aliases": {"move": "transport"}},
+            "task_complexity_options": ["高", "中", "低", "unknown"],
+            "environment_tags": {"allowed_tags": ["无障碍物", "动态环境", "unknown"], "tag_aliases": {}},
+            "scene_category_options": ["工业", "家庭", "医疗", "室外", "unknown"],
+        },
     )
     desc_prompt_path = tmp_path / "prompt_description.json"
     _write_json(
@@ -71,7 +77,12 @@ def test_semantic_pipeline_runs_end_to_end(tmp_path: Path):
             "version": "label_prompt_v1",
             "system_prompt": "Return JSON",
             "user_template": "Label sample {sample_id}",
-            "output_schema": {"capability_tags": ["string"], "action_slots": {"object": "string", "target": "string"}},
+            "output_schema": {
+                "capability_tags": ["string"],
+                "task_complexity": "string",
+                "environment_tags": ["string"],
+                "scene_category": "string"
+            },
         },
     )
 
@@ -105,3 +116,20 @@ def test_semantic_pipeline_runs_end_to_end(tmp_path: Path):
 
     rerun = run_semantic_annotation_pipeline(config)
     assert rerun["count"] == 1
+
+
+def test_slice_manifest_records_honors_start_end_indices():
+    records = [
+        SemanticManifestRecord(
+            sample_id=f"sample_{index}",
+            pair_id=f"pair_{index}",
+            task_id="task_1",
+            scene_id=f"scene_{index}",
+            dataset_name="RH20T",
+            video_role="robot",
+            video_path=f"/tmp/{index}.mp4",
+        )
+        for index in range(5)
+    ]
+    sliced = slice_manifest_records(records, start_index=1, end_index=3)
+    assert [record.sample_id for record in sliced] == ["sample_1", "sample_2"]

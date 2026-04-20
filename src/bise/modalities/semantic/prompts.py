@@ -31,14 +31,33 @@ def _render_examples(examples: Iterable[Dict[str, Any]]) -> str:
 def _render_taxonomy(taxonomy: Dict[str, Any] | None) -> str:
     if not taxonomy:
         return ""
-    tags = taxonomy.get("allowed_tags", [])
-    aliases = taxonomy.get("tag_aliases", {})
-    return "\n".join(
-        [
-            f"Allowed tags: {', '.join(tags)}" if tags else "",
-            f"Tag aliases: {json.dumps(aliases, ensure_ascii=False)}" if aliases else "",
-        ]
-    ).strip()
+    lines: List[str] = []
+
+    capability_config = taxonomy.get("capability_tags", {})
+    capability_tags = capability_config.get("allowed_tags", [])
+    capability_aliases = capability_config.get("tag_aliases", {})
+    if capability_tags:
+        lines.append(f"Allowed capability tags: {', '.join(capability_tags)}")
+    if capability_aliases:
+        lines.append(f"Capability tag aliases: {json.dumps(capability_aliases, ensure_ascii=False)}")
+
+    task_complexity_options = taxonomy.get("task_complexity_options", [])
+    if task_complexity_options:
+        lines.append(f"Allowed task complexity values: {', '.join(task_complexity_options)}")
+
+    environment_config = taxonomy.get("environment_tags", {})
+    environment_tags = environment_config.get("allowed_tags", [])
+    environment_aliases = environment_config.get("tag_aliases", {})
+    if environment_tags:
+        lines.append(f"Allowed environment tags: {', '.join(environment_tags)}")
+    if environment_aliases:
+        lines.append(f"Environment tag aliases: {json.dumps(environment_aliases, ensure_ascii=False)}")
+
+    scene_category_options = taxonomy.get("scene_category_options", [])
+    if scene_category_options:
+        lines.append(f"Allowed scene categories: {', '.join(scene_category_options)}")
+
+    return "\n".join(lines).strip()
 
 
 def build_description_prompt(

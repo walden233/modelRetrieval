@@ -30,14 +30,18 @@ def evaluate_label_predictions(
     predictions: Sequence[SemanticAnnotation],
     gold_records: Sequence[Dict[str, Any]],
 ) -> Dict[str, Any]:
-    gold_map = {str(record["sample_id"]): {str(tag) for tag in record.get("capability_tags", [])} for record in gold_records}
+    gold_map = {str(record["sample_id"]): record for record in gold_records}
     rows: List[LabelEvaluationRecord] = []
     total_tp = total_fp = total_fn = 0
     exact_matches = 0
+    task_complexity_matches = 0
+    scene_category_matches = 0
+    environment_exact_matches = 0
     for prediction in predictions:
-        gold_tags = gold_map.get(prediction.sample_id)
-        if gold_tags is None:
+        gold_record = gold_map.get(prediction.sample_id)
+        if gold_record is None:
             continue
+        gold_tags = {str(tag) for tag in gold_record.get("capability_tags", [])}
         predicted_tags = set(prediction.capability_tags)
         tp = len(predicted_tags & gold_tags)
         fp = len(predicted_tags - gold_tags)
@@ -46,21 +50,31 @@ def evaluate_label_predictions(
         recall = tp / (tp + fn) if tp + fn else 0.0
         f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
         exact_match = predicted_tags == gold_tags
+        task_complexity_match = prediction.task_complexity == str(gold_record.get("task_complexity", "unknown"))
+        scene_category_match = prediction.scene_category == str(gold_record.get("scene_category", "unknown"))
+        gold_environment_tags = {str(tag) for tag in gold_record.get("environment_tags", [])}
+        environment_exact_match = set(prediction.environment_tags) == gold_environment_tags
         rows.append(
             LabelEvaluationRecord(
                 sample_id=prediction.sample_id,
-                predicted_tags=sorted(predicted_tags),
-                gold_tags=sorted(gold_tags),
-                precision=precision,
-                recall=recall,
-                f1=f1,
-                exact_match=exact_match,
+                predicted_capability_tags=sorted(predicted_tags),
+                gold_capability_tags=sorted(gold_tags),
+                capability_precision=precision,
+                capability_recall=recall,
+                capability_f1=f1,
+                capability_exact_match=exact_match,
+                task_complexity_match=task_complexity_match,
+                scene_category_match=scene_category_match,
+                environment_exact_match=environment_exact_match,
             )
         )
         total_tp += tp
         total_fp += fp
         total_fn += fn
         exact_matches += int(exact_match)
+        task_complexity_matches += int(task_complexity_match)
+        scene_category_matches += int(scene_category_match)
+        environment_exact_matches += int(environment_exact_match)
     micro_precision = total_tp / (total_tp + total_fp) if total_tp + total_fp else 0.0
     micro_recall = total_tp / (total_tp + total_fn) if total_tp + total_fn else 0.0
     micro_f1 = (
@@ -73,7 +87,10 @@ def evaluate_label_predictions(
         "precision": micro_precision,
         "recall": micro_recall,
         "f1": micro_f1,
-        "exact_match": exact_matches / len(rows) if rows else 0.0,
+        "capability_exact_match": exact_matches / len(rows) if rows else 0.0,
+        "task_complexity_match_rate": task_complexity_matches / len(rows) if rows else 0.0,
+        "scene_category_match_rate": scene_category_matches / len(rows) if rows else 0.0,
+        "environment_exact_match_rate": environment_exact_matches / len(rows) if rows else 0.0,
         "rows": [row.to_dict() for row in rows],
     }
 

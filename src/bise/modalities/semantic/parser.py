@@ -4,7 +4,7 @@ import json
 import re
 from typing import Any, Dict
 
-from bise.modalities.semantic.schemas import ActionSlots, ParsedLabelResult
+from bise.modalities.semantic.schemas import ParsedLabelResult
 from bise.modalities.semantic.vlm_client import VLMResponse
 
 
@@ -41,15 +41,17 @@ def parse_description_response(raw_response: VLMResponse | Dict[str, Any] | str)
 
 def parse_label_response(raw_response: VLMResponse | Dict[str, Any] | str) -> ParsedLabelResult:
     payload = _coerce_payload(raw_response)
-    tags = payload.get("capability_tags", [])
-    if not isinstance(tags, list):
+    capability_tags = payload.get("capability_tags", [])
+    environment_tags = payload.get("environment_tags", [])
+    if not isinstance(capability_tags, list):
         raise SemanticParseError("capability_tags must be a list.")
-    action_slots_payload = payload.get("action_slots")
-    if not isinstance(action_slots_payload, dict):
-        raise SemanticParseError("action_slots must be an object.")
+    if not isinstance(environment_tags, list):
+        raise SemanticParseError("environment_tags must be a list.")
     return ParsedLabelResult(
-        capability_tags=[str(tag).strip() for tag in tags if str(tag).strip()],
-        action_slots=ActionSlots.from_dict(action_slots_payload),
+        capability_tags=[str(tag).strip() for tag in capability_tags if str(tag).strip()],
+        task_complexity=str(payload.get("task_complexity", "unknown")).strip(),
+        environment_tags=[str(tag).strip() for tag in environment_tags if str(tag).strip()],
+        scene_category=str(payload.get("scene_category", "unknown")).strip(),
         raw_payload=payload,
     )
 

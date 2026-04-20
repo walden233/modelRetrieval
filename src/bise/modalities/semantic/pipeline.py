@@ -13,8 +13,10 @@ from bise.modalities.semantic.embedder import build_text_embedder
 from bise.modalities.semantic.evaluator import load_jsonl, save_jsonl
 from bise.modalities.semantic.normalizer import (
     build_label_canonical_text,
-    normalize_action_slots,
     normalize_capability_tags,
+    normalize_environment_tags,
+    normalize_scene_category,
+    normalize_task_complexity,
     validate_annotation,
 )
 from bise.modalities.semantic.paths import materialize_pipeline_paths
@@ -35,6 +37,20 @@ def save_manifest(path: str | Path, records: Iterable[SemanticManifestRecord]) -
     save_jsonl(path, [record.to_dict() for record in records])
 
 
+def slice_manifest_records(
+    records: List[SemanticManifestRecord],
+    start_index: int | None = 0,
+    end_index: int | None = None,
+) -> List[SemanticManifestRecord]:
+    start = 0 if start_index is None else int(start_index)
+    end = None if end_index is None else int(end_index)
+    if start < 0:
+        raise ValueError("manifest_start_index must be >= 0.")
+    if end is not None and end < start:
+        raise ValueError("manifest_end_index must be >= manifest_start_index.")
+    return records[start:end]
+
+
 def run_semantic_annotation_pipeline(config: Dict[str, Any]) -> Dict[str, Any]:
     config = materialize_pipeline_paths(config)
     manifest_path = resolve_path(config["manifest_path"])
@@ -53,6 +69,11 @@ def run_semantic_annotation_pipeline(config: Dict[str, Any]) -> Dict[str, Any]:
     ensure_directory(feature_store_path.parent)
 
     manifest_records = load_manifest(manifest_path)
+    selected_manifest_records = slice_manifest_records(
+        manifest_records,
+        start_index=config.get("manifest_start_index", 0),
+        end_index=config.get("manifest_end_index"),
+    )
     taxonomy = _load_json(config["taxonomy_config_path"])
     description_prompt_config_path = config["description_prompt_config_path"]
     label_prompt_config_path = config["label_prompt_config_path"]
@@ -71,7 +92,7 @@ def run_semantic_annotation_pipeline(config: Dict[str, Any]) -> Dict[str, Any]:
     label_vectors: List[List[float]] = []
     sample_ids: List[str] = []
 
-    for record in manifest_records:
+    for record in selected_manifest_records:
         if config.get("skip_completed", True) and record.status == "completed" and record.sample_id in existing_annotations:
             annotation = existing_annotations[record.sample_id]
         else:
@@ -112,7 +133,8 @@ def run_semantic_annotation_pipeline(config: Dict[str, Any]) -> Dict[str, Any]:
     feature_store.save(_build_feature_store_samples(annotations))
     return {
         "count": len(annotations),
-        "failed": len([record for record in manifest_records if record.status == "failed"]),
+        "selected_count": len(selected_manifest_records),
+        "failed": len([record for record in selected_manifest_records if record.status == "failed"]),
         "feature_store_path": str(feature_store_path),
     }
 
@@ -166,9 +188,16 @@ def _process_manifest_record(
     )
     parsed_labels = parse_label_response(label_response)
     normalized_tags = normalize_capability_tags(parsed_labels.capability_tags, taxonomy)
-    action_slots = normalize_action_slots(parsed_labels.action_slots)
-    validate_annotation(task_description, normalized_tags, action_slots)
-    label_canonical_text = build_label_canonical_text(normalized_tags, action_slots)
+    task_complexity = normalize_task_complexity(parsed_labels.task_complexity, taxonomy)
+    environment_tags = normalize_environment_tags(parsed_labels.environment_tags, taxonomy)
+    scene_category = normalize_scene_category(parsed_labels.scene_category, taxonomy)
+    validate_annotation(task_description, normalized_tags, task_complexity, environment_tags, scene_category)
+    label_canonical_text = build_label_canonical_text(
+        normalized_tags,
+        task_complexity,
+        environment_tags,
+        scene_category,
+    )
     text_embedding = embedder.encode_texts([task_description])[0].astype(np.float32).tolist()
     label_embedding = embedder.encode_texts([label_canonical_text])[0].astype(np.float32).tolist()
 
@@ -187,7 +216,9 @@ def _process_manifest_record(
         ),
         task_description=task_description,
         capability_tags=normalized_tags,
-        action_slots=action_slots,
+        task_complexity=task_complexity,
+        environment_tags=environment_tags,
+        scene_category=scene_category,
         label_canonical_text=label_canonical_text,
         metadata={
             "description_prompt_version": description_prompt["version"],
@@ -291,7 +322,9 @@ def _build_feature_store_samples(annotations: Iterable[SemanticAnnotation]) -> L
                         "cam_id": annotation.cam_id,
                         "task_description": annotation.task_description,
                         "capability_tags": annotation.capability_tags,
-                        "action_slots": annotation.action_slots.to_dict(),
+                        "task_complexity": annotation.task_complexity,
+                        "environment_tags": annotation.environment_tags,
+                        "scene_category": annotation.scene_category,
                     }
                 },
             )
