@@ -30,4 +30,8 @@ def materialize_pipeline_paths(config: Dict[str, Any]) -> Dict[str, Any]:
     merged.setdefault("errors_path", str(root / "errors" / "failed_samples.jsonl"))
     merged.setdefault("feature_store_path", str(root / "feature_store" / "semantic_features.json"))
     merged.setdefault("cache_path", str(root / "cache" / "semantic_cache.json"))
+    merged.setdefault("batch_requests_dir", str(root / "batch" / "requests"))
+    merged.setdefault("batch_request_manifest_path", str(root / "batch" / "request_files.json"))
+    merged.setdefault("batch_jobs_path", str(root / "batch" / "jobs.json"))
+    merged.setdefault("batch_download_dir", str(root / "batch" / "downloads"))
     return merged

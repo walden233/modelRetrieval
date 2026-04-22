@@ -120,26 +120,11 @@ class OpenAICompatibleVLMClient(VLMClient):
         return VLMResponse(content=str(content), metadata=metadata)
 
     def _build_request_body(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        prompt = str(payload["prompt"])
-        system_prompt = str(payload.get("system_prompt", "")).strip()
-        frames = payload.get("frames", [])
-        content: List[Dict[str, Any]] = [{"type": "text", "text": prompt}]
-        for frame in frames:
-            content.append({"type": "image_url", "image_url": {"url": _frame_to_data_url(frame)}})
-        messages: List[Dict[str, Any]] = []
-        if system_prompt:
-            messages.append({"role": "system", "content": [{"type": "text", "text": system_prompt}]})
-        messages.append({"role": "user", "content": content})
-        body = {
-            "model": payload.get("model", self.model_name),
-            "messages": messages,
-            "temperature": payload.get("temperature", 0.0),
-            "thinking": {"type": payload.get("thinking_type", self.thinking_type)},
-        }
-        max_tokens = payload.get("max_tokens")
-        if max_tokens is not None:
-            body["max_tokens"] = max_tokens
-        return body
+        return build_openai_chat_completion_body(
+            payload,
+            default_model_name=self.model_name,
+            default_thinking_type=self.thinking_type,
+        )
 
 
 def _frame_to_data_url(frame: Any) -> str:
@@ -174,6 +159,33 @@ def build_vlm_client(config: Dict[str, Any]) -> VLMClient:
             thinking_type=str(config.get("thinking_type", "enabled")),
         )
     raise ValueError(f"Unsupported VLM provider: {provider_name}")
+
+
+def build_openai_chat_completion_body(
+    payload: Dict[str, Any],
+    default_model_name: str,
+    default_thinking_type: str = "enabled",
+) -> Dict[str, Any]:
+    prompt = str(payload["prompt"])
+    system_prompt = str(payload.get("system_prompt", "")).strip()
+    frames = payload.get("frames", [])
+    content: List[Dict[str, Any]] = [{"type": "text", "text": prompt}]
+    for frame in frames:
+        content.append({"type": "image_url", "image_url": {"url": _frame_to_data_url(frame)}})
+    messages: List[Dict[str, Any]] = []
+    if system_prompt:
+        messages.append({"role": "system", "content": [{"type": "text", "text": system_prompt}]})
+    messages.append({"role": "user", "content": content})
+    body = {
+        "model": payload.get("model", default_model_name),
+        "messages": messages,
+        "temperature": payload.get("temperature", 0.0),
+        "thinking": {"type": payload.get("thinking_type", default_thinking_type)},
+    }
+    max_tokens = payload.get("max_tokens")
+    if max_tokens is not None:
+        body["max_tokens"] = max_tokens
+    return body
 
 
 def _validate_thinking_type(value: str) -> str:
