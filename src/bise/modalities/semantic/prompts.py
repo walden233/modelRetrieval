@@ -118,8 +118,40 @@ def build_label_prompt(
     }
 
 
+def build_joint_prompt(
+    manifest_record: SemanticManifestRecord,
+    prompt_config_path: str | Path,
+    taxonomy: Dict[str, Any] | None = None,
+) -> Dict[str, str]:
+    template = _load_prompt_template(prompt_config_path)
+    video_role_phrase = _video_role_phrase(manifest_record.video_role)
+    prompt_body = template.user_template.format(
+        sample_id=manifest_record.sample_id,
+        pair_id=manifest_record.pair_id,
+        task_id=manifest_record.task_id,
+        scene_id=manifest_record.scene_id,
+        dataset_name=manifest_record.dataset_name,
+        video_role=manifest_record.video_role,
+        video_role_phrase=video_role_phrase,
+    )
+    taxonomy_text = _render_taxonomy(taxonomy)
+    if taxonomy_text:
+        prompt_body = f"{prompt_body}\n\n{taxonomy_text}"
+    examples = _render_examples(template.examples)
+    if examples:
+        prompt_body = f"{prompt_body}\n\n{examples}"
+    if template.output_schema:
+        prompt_body = f"{prompt_body}\n\nOutput schema:\n{json.dumps(template.output_schema, indent=2, ensure_ascii=False)}"
+    return {
+        "version": template.version,
+        "system_prompt": template.system_prompt,
+        "user_prompt": prompt_body.strip(),
+    }
+
+
 LABEL_PROMPT = "Use build_label_prompt() with config-backed templates."
 TASK_DESCRIPTION_PROMPT = "Use build_description_prompt() with config-backed templates."
+JOINT_SEMANTIC_PROMPT = "Use build_joint_prompt() with config-backed templates."
 
 
 def _video_role_phrase(video_role: str) -> str:

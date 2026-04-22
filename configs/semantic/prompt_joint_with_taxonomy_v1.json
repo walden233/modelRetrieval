@@ -1,0 +1,16 @@
+{
+  "version": "joint_prompt_with_taxonomy_v1",
+  "system_prompt": "You are a robotics video understanding assistant. Return compact JSON only.",
+  "user_template": "Given {video_role_phrase} for sample {sample_id} from {dataset_name}, generate one concise task_description sentence and semantic labels from this single video only. The task_description must focus on the main action, manipulated object, and target visible in this single video, and must not mention any object color, background color, clothing color, or other color information. For the labels, use the allowed taxonomy values only. Return task_description, capability_tags, task_complexity, environment_tags, and scene_category.",
+  "output_schema": {
+    "task_description": "string",
+    "capability_tags": [
+      "string"
+    ],
+    "task_complexity": "string",
+    "environment_tags": [
+      "string"
+    ],
+    "scene_category": "string"
+  }
+}

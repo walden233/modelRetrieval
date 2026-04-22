@@ -17,6 +17,7 @@ class SemanticManifestRecord:
     cam_id: str = ""
     description_prompt_version: str = "description_prompt_v1"
     label_prompt_version: str = "label_prompt_with_taxonomy_v1"
+    joint_prompt_version: str = "joint_prompt_with_taxonomy_v1"
     taxonomy_version: str = "taxonomy_v1"
     status: str = "pending"
     metadata: Dict[str, Any] = field(default_factory=dict)
@@ -38,6 +39,7 @@ class SemanticManifestRecord:
             cam_id=str(payload.get("cam_id", "")),
             description_prompt_version=str(payload.get("description_prompt_version", "description_prompt_v1")),
             label_prompt_version=str(payload.get("label_prompt_version", "label_prompt_with_taxonomy_v1")),
+            joint_prompt_version=str(payload.get("joint_prompt_version", "joint_prompt_with_taxonomy_v1")),
             taxonomy_version=str(payload.get("taxonomy_version", "taxonomy_v1")),
             status=str(payload.get("status", "pending")),
             metadata=dict(payload.get("metadata", {})),
@@ -145,6 +147,16 @@ class PromptTemplate:
 
 @dataclass
 class ParsedLabelResult:
+    capability_tags: List[str]
+    task_complexity: str
+    environment_tags: List[str]
+    scene_category: str
+    raw_payload: Optional[Dict[str, Any]] = None
+
+
+@dataclass
+class ParsedSemanticResult:
+    task_description: str
     capability_tags: List[str]
     task_complexity: str
     environment_tags: List[str]

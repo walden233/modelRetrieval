@@ -5,7 +5,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from bise.modalities.semantic.parser import SemanticParseError, parse_description_response, parse_label_response
+from bise.modalities.semantic.parser import SemanticParseError, parse_description_response, parse_joint_response, parse_label_response
 
 
 def test_parse_description_from_json_string():
@@ -31,3 +31,19 @@ def test_parse_label_response_from_code_fence():
 def test_parse_invalid_json_raises():
     with pytest.raises(SemanticParseError):
         parse_description_response("not-json")
+
+
+def test_parse_joint_response_from_json_string():
+    payload = """
+    {
+      "task_description": "the robot transports an object to a target location",
+      "capability_tags": ["transport"],
+      "task_complexity": "低",
+      "environment_tags": ["无障碍物"],
+      "scene_category": "工业"
+    }
+    """
+    parsed = parse_joint_response(payload)
+    assert parsed.task_description == "the robot transports an object to a target location"
+    assert parsed.capability_tags == ["transport"]
+    assert parsed.task_complexity == "低"

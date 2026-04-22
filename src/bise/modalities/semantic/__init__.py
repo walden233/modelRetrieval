@@ -1,10 +1,11 @@
 from .cache import JsonCache
 from .paths import materialize_pipeline_paths, semantic_output_root
-from .prompts import LABEL_PROMPT, TASK_DESCRIPTION_PROMPT, build_description_prompt, build_label_prompt
+from .prompts import JOINT_SEMANTIC_PROMPT, LABEL_PROMPT, TASK_DESCRIPTION_PROMPT, build_description_prompt, build_joint_prompt, build_label_prompt
 from .schemas import (
     DescriptionReviewRecord,
     LabelEvaluationRecord,
     ParsedLabelResult,
+    ParsedSemanticResult,
     PromptTemplate,
     SemanticAnnotation,
     SemanticEmbeddingRecord,
@@ -23,11 +24,13 @@ from .vlm_client import (
 __all__ = [
     "DescriptionReviewRecord",
     "JsonCache",
+    "JOINT_SEMANTIC_PROMPT",
     "LABEL_PROMPT",
     "LabelEvaluationRecord",
     "materialize_pipeline_paths",
     "OpenAICompatibleVLMClient",
     "ParsedLabelResult",
+    "ParsedSemanticResult",
     "PromptTemplate",
     "SemanticAnnotation",
     "SemanticEmbeddingRecord",
@@ -40,6 +43,7 @@ __all__ = [
     "VLMResponse",
     "VLMResponseParseError",
     "build_description_prompt",
+    "build_joint_prompt",
     "build_label_prompt",
     "build_vlm_client",
 ]

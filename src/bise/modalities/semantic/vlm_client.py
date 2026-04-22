@@ -36,9 +36,17 @@ class VLMClient:
     def annotate_labels(self, payload: Dict[str, Any]) -> VLMResponse:
         raise NotImplementedError
 
+    def annotate_semantics(self, payload: Dict[str, Any]) -> VLMResponse:
+        raise NotImplementedError
+
 
 class StubVLMClient(VLMClient):
-    def __init__(self, description_response: Optional[Dict[str, Any]] = None, label_response: Optional[Dict[str, Any]] = None):
+    def __init__(
+        self,
+        description_response: Optional[Dict[str, Any]] = None,
+        label_response: Optional[Dict[str, Any]] = None,
+        semantic_response: Optional[Dict[str, Any]] = None,
+    ):
         super().__init__(provider_name="stub", model_name="stub-model")
         self._description_response = description_response or {"task_description": "the robot moves an object to a target location"}
         self._label_response = label_response or {
@@ -47,12 +55,16 @@ class StubVLMClient(VLMClient):
             "environment_tags": ["无障碍物"],
             "scene_category": "工业",
         }
+        self._semantic_response = semantic_response or {**self._description_response, **self._label_response}
 
     def annotate_description(self, payload: Dict[str, Any]) -> VLMResponse:
         return VLMResponse(content=json.dumps(self._description_response, ensure_ascii=False), metadata={"provider": self.provider_name})
 
     def annotate_labels(self, payload: Dict[str, Any]) -> VLMResponse:
         return VLMResponse(content=json.dumps(self._label_response, ensure_ascii=False), metadata={"provider": self.provider_name})
+
+    def annotate_semantics(self, payload: Dict[str, Any]) -> VLMResponse:
+        return VLMResponse(content=json.dumps(self._semantic_response, ensure_ascii=False), metadata={"provider": self.provider_name})
 
 
 class OpenAICompatibleVLMClient(VLMClient):
@@ -76,6 +88,9 @@ class OpenAICompatibleVLMClient(VLMClient):
         return self._chat_completion(payload)
 
     def annotate_labels(self, payload: Dict[str, Any]) -> VLMResponse:
+        return self._chat_completion(payload)
+
+    def annotate_semantics(self, payload: Dict[str, Any]) -> VLMResponse:
         return self._chat_completion(payload)
 
     def _chat_completion(self, payload: Dict[str, Any]) -> VLMResponse:

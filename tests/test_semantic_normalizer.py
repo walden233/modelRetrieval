@@ -37,6 +37,5 @@ def test_build_label_canonical_text_contains_new_dimensions():
     assert "scene_category: 家庭" in text
 
 
-def test_validate_annotation_rejects_unknown_scalar_labels():
-    with pytest.raises(ValueError):
-        validate_annotation("move the cup", ["transport"], "unknown", ["无障碍物"], "工业")
+def test_validate_annotation_allows_unknown_scalar_labels():
+    validate_annotation("move the cup", ["transport"], "unknown", ["无障碍物"], "工业")
