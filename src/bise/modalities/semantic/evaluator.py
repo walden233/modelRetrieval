@@ -119,31 +119,52 @@ def evaluate_semantic_retrieval(
     return calculate_retrieval_metrics_grouped(similarity_matrix, group_size=group_size)
 
 
-def evaluate_semantic_retrieval_by_task(
+def evaluate_semantic_retrieval_by_key(
     query_embeddings: np.ndarray,
-    query_task_ids: Sequence[str],
+    query_keys: Sequence[str],
     gallery_embeddings: np.ndarray,
-    gallery_task_ids: Sequence[str],
+    gallery_keys: Sequence[str],
+    query_sample_ids: Sequence[str] | None = None,
+    gallery_sample_ids: Sequence[str] | None = None,
+    exclude_self: bool = False,
 ) -> Dict[str, float]:
-    if len(query_embeddings) != len(query_task_ids):
-        raise ValueError("query_embeddings and query_task_ids length mismatch.")
-    if len(gallery_embeddings) != len(gallery_task_ids):
-        raise ValueError("gallery_embeddings and gallery_task_ids length mismatch.")
+    if len(query_embeddings) != len(query_keys):
+        raise ValueError("query_embeddings and query_keys length mismatch.")
+    if len(gallery_embeddings) != len(gallery_keys):
+        raise ValueError("gallery_embeddings and gallery_keys length mismatch.")
+    if query_sample_ids is not None and len(query_sample_ids) != len(query_embeddings):
+        raise ValueError("query_sample_ids and query_embeddings length mismatch.")
+    if gallery_sample_ids is not None and len(gallery_sample_ids) != len(gallery_embeddings):
+        raise ValueError("gallery_sample_ids and gallery_embeddings length mismatch.")
     similarity_matrix = query_embeddings @ gallery_embeddings.T
     ranks: List[int] = []
-    for index, query_task_id in enumerate(query_task_ids):
-        positives = {candidate_index for candidate_index, task_id in enumerate(gallery_task_ids) if task_id == query_task_id}
+    valid_query_count = 0
+    for index, query_key in enumerate(query_keys):
+        positives = {
+            candidate_index
+            for candidate_index, gallery_key in enumerate(gallery_keys)
+            if gallery_key == query_key
+        }
+        if exclude_self and query_sample_ids is not None and gallery_sample_ids is not None:
+            positives = {
+                candidate_index
+                for candidate_index in positives
+                if gallery_sample_ids[candidate_index] != query_sample_ids[index]
+            }
         if not positives:
             continue
+        valid_query_count += 1
         sorted_indices = np.argsort(-similarity_matrix[index])
         for rank, candidate_index in enumerate(sorted_indices, start=1):
             if candidate_index in positives:
                 ranks.append(rank)
                 break
     if not ranks:
-        return {"R@1": 0.0, "R@5": 0.0, "R@10": 0.0, "MRR": 0.0, "Mean Rank": 0.0}
+        return {"query_count": len(query_keys), "valid_query_count": valid_query_count, "R@1": 0.0, "R@5": 0.0, "R@10": 0.0, "MRR": 0.0, "Mean Rank": 0.0}
     rank_array = np.asarray(ranks)
     return {
+        "query_count": len(query_keys),
+        "valid_query_count": valid_query_count,
         "R@1": float(np.mean(rank_array <= 1)),
         "R@5": float(np.mean(rank_array <= 5)),
         "R@10": float(np.mean(rank_array <= 10)),
@@ -155,8 +176,108 @@ def evaluate_semantic_retrieval_by_task(
 def split_cross_role_annotations(
     annotations: Sequence[SemanticAnnotation],
 ) -> tuple[list[SemanticAnnotation], list[SemanticAnnotation]]:
-    human_annotations = [annotation for annotation in annotations if annotation.video_role == "human"]
-    robot_annotations = [annotation for annotation in annotations if annotation.video_role == "robot"]
-    if human_annotations and robot_annotations:
-        return human_annotations, robot_annotations
+    return split_annotations_by_role(annotations, query_role="human", gallery_role="robot")
+
+
+def split_annotations_by_role(
+    annotations: Sequence[SemanticAnnotation],
+    query_role: str,
+    gallery_role: str,
+) -> tuple[list[SemanticAnnotation], list[SemanticAnnotation]]:
+    normalized_query_role = str(query_role).strip().lower()
+    normalized_gallery_role = str(gallery_role).strip().lower()
+    query_annotations = [annotation for annotation in annotations if annotation.video_role.strip().lower() == normalized_query_role]
+    gallery_annotations = [annotation for annotation in annotations if annotation.video_role.strip().lower() == normalized_gallery_role]
+    query_annotations = _sort_annotations_for_retrieval(query_annotations)
+    gallery_annotations = _sort_annotations_for_retrieval(gallery_annotations)
+    if query_annotations and gallery_annotations:
+        return query_annotations, gallery_annotations
     return list(annotations), list(annotations)
+
+
+def extract_annotation_embeddings(
+    annotations: Sequence[SemanticAnnotation],
+    mode: str,
+) -> tuple[np.ndarray, list[str], list[str]]:
+    embeddings: List[np.ndarray] = []
+    keys: List[str] = []
+    sample_ids: List[str] = []
+    normalized_mode = str(mode).strip().lower()
+    for annotation in annotations:
+        metadata = annotation.metadata
+        text_embedding = metadata.get("text_embedding")
+        label_embedding = metadata.get("label_embedding")
+        if text_embedding is None or label_embedding is None:
+            raise ValueError(f"Annotation {annotation.sample_id} is missing text_embedding or label_embedding in metadata.")
+        text_vector = _normalize_vector(np.asarray(text_embedding, dtype=np.float32))
+        label_vector = _normalize_vector(np.asarray(label_embedding, dtype=np.float32))
+        if normalized_mode == "text":
+            vector = text_vector
+        elif normalized_mode == "label":
+            vector = label_vector
+        elif normalized_mode == "combined":
+            vector = _normalize_vector(text_vector + label_vector)
+        else:
+            raise ValueError("mode must be one of: text, label, combined")
+        embeddings.append(vector)
+        sample_ids.append(annotation.sample_id)
+        keys.append(annotation.pair_id)
+    if not embeddings:
+        return np.zeros((0, 0), dtype=np.float32), keys, sample_ids
+    return np.vstack(embeddings).astype(np.float32), keys, sample_ids
+
+
+def evaluate_annotation_retrieval(
+    query_annotations: Sequence[SemanticAnnotation],
+    gallery_annotations: Sequence[SemanticAnnotation],
+    mode: str,
+    positive_key: str = "pair_id",
+    exclude_self: bool = False,
+) -> Dict[str, float]:
+    query_embeddings, _, query_sample_ids = extract_annotation_embeddings(query_annotations, mode)
+    gallery_embeddings, _, gallery_sample_ids = extract_annotation_embeddings(gallery_annotations, mode)
+    query_keys = extract_positive_keys(query_annotations, positive_key)
+    gallery_keys = extract_positive_keys(gallery_annotations, positive_key)
+    return evaluate_semantic_retrieval_by_key(
+        query_embeddings=query_embeddings,
+        query_keys=query_keys,
+        gallery_embeddings=gallery_embeddings,
+        gallery_keys=gallery_keys,
+        query_sample_ids=query_sample_ids,
+        gallery_sample_ids=gallery_sample_ids,
+        exclude_self=exclude_self,
+    )
+
+
+def extract_positive_keys(
+    annotations: Sequence[SemanticAnnotation],
+    positive_key: str,
+) -> list[str]:
+    key_name = str(positive_key).strip()
+    allowed = {"pair_id", "task_id", "scene_id", "sample_id"}
+    if key_name not in allowed:
+        raise ValueError(f"positive_key must be one of: {', '.join(sorted(allowed))}")
+    return [str(getattr(annotation, key_name)) for annotation in annotations]
+
+
+def load_semantic_annotations(path: str | Path) -> List[SemanticAnnotation]:
+    annotations = [SemanticAnnotation.from_dict(record) for record in load_jsonl(path)]
+    return _sort_annotations_for_retrieval([annotation for annotation in annotations if annotation.status == "success"])
+
+
+def _sort_annotations_for_retrieval(annotations: Sequence[SemanticAnnotation]) -> list[SemanticAnnotation]:
+    return sorted(
+        annotations,
+        key=lambda item: (
+            item.pair_id,
+            item.video_role,
+            item.sample_id,
+        ),
+    )
+
+
+def _normalize_vector(vector: np.ndarray) -> np.ndarray:
+    norm = np.linalg.norm(vector)
+    if norm <= 0:
+        return vector
+    return vector / norm
