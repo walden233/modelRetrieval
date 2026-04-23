@@ -1,55 +1,50 @@
 {
-  "experiment_name": "video_vjepa_whirl",
+  "experiment_name": "video_vjepa_whirl_debug",
   "output_dir": "artifacts/runs/video",
   "dataset": {
     "type": "whirl",
     "csv_path": "dataset/whirl_videos/dataset.csv",
-    "num_frames": 16,
+    "num_frames": 8,
     "sampling_strategy": "uniform",
-    "train_augmentations": {
-      "brightness_jitter": 0.05,
-      "noise_std": 0.01,
-      "temporal_roll_max": 1
-    }
+    "debug_max_samples": 8
   },
   "split": {
     "unit": "sample",
     "seed": 42,
     "ratios": {
-      "train": 0.7,
-      "val": 0.15,
-      "test": 0.15
+      "train": 0.75,
+      "val": 0.25,
+      "test": 0.0
     }
   },
   "model": {
     "backbone_type": "vjepa",
     "backbone_name": "facebook/vjepa2-vitl-fpc64-256",
-    "encoder_mode": "dual_head",
-    "feature_dim": 128,
+    "encoder_mode": "shared",
+    "feature_dim": 64,
     "dropout": 0.1,
     "temperature": 0.07,
-    "freeze_backbone": false,
-    "unfreeze_last_n_blocks": 2
+    "freeze_backbone": true
   },
   "loss": {
-    "name": "multi_positive",
+    "name": "info_nce",
     "positive_level": "task",
     "lambda_intra": 0.0,
     "temperature": 0.07
   },
   "optimization": {
-    "learning_rate": 1e-5,
-    "weight_decay": 0.01,
+    "learning_rate": 2e-4,
+    "weight_decay": 0.0,
     "scheduler": "linear",
-    "warmup_ratio": 0.05,
+    "warmup_ratio": 0.0,
     "grad_clip_norm": 1.0
   },
   "training": {
-    "batch_size": 4,
-    "eval_batch_size": 4,
-    "num_epochs": 5,
+    "batch_size": 2,
+    "eval_batch_size": 2,
+    "num_epochs": 1,
     "num_workers": 0,
-    "amp": true,
+    "amp": false,
     "gradient_accumulation_steps": 1
   }
 }

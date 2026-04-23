@@ -1,29 +1,25 @@
 {
-  "experiment_name": "video_vjepa_whirl",
+  "experiment_name": "video_videomae_rh20t_baseline",
   "output_dir": "artifacts/runs/video",
   "dataset": {
-    "type": "whirl",
-    "csv_path": "dataset/whirl_videos/dataset.csv",
+    "type": "rh20t",
+    "root_dir": "dataset/RH20T_subset/RH20T_cfg2",
     "num_frames": 16,
     "sampling_strategy": "uniform",
-    "train_augmentations": {
-      "brightness_jitter": 0.05,
-      "noise_std": 0.01,
-      "temporal_roll_max": 1
-    }
+    "max_pairs_per_scene": 2
   },
   "split": {
-    "unit": "sample",
+    "unit": "scene",
     "seed": 42,
     "ratios": {
-      "train": 0.7,
-      "val": 0.15,
-      "test": 0.15
+      "train": 0.8,
+      "val": 0.1,
+      "test": 0.1
     }
   },
   "model": {
-    "backbone_type": "vjepa",
-    "backbone_name": "facebook/vjepa2-vitl-fpc64-256",
+    "backbone_type": "videomae",
+    "backbone_name": "MCG-NJU/videomae-base",
     "encoder_mode": "dual_head",
     "feature_dim": 128,
     "dropout": 0.1,

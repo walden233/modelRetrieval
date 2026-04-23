@@ -52,6 +52,8 @@ def save_run_artifacts(
     plot_specs = [
         ("train_loss", "Train Loss", "Loss", None),
         ("val_mean_p_rank", "Validation Mean Percentage Rank", "Mean Percentage Rank", "orange"),
+        ("val_mrr", "Validation MRR", "MRR", "green"),
+        ("val_ndcg", "Validation NDCG@10", "NDCG@10", "purple"),
         ("train_loss_inter", "Inter-modal Loss", "Loss", None),
         ("train_loss_intra", "Intra-modal Loss", "Loss", None),
     ]

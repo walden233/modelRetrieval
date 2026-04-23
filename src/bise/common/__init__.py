@@ -2,10 +2,11 @@ from .config import load_json_config, merge_overrides
 from .logging import configure_logging
 from .paths import ensure_directory, project_root, resolve_path
 from .run_artifacts import save_run_artifacts
-from .schemas import EmbeddingSample
+from .schemas import EmbeddingSample, VideoPairSample
 
 __all__ = [
     "EmbeddingSample",
+    "VideoPairSample",
     "configure_logging",
     "ensure_directory",
     "load_json_config",

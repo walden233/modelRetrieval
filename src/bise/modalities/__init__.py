@@ -1,9 +1,10 @@
 from .semantic import JsonCache, SemanticAnnotation, VLMClient
 from .trajectory import CrossModalTrajectoryModel, TrajectoryEncoder
-from .video import InfoNCELoss, VJEPAAdapter, VideoMAEAdapter
+from .video import CrossDomainVideoEncoder, InfoNCELoss, VJEPAAdapter, VideoMAEAdapter
 
 __all__ = [
     "CrossModalTrajectoryModel",
+    "CrossDomainVideoEncoder",
     "InfoNCELoss",
     "JsonCache",
     "SemanticAnnotation",
