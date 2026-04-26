@@ -1,9 +1,12 @@
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import List
 
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from _bootstrap import bootstrap
 
