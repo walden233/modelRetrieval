@@ -87,6 +87,9 @@ def split_video_dataset(dataset, split_config: Dict | None):
 
 def _split_by_group_unit(dataset, unit: str, ratios: Dict[str, float], seed: int):
     # 按 sample / scene / task 三种粒度切分，避免同一组样本泄漏到不同 split。
+    # sample：按camera sample_id 划分，同一个 scene 的不同 camera 可能被分到 train 和 test
+    # scene：按场景划分，适合同一场景内样本
+    # task：按任务划分，最粗粒度，适合评估模型
     groups: Dict[str, List[int]] = {}
     for index, sample in enumerate(dataset.samples):
         key = _group_key(sample, unit)

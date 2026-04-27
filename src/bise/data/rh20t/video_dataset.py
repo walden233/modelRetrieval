@@ -96,13 +96,16 @@ class RH20TVideoDataset(Dataset):
         for task_scenes in tasks:
             for scene in task_scenes:
                 task_id = Path(scene.scene_path).parent.name
-                scene_id = Path(scene.scene_path).name
+                scene_name = Path(scene.scene_path).name
+                # RH20T 的 scene_1 / scene_2 会在不同 task 下重复。
+                # 评估 scene-level 检索时必须把 task 也纳入 scene 标识，避免标签碰撞。
+                scene_id = f"{task_id}/{scene_name}"
                 video_pairs = list(scene.video_pairs)
                 if self.max_pairs_per_scene is not None:
                     video_pairs = video_pairs[: self.max_pairs_per_scene]
                 for human_path, robot_path in video_pairs:
                     camera_id = Path(human_path).name.replace("_human.mp4", "")
-                    sample_id = f"rh20t::{task_id}::{scene_id}::{camera_id}"
+                    sample_id = f"rh20t::{task_id}::{scene_name}::{camera_id}"
                     samples.append(
                         VideoPairSample(
                             sample_id=sample_id,
@@ -113,7 +116,7 @@ class RH20TVideoDataset(Dataset):
                             camera_id=camera_id,
                             human_video_path=str(human_path),
                             robot_video_path=str(robot_path),
-                            metadata={"scene_path": scene.scene_path},
+                            metadata={"scene_path": scene.scene_path, "scene_name": scene_name},
                         )
                     )
         return samples

@@ -40,7 +40,9 @@ def main():
     if args.data_root:
         config.setdefault("dataset", {})["root_dir"] = args.data_root
 
+    # 拿到预训练模型和对应 processor。
     processor, model = build_video_model(config["model"])
+    
     train_dataset = build_video_dataset(config["dataset"], processor=processor, is_train=True)
     split_datasets = split_video_dataset(train_dataset, config.get("split"))
     val_source = build_video_dataset(config["dataset"], processor=processor, is_train=False)

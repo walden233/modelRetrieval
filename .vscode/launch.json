@@ -1,12 +1,13 @@
 {
   "version": "0.2.0",
   "configurations": [
+    
     {
       "name": "Train Trajectory",
       "type": "debugpy",
       "request": "launch",
       "python": "/home/ttt/miniconda3/envs/torch2/bin/python",
-      "program": "${workspaceFolder}/tools/train_trajectory.py",
+      "program": "${workspaceFolder}/runs/trajectory/train_trajectory.py",
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
       "justMyCode": false,
@@ -20,13 +21,13 @@
       "type": "debugpy",
       "request": "launch",
       "python": "/home/ttt/miniconda3/envs/torch2/bin/python",
-      "program": "${workspaceFolder}/tools/train_video.py",
+      "program": "${workspaceFolder}/runs/video/train_video.py",
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
       "justMyCode": false,
       "args": [
         "--config",
-        "${workspaceFolder}/configs/video/vjepa_whirl.json"
+        "${workspaceFolder}/configs/video/videomae_rh20t_baseline.json"
       ]
     },
     {
@@ -34,7 +35,7 @@
       "type": "debugpy",
       "request": "launch",
       "python": "/home/ttt/miniconda3/envs/torch2/bin/python",
-      "program": "${workspaceFolder}/tools/evaluate_retrieval.py",
+      "program": "${workspaceFolder}/runs/trajectory/evaluate_retrieval.py",
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
       "justMyCode": false,

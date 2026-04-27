@@ -3,7 +3,7 @@ from tqdm.auto import tqdm
 
 from bise.retrieval.metrics import calculate_label_retrieval_metrics
 
-
+#训练时的evaluate和训练完后的测试都走这个函数
 def evaluate_video_retrieval(model, dataloader, device):
     # 评估阶段不算梯度，只做编码和检索指标统计。
     model.eval()

@@ -6,9 +6,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 
 def _load_build_manifest_module():
-    tools_dir = Path(__file__).resolve().parents[1] / "tools"
-    sys.path.insert(0, str(tools_dir))
-    module_path = Path(__file__).resolve().parents[1] / "tools" / "build_semantic_manifest.py"
+    runs_dir = Path(__file__).resolve().parents[1] / "runs"
+    sys.path.insert(0, str(runs_dir))
+    module_path = Path(__file__).resolve().parents[1] / "runs" / "semantic" / "build_semantic_manifest.py"
     spec = importlib.util.spec_from_file_location("build_semantic_manifest_module", module_path)
     module = importlib.util.module_from_spec(spec)
     assert spec is not None
