@@ -1,8 +1,11 @@
 import datetime
 import json
 import math
+import os
 from pathlib import Path
 from typing import Any, Dict
+
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
 
 import matplotlib.pyplot as plt
 import torch
@@ -48,6 +51,9 @@ def save_run_artifacts(
 
     if not history:
         return
+
+    with (output_dir / "curves.json").open("w", encoding="utf-8") as handle:
+        json.dump(history, handle, indent=2, default=_json_default)
 
     plot_specs = [
         ("train_loss", "Train Loss", "Loss", None),

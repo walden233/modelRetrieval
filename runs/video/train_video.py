@@ -18,7 +18,7 @@ bootstrap()
 
 from bise.common import ensure_directory, load_json_config, merge_overrides, save_run_artifacts
 from bise.modalities.video import build_retrieval_cases, collate_video_pairs, evaluate_video_retrieval, train_video_epoch
-from bise.modalities.video.factory import build_video_dataset, build_video_model, split_video_dataset
+from bise.modalities.video.factory import build_split_manifest, build_video_dataset, build_video_model, split_video_dataset
 
 
 def parse_args():
@@ -42,9 +42,18 @@ def main():
 
     # 拿到预训练模型和对应 processor。
     processor, model = build_video_model(config["model"])
+
+    run_name = f'{config["experiment_name"]}_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}'
+    run_dir = ensure_directory(Path(config["output_dir"]) / run_name)
     
     train_dataset = build_video_dataset(config["dataset"], processor=processor, is_train=True)
     split_datasets = split_video_dataset(train_dataset, config.get("split"))
+    split_manifest = build_split_manifest(split_datasets)
+    split_manifest_path = run_dir / "split_manifest.json"
+    with split_manifest_path.open("w", encoding="utf-8") as handle:
+        json.dump(split_manifest, handle, indent=2, ensure_ascii=False)
+    config.setdefault("split", {})["manifest_path"] = str(split_manifest_path)
+
     val_source = build_video_dataset(config["dataset"], processor=processor, is_train=False)
     val_dataset = _mirror_subset(val_source, split_datasets.get("val"))
     test_dataset = _mirror_subset(val_source, split_datasets.get("test"))
@@ -95,11 +104,10 @@ def main():
     )
     scaler = GradScaler(device.type, enabled=config["training"].get("amp", False) and device.type == "cuda")
 
-    run_name = f'{config["experiment_name"]}_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}'
-    run_dir = ensure_directory(Path(config["output_dir"]) / run_name)
     history = {"train_loss": [], "train_loss_inter": [], "train_loss_intra": [], "val_mean_p_rank": [], "val_mrr": [], "val_ndcg": []}
     best_result = None
     best_score = float("-inf")
+    record_intra_curves = _uses_intra_loss(config)
 
     for epoch in range(config["training"]["num_epochs"]):
         train_result = train_video_epoch(
@@ -116,8 +124,8 @@ def main():
             intra_transform_config=config["dataset"].get("intra_train_augmentations"),
         )
         history["train_loss"].append(train_result["loss"])
-        history["train_loss_inter"].append(train_result["inter_loss"])
-        history["train_loss_intra"].append(train_result["intra_loss"])
+        history["train_loss_inter"].append(train_result["inter_loss"] if record_intra_curves else None)
+        history["train_loss_intra"].append(train_result["intra_loss"] if record_intra_curves else None)
 
         val_result = evaluate_video_retrieval(model, val_loader, device) if val_loader is not None else None
         primary_metrics = _extract_primary_metrics(val_result)
@@ -170,6 +178,12 @@ def _extract_primary_metrics(result):
         "ndcg": primary["NDCG@10"],
         "mean_percentage_rank": primary["Mean Percentage Rank"],
     }
+
+
+def _uses_intra_loss(config: dict) -> bool:
+    loss_weight = float(config.get("loss", {}).get("lambda_intra", 0.0))
+    transform_config = config.get("dataset", {}).get("intra_train_augmentations") or config.get("loss", {}).get("intra_transform")
+    return loss_weight > 0.0 and bool(transform_config)
 
 
 def _save_eval_artifacts(run_dir: Path, prefix: str, result: dict):

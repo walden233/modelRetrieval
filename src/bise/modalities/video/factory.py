@@ -85,6 +85,14 @@ def split_video_dataset(dataset, split_config: Dict | None):
     return _split_by_group_unit(dataset, unit=unit, ratios=ratios, seed=seed)
 
 
+def build_split_manifest(split_datasets: Dict[str, object]) -> Dict[str, List[str]]:
+    # 将实际使用的 Subset 固化为 sample_id 列表，供评估和导出严格复用同一划分。
+    manifest: Dict[str, List[str]] = {}
+    for split_name, split_dataset in split_datasets.items():
+        manifest[split_name] = _collect_sample_ids(split_dataset)
+    return manifest
+
+
 def _split_by_group_unit(dataset, unit: str, ratios: Dict[str, float], seed: int):
     # 按 sample / scene / task 三种粒度切分，避免同一组样本泄漏到不同 split。
     # sample：按camera sample_id 划分，同一个 scene 的不同 camera 可能被分到 train 和 test
@@ -159,6 +167,30 @@ def _load_split_manifest(path: Path):
 
 def _subset_from_sample_ids(dataset, sample_ids: Iterable[str]):
     # 根据 sample_id 映射回 dataset 中的实际索引。
-    sample_id_set = set(sample_ids)
-    indices = [index for index, sample in enumerate(dataset.samples) if sample.sample_id in sample_id_set]
+    id_to_index = {sample.sample_id: index for index, sample in enumerate(dataset.samples)}
+    indices: List[int] = []
+    missing: List[str] = []
+    for sample_id in sample_ids:
+        if sample_id not in id_to_index:
+            missing.append(sample_id)
+        else:
+            indices.append(id_to_index[sample_id])
+    if missing:
+        preview = ", ".join(missing[:5])
+        raise ValueError(f"{len(missing)} sample ids from split manifest are not in the dataset. Examples: {preview}")
     return Subset(dataset, indices)
+
+
+def _collect_sample_ids(dataset) -> List[str]:
+    if dataset is None:
+        return []
+    if isinstance(dataset, Subset):
+        source = dataset.dataset
+        sample_ids: List[str] = []
+        for index in dataset.indices:
+            sample = source[index] if not hasattr(source, "samples") else source.samples[index]
+            sample_ids.append(sample.sample_id)
+        return sample_ids
+    if hasattr(dataset, "samples"):
+        return [sample.sample_id for sample in dataset.samples]
+    raise TypeError(f"Cannot collect sample ids from dataset type: {type(dataset).__name__}")

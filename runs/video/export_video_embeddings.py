@@ -25,15 +25,17 @@ def parse_args():
     parser.add_argument("--checkpoint", required=True, help="Trained checkpoint path.")
     parser.add_argument("--output", required=True, help="Output JSON path for embedding samples.")
     parser.add_argument("--split", default="test", choices=["train", "val", "test"], help="Dataset split to export.")
+    parser.add_argument("--split-manifest", help="Optional split_manifest.json produced by train_video.py.")
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
     config = load_json_config(args.config)
+    split_config = _resolve_split_config(config, args.checkpoint, args.split_manifest)
     processor, model = build_video_model(config["model"])
     eval_source = build_video_dataset(config["dataset"], processor=processor, is_train=False)
-    split_datasets = split_video_dataset(eval_source, config.get("split"))
+    split_datasets = split_video_dataset(eval_source, split_config)
     dataset = split_datasets.get(args.split)
     if dataset is None or len(dataset) == 0:
         raise ValueError(f"No samples available for split={args.split!r}.")
@@ -70,6 +72,16 @@ def main():
     retrieval_cases = build_retrieval_cases(result, top_k=5)
     with open(f"{args.output}.cases.json", "w", encoding="utf-8") as handle:
         json.dump(retrieval_cases, handle, indent=2, ensure_ascii=False)
+
+
+def _resolve_split_config(config: dict, checkpoint: str, explicit_manifest: str | None):
+    split_config = dict(config.get("split") or {})
+    manifest_path = Path(explicit_manifest) if explicit_manifest else Path(checkpoint).resolve().parent / "split_manifest.json"
+    if explicit_manifest and not manifest_path.exists():
+        raise FileNotFoundError(f"Split manifest not found: {manifest_path}")
+    if manifest_path.exists():
+        split_config["manifest_path"] = str(manifest_path)
+    return split_config
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from bise.common.schemas import VideoPairSample
-from bise.modalities.video.factory import split_video_dataset
+from bise.modalities.video.factory import build_split_manifest, split_video_dataset
 
 
 class _Dataset:
@@ -61,3 +61,16 @@ def test_split_video_dataset_by_scene_returns_subsets():
     assert set(splits.keys()) == {"train", "val", "test"}
     total = len(splits["train"]) + len(splits["val"]) + len(splits["test"])
     assert total == 3
+
+
+def test_split_manifest_round_trip_preserves_sample_order(tmp_path):
+    manifest_path = tmp_path / "split_manifest.json"
+    manifest_path.write_text(
+        '{"train": ["s3", "s1"], "val": ["s2"], "test": []}',
+        encoding="utf-8",
+    )
+
+    splits = split_video_dataset(_Dataset(), {"manifest_path": str(manifest_path)})
+
+    assert [splits["train"].dataset.samples[index].sample_id for index in splits["train"].indices] == ["s3", "s1"]
+    assert build_split_manifest(splits) == {"train": ["s3", "s1"], "val": ["s2"], "test": []}

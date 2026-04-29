@@ -62,7 +62,7 @@ class CrossDomainVideoEncoder(nn.Module):
         if self.encoder_mode == "dual_encoder":
             # dual_encoder: 两个域各自一套 backbone，参数完全分开。
             self.shared_backbone = None
-            self.human_backbone = copy.deepcopy(backbone_adapter)
+            self.human_backbone = backbone_adapter
             self.robot_backbone = copy.deepcopy(backbone_adapter)
         else:
             # shared / dual_head: 先共享 backbone，再决定是否额外加域适配头。

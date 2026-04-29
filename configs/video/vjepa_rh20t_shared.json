@@ -1,0 +1,51 @@
+{
+  "experiment_name": "video_vjepa_rh20t_shared",
+  "output_dir": "artifacts/runs/video",
+  "dataset": {
+    "type": "rh20t",
+    "root_dir": "dataset/RH20T_subset/RH20T_cfg2",
+    "num_frames": 16,
+    "sampling_strategy": "uniform",
+    "max_pairs_per_scene": 2
+  },
+  "split": {
+    "unit": "scene",
+    "seed": 42,
+    "ratios": {
+      "train": 0.8,
+      "val": 0.1,
+      "test": 0.1
+    }
+  },
+  "model": {
+    "backbone_type": "vjepa",
+    "backbone_name": "facebook/vjepa2-vitl-fpc64-256",
+    "encoder_mode": "shared",
+    "feature_dim": 128,
+    "dropout": 0.1,
+    "temperature": 0.07,
+    "freeze_backbone": false,
+    "unfreeze_last_n_blocks": 2
+  },
+  "loss": {
+    "name": "multi_positive",
+    "positive_level": "task",
+    "lambda_intra": 0.0,
+    "temperature": 0.07
+  },
+  "optimization": {
+    "learning_rate": 1e-5,
+    "weight_decay": 0.01,
+    "scheduler": "linear",
+    "warmup_ratio": 0.05,
+    "grad_clip_norm": 1.0
+  },
+  "training": {
+    "batch_size": 4,
+    "eval_batch_size": 4,
+    "num_epochs": 5,
+    "num_workers": 0,
+    "amp": true,
+    "gradient_accumulation_steps": 1
+  }
+}
