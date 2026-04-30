@@ -11,6 +11,14 @@ def collate_trajectories(batch):
     robot_scene_indices = []
     human_task_indices = []
     robot_task_indices = []
+    human_scene_ids = []
+    robot_scene_ids = []
+    human_task_ids = []
+    robot_task_ids = []
+    human_camera_ids = []
+    robot_camera_ids = []
+    human_scene_paths = []
+    robot_scene_paths = []
     max_robot_len = 999
 
     for item in batch:
@@ -21,6 +29,10 @@ def collate_trajectories(batch):
         all_human_poses.extend(item["human_poses"])
         human_scene_indices.extend([item["scene_idx"]] * len(item["human_poses"]))
         human_task_indices.extend([task_idx] * len(item["human_poses"]))
+        human_scene_ids.extend([item.get("scene_id", str(item["scene_idx"]))] * len(item["human_poses"]))
+        human_task_ids.extend([item.get("task_id", str(task_idx))] * len(item["human_poses"]))
+        human_camera_ids.extend(item.get("camera_ids", [""] * len(item["human_poses"])))
+        human_scene_paths.extend([item.get("scene_path", "")] * len(item["human_poses"]))
 
         sampled_tcp_bases = []
         for trajectory in item["tcp_bases"]:
@@ -35,6 +47,10 @@ def collate_trajectories(batch):
         all_tcp_bases.extend(sampled_tcp_bases)
         robot_scene_indices.extend([item["scene_idx"]] * len(item["tcp_bases"]))
         robot_task_indices.extend([task_idx] * len(item["tcp_bases"]))
+        robot_scene_ids.extend([item.get("scene_id", str(item["scene_idx"]))] * len(item["tcp_bases"]))
+        robot_task_ids.extend([item.get("task_id", str(task_idx))] * len(item["tcp_bases"]))
+        robot_camera_ids.extend(item.get("camera_ids", [""] * len(item["tcp_bases"])))
+        robot_scene_paths.extend([item.get("scene_path", "")] * len(item["tcp_bases"]))
 
     human_lengths = [len(trajectory) for trajectory in all_human_poses]
     tcp_lengths = [len(trajectory) for trajectory in all_tcp_bases]
@@ -65,4 +81,12 @@ def collate_trajectories(batch):
         "robot_scene_indices": torch.tensor(robot_scene_indices, dtype=torch.long),
         "human_task_indices": torch.tensor(human_task_indices, dtype=torch.long),
         "robot_task_indices": torch.tensor(robot_task_indices, dtype=torch.long),
+        "human_scene_ids": human_scene_ids,
+        "robot_scene_ids": robot_scene_ids,
+        "human_task_ids": human_task_ids,
+        "robot_task_ids": robot_task_ids,
+        "human_camera_ids": human_camera_ids,
+        "robot_camera_ids": robot_camera_ids,
+        "human_scene_paths": human_scene_paths,
+        "robot_scene_paths": robot_scene_paths,
     }

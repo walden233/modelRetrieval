@@ -32,7 +32,7 @@ def keep_first_camera_per_scene(matrix: np.ndarray, metadata: dict) -> tuple[np.
     return filtered_matrix, filtered_metadata
 
 
-def plot_similarity_heatmap(matrix: np.ndarray, output_path: Path, max_items: int = 120) -> None:
+def plot_similarity_heatmap(matrix: np.ndarray, output_path: Path, max_items: int = 120, modality_label: str = "Video") -> None:
     matrix = np.asarray(matrix)
     if matrix.ndim != 2:
         raise ValueError(f"similarity_matrix must be 2-D, got shape={matrix.shape}")
@@ -42,7 +42,7 @@ def plot_similarity_heatmap(matrix: np.ndarray, output_path: Path, max_items: in
 
     fig, ax = plt.subplots(figsize=(8, 7))
     image = ax.imshow(matrix, aspect="auto", cmap="viridis")
-    ax.set_title("Video Retrieval Similarity")
+    ax.set_title(f"{modality_label} Retrieval Similarity")
     ax.set_xlabel("Robot candidates")
     ax.set_ylabel("Human queries")
     fig.colorbar(image, ax=ax, fraction=0.046, pad=0.04)
@@ -51,7 +51,13 @@ def plot_similarity_heatmap(matrix: np.ndarray, output_path: Path, max_items: in
     plt.close(fig)
 
 
-def plot_sorted_similarity_heatmap(matrix: np.ndarray, metadata: dict, output_path: Path, max_items: int = 120) -> None:
+def plot_sorted_similarity_heatmap(
+    matrix: np.ndarray,
+    metadata: dict,
+    output_path: Path,
+    max_items: int = 120,
+    modality_label: str = "Video",
+) -> None:
     matrix = np.asarray(matrix)
     if matrix.ndim != 2:
         raise ValueError(f"similarity_matrix must be 2-D, got shape={matrix.shape}")
@@ -72,7 +78,7 @@ def plot_sorted_similarity_heatmap(matrix: np.ndarray, metadata: dict, output_pa
 
     fig, ax = plt.subplots(figsize=(8.5, 7.5))
     image = ax.imshow(sampled_matrix, aspect="auto", cmap="viridis")
-    ax.set_title("Video Retrieval Similarity Sorted by Task")
+    ax.set_title(f"{modality_label} Retrieval Similarity Sorted by Task")
     ax.set_xlabel("Robot candidates sorted by task/scene")
     ax.set_ylabel("Human queries sorted by task/scene")
     _draw_task_boundaries(ax, sampled_keys)

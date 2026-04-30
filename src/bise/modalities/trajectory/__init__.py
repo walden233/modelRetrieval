@@ -1,5 +1,5 @@
 from .augmentations import augment_human_poses_rotation, augment_robot_tcp_rotation
-from .evaluator import evaluate_retrieval, evaluate_retrieval_grouped
+from .evaluator import build_trajectory_retrieval_cases, evaluate_retrieval, evaluate_retrieval_grouped, evaluate_trajectory_retrieval
 from .losses import intra_modal_contrastive_loss, multi_positive_intra_modal_loss, trajectory_symmetric_contrastive_loss
 from .models import CrossModalTrajectoryModel, TrajectoryEncoder
 from .trainer import (
@@ -15,6 +15,8 @@ __all__ = [
     "augment_robot_tcp_rotation",
     "evaluate_retrieval",
     "evaluate_retrieval_grouped",
+    "evaluate_trajectory_retrieval",
+    "build_trajectory_retrieval_cases",
     "intra_modal_contrastive_loss",
     "multi_positive_intra_modal_loss",
     "pretrain_intra_modal_epoch",

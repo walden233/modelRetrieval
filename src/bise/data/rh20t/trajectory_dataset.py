@@ -35,6 +35,7 @@ class RH20TTrajectoryDataset(Dataset):
 
         pose_tensors = []
         tcp_tensors = []
+        camera_ids = []
         for camera_id in common_camera_ids:
             valid_landmarks = [
                 frame["hands_landmarks"][0]
@@ -52,6 +53,7 @@ class RH20TTrajectoryDataset(Dataset):
             tcp_trajectory = np.stack(all_tcps, axis=0)
             pose_tensors.append(torch.from_numpy(pose_trajectory).float())
             tcp_tensors.append(torch.from_numpy(tcp_trajectory).float())
+            camera_ids.append(camera_id)
 
         if not pose_tensors:
             return self.__getitem__((idx + 1) % len(self))
@@ -59,6 +61,19 @@ class RH20TTrajectoryDataset(Dataset):
         return {
             "human_poses": pose_tensors,
             "tcp_bases": tcp_tensors,
+            "camera_ids": camera_ids,
             "scene_idx": idx,
             "task_idx": scene.task_idx if scene.task_idx is not None else -1,
+            "scene_id": self._scene_id(scene),
+            "task_id": self._task_id(scene),
+            "scene_path": scene.scene_path,
         }
+
+    @staticmethod
+    def _scene_id(scene: SceneRecord) -> str:
+        scene_path = scene.scene_path.rstrip("/").split("/")
+        return f"{scene_path[-2]}/{scene_path[-1]}"
+
+    @staticmethod
+    def _task_id(scene: SceneRecord) -> str:
+        return scene.scene_path.rstrip("/").split("/")[-2]

@@ -3,6 +3,15 @@
   "mode": "two_stage",
   "data_root": "dataset/RH20T_subset/RH20T_cfg2",
   "output_dir": "artifacts/runs/trajectory",
+  "split": {
+    "unit": "scene",
+    "seed": 42,
+    "ratios": {
+      "train": 0.8,
+      "val": 0.1,
+      "test": 0.1
+    }
+  },
   "batch_size": 16,
   "pretrain_epochs": 10,
   "finetune_epochs": 50,

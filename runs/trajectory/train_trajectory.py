@@ -1,11 +1,13 @@
 import argparse
 import datetime
 import json
+import random
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
@@ -17,11 +19,13 @@ from bise.common import ensure_directory, load_json_config, merge_overrides, sav
 from bise.data import RH20TTrajectoryDataset, collate_trajectories
 from bise.modalities.trajectory import (
     CrossModalTrajectoryModel,
-    evaluate_retrieval_grouped,
+    build_trajectory_retrieval_cases,
+    evaluate_trajectory_retrieval,
     pretrain_intra_modal_epoch,
     train_augmented_trajectory_epoch,
     train_trajectory_epoch,
 )
+from bise.modalities.trajectory.factory import build_split_manifest, split_trajectory_dataset
 
 
 def parse_args():
@@ -36,38 +40,46 @@ def main():
     args = parse_args()
     config = load_json_config(args.config)
     config = merge_overrides(config, {"data_root": args.data_root, "output_dir": args.output_dir})
+    _set_seed(config.get("seed", 42))
+
+    run_name = f'{config["experiment_name"]}_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}'
+    run_dir = ensure_directory(Path(config["output_dir"]) / run_name)
 
     dataset = RH20TTrajectoryDataset(
         root_dir=config["data_root"],
         use_6_keypoints=config.get("use_6_keypoints", False),
     )
-    generator = torch.Generator().manual_seed(config.get("seed", 42))
-    train_size = int(0.8 * len(dataset))
-    val_size = len(dataset) - train_size
-    train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size], generator=generator)
+    split_config = config.get("split") or {"unit": "scene", "seed": config.get("seed", 42), "ratios": {"train": 0.8, "val": 0.1, "test": 0.1}}
+    split_datasets = split_trajectory_dataset(dataset, split_config)
+    split_manifest = build_split_manifest(split_datasets)
+    split_manifest_path = run_dir / "split_manifest.json"
+    with split_manifest_path.open("w", encoding="utf-8") as handle:
+        json.dump(split_manifest, handle, indent=2, ensure_ascii=False)
+    config["split"] = dict(split_config)
+    config["split"]["manifest_path"] = str(split_manifest_path)
 
     train_loader = DataLoader(
-        train_dataset,
+        split_datasets["train"],
         batch_size=config["batch_size"],
         shuffle=True,
         collate_fn=collate_trajectories,
     )
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=config["batch_size"],
-        shuffle=False,
-        collate_fn=collate_trajectories,
-    )
+    val_loader = None
+    if split_datasets.get("val") is not None and len(split_datasets["val"]) > 0:
+        val_loader = DataLoader(
+            split_datasets["val"],
+            batch_size=config["batch_size"],
+            shuffle=False,
+            collate_fn=collate_trajectories,
+        )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = CrossModalTrajectoryModel(**config["model_params"]).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config["learning_rate"])
 
-    run_name = f'{config["experiment_name"]}_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}'
-    run_dir = ensure_directory(Path(config["output_dir"]) / run_name)
-    history = {"train_loss": [], "train_loss_inter": [], "train_loss_intra": [], "val_mean_p_rank": []}
+    history = {"train_loss": [], "train_loss_inter": [], "train_loss_intra": [], "val_mean_p_rank": [], "val_mrr": [], "val_ndcg": []}
     best_result = None
-    best_score = float("inf")
+    best_score = float("-inf")
     mode = config.get("mode", "standard")
 
     if mode == "two_stage":
@@ -85,6 +97,8 @@ def main():
             history["train_loss"].append(None)
             history["train_loss_inter"].append(None)
             history["val_mean_p_rank"].append(None)
+            history["val_mrr"].append(None)
+            history["val_ndcg"].append(None)
             print(f"Pretrain Epoch {epoch + 1}/{config['pretrain_epochs']}: intra_loss={intra_loss:.4f}")
 
     finetune_epochs = config.get("finetune_epochs", config.get("num_epochs", 0))
@@ -114,24 +128,52 @@ def main():
                 use_task_labels=config.get("train_task_positives", False),
             )
 
-        result = evaluate_retrieval_grouped(
-            model,
-            val_loader,
-            device,
-            group_by_task=config.get("evaluate_task_positives", False),
-        )
+        result = evaluate_trajectory_retrieval(model, val_loader, device) if val_loader is not None else None
+        primary_metrics = _extract_primary_metrics(result)
         history["train_loss"].append(train_loss)
-        history["val_mean_p_rank"].append(result["mean_percentage_rank"])
+        history["val_mean_p_rank"].append(primary_metrics["mean_percentage_rank"])
+        history["val_mrr"].append(primary_metrics["mrr"])
+        history["val_ndcg"].append(primary_metrics["ndcg"])
 
-        if result["mean_percentage_rank"] < best_score:
-            best_score = result["mean_percentage_rank"]
-            best_result = result
+        current_score = primary_metrics["mrr"] if primary_metrics["mrr"] is not None else -train_loss
+        if current_score > best_score:
+            best_score = current_score
+            best_result = result["metrics"] if result is not None else {}
             torch.save(model.state_dict(), run_dir / "best_model.pth")
+            if result is not None:
+                _save_eval_artifacts(run_dir, "best_val", result)
 
-        print(json.dumps({"epoch": epoch + 1, "train_loss": train_loss, "metrics": result}, ensure_ascii=False))
+        print(json.dumps({"epoch": epoch + 1, "train_loss": train_loss, "metrics": result["metrics"] if result is not None else None}, ensure_ascii=False))
 
     torch.save(model.state_dict(), run_dir / "last_model.pth")
     save_run_artifacts(run_dir, config, history, best_result)
+
+
+def _set_seed(seed: int) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
+def _extract_primary_metrics(result):
+    if result is None:
+        return {"mrr": None, "ndcg": None, "mean_percentage_rank": None}
+    primary = result["metrics"]["human_to_robot"]["task"]
+    return {
+        "mrr": primary["MRR"],
+        "ndcg": primary["NDCG@10"],
+        "mean_percentage_rank": primary["Mean Percentage Rank"],
+    }
+
+
+def _save_eval_artifacts(run_dir: Path, prefix: str, result: dict):
+    np.save(run_dir / f"{prefix}_similarity_matrix.npy", result["similarity_matrix"])
+    np.save(run_dir / f"{prefix}_human_embeddings.npy", result["human_embeddings"])
+    np.save(run_dir / f"{prefix}_robot_embeddings.npy", result["robot_embeddings"])
+    with (run_dir / f"{prefix}_cases.json").open("w", encoding="utf-8") as handle:
+        json.dump(build_trajectory_retrieval_cases(result), handle, indent=2, ensure_ascii=False)
 
 
 if __name__ == "__main__":

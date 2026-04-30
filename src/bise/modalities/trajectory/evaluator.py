@@ -1,6 +1,8 @@
 import torch
 from tqdm import tqdm
 
+from bise.retrieval.metrics import calculate_label_retrieval_metrics
+
 
 def evaluate_retrieval(model, dataloader, device, group_by_task: bool = False):
     model.eval()
@@ -119,3 +121,120 @@ def evaluate_retrieval_grouped(model, dataloader, device, group_by_task: bool = 
         "mrr": mrr,
         "mean_percentage_rank": mean_percentage_rank,
     }
+
+
+def evaluate_trajectory_retrieval(model, dataloader, device):
+    model.eval()
+    all_human_embeds = []
+    all_robot_embeds = []
+    metadata = {
+        "human_scene_ids": [],
+        "robot_scene_ids": [],
+        "human_task_ids": [],
+        "robot_task_ids": [],
+        "human_camera_ids": [],
+        "robot_camera_ids": [],
+        "human_scene_paths": [],
+        "robot_scene_paths": [],
+        "human_scene_indices": [],
+        "robot_scene_indices": [],
+        "human_task_indices": [],
+        "robot_task_indices": [],
+    }
+
+    with torch.no_grad():
+        for batch in tqdm(dataloader, desc="Evaluating Trajectory"):
+            human_poses = batch["human_poses"].to(device)
+            human_mask = batch["human_mask"].to(device)
+            tcp_bases = batch["tcp_bases"].to(device)
+            tcp_mask = batch["tcp_mask"].to(device)
+            human_embeds, robot_embeds, _ = model(human_poses, human_mask, tcp_bases, tcp_mask)
+            all_human_embeds.append(human_embeds.cpu())
+            all_robot_embeds.append(robot_embeds.cpu())
+            for key in (
+                "human_scene_ids",
+                "robot_scene_ids",
+                "human_task_ids",
+                "robot_task_ids",
+                "human_camera_ids",
+                "robot_camera_ids",
+                "human_scene_paths",
+                "robot_scene_paths",
+            ):
+                metadata[key].extend(batch[key])
+            for key in ("human_scene_indices", "robot_scene_indices", "human_task_indices", "robot_task_indices"):
+                metadata[key].append(batch[key].cpu())
+
+    all_human_embeds = torch.cat(all_human_embeds, dim=0)
+    all_robot_embeds = torch.cat(all_robot_embeds, dim=0)
+    similarity_matrix = torch.matmul(all_human_embeds, all_robot_embeds.T).numpy()
+    human_scene_indices = torch.cat(metadata["human_scene_indices"], dim=0).numpy()
+    robot_scene_indices = torch.cat(metadata["robot_scene_indices"], dim=0).numpy()
+    human_task_indices = torch.cat(metadata["human_task_indices"], dim=0).numpy()
+    robot_task_indices = torch.cat(metadata["robot_task_indices"], dim=0).numpy()
+    metadata["human_scene_indices"] = human_scene_indices.tolist()
+    metadata["robot_scene_indices"] = robot_scene_indices.tolist()
+    metadata["human_task_indices"] = human_task_indices.tolist()
+    metadata["robot_task_indices"] = robot_task_indices.tolist()
+
+    metrics = {
+        "human_to_robot": {
+            "scene": calculate_label_retrieval_metrics(similarity_matrix, human_scene_indices, robot_scene_indices),
+            "task": calculate_label_retrieval_metrics(similarity_matrix, human_task_indices, robot_task_indices),
+        },
+        "robot_to_human": {
+            "scene": calculate_label_retrieval_metrics(similarity_matrix.T, robot_scene_indices, human_scene_indices),
+            "task": calculate_label_retrieval_metrics(similarity_matrix.T, robot_task_indices, human_task_indices),
+        },
+    }
+    return {
+        "metrics": metrics,
+        "similarity_matrix": similarity_matrix,
+        "human_embeddings": all_human_embeds.numpy(),
+        "robot_embeddings": all_robot_embeds.numpy(),
+        "metadata": metadata,
+    }
+
+
+def build_trajectory_retrieval_cases(result: dict, direction: str = "human_to_robot", label_level: str = "task", top_k: int = 5):
+    similarity_matrix = result["similarity_matrix"]
+    metadata = result["metadata"]
+    if direction == "robot_to_human":
+        similarity_matrix = similarity_matrix.T
+        query_paths = metadata["robot_scene_paths"]
+        gallery_paths = metadata["human_scene_paths"]
+        query_cameras = metadata["robot_camera_ids"]
+        gallery_cameras = metadata["human_camera_ids"]
+        query_labels = metadata["robot_task_ids"] if label_level == "task" else metadata["robot_scene_ids"]
+        gallery_labels = metadata["human_task_ids"] if label_level == "task" else metadata["human_scene_ids"]
+    else:
+        query_paths = metadata["human_scene_paths"]
+        gallery_paths = metadata["robot_scene_paths"]
+        query_cameras = metadata["human_camera_ids"]
+        gallery_cameras = metadata["robot_camera_ids"]
+        query_labels = metadata["human_task_ids"] if label_level == "task" else metadata["human_scene_ids"]
+        gallery_labels = metadata["robot_task_ids"] if label_level == "task" else metadata["robot_scene_ids"]
+
+    cases = []
+    for query_index, query_label in enumerate(query_labels):
+        ranked_indices = similarity_matrix[query_index].argsort()[::-1][:top_k]
+        cases.append(
+            {
+                "query_index": query_index,
+                "query_label": query_label,
+                "query_path": query_paths[query_index],
+                "query_camera_id": query_cameras[query_index],
+                "retrieved": [
+                    {
+                        "index": int(candidate_index),
+                        "label": gallery_labels[int(candidate_index)],
+                        "path": gallery_paths[int(candidate_index)],
+                        "camera_id": gallery_cameras[int(candidate_index)],
+                        "score": float(similarity_matrix[query_index][int(candidate_index)]),
+                        "is_positive": bool(gallery_labels[int(candidate_index)] == query_label),
+                    }
+                    for candidate_index in ranked_indices
+                ],
+            }
+        )
+    return cases
