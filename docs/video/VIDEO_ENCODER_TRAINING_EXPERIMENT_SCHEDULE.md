@@ -12,9 +12,9 @@
 - `VideoMAEAdapter` 已修正输入维度问题，兼容 `[B,T,C,H,W]` 与 `[B,C,T,H,W]`。
 - `runs/video/train_video.py` 可按配置训练并保存 `best_model.pth`、`last_model.pth`、`params.json`、`best_metrics.json`、`curves.json`、`curves.png`、`split_manifest.json`。
 - `curves.png` 由 `curves.json` 生成；未启用 intra loss 时，不绘制 `train_loss_inter` 和 `train_loss_intra`。
-- `runs/video/evaluate_video.py` 支持 `--split-manifest` 与 `--output-dir`，可保存 `metrics.json`、`cases.json`、`similarity_matrix.npy`、`human_embeddings.npy`、`robot_embeddings.npy`、`run_info.json`。
+- `runs/video/evaluate_video.py` 支持 `--split-manifest` 与 `--output-dir`，可保存 `metrics.json`、`cases.json`、`metadata.json`、`similarity_matrix.npy`、`human_embeddings.npy`、`robot_embeddings.npy`、`run_info.json`。
 - `runs/video/export_video_embeddings.py` 支持 `--split-manifest`，可导出 embedding 与检索案例。
-- `runs/video/build_video_figures.py` 统一读取评估目录和训练目录，生成热图、指标柱状图、跨实验汇总表和曲线对比图。
+- `runs/video/build_video_figures.py` 统一读取评估目录和训练目录，生成热图、按 `task_id/scene_id` 排序热图、指标柱状图、跨实验汇总表和曲线对比图；热图仅保留每个 scene 在评估顺序中第一个 camera/sample，避免同 scene 双 camera 造成棋盘式明暗交替。
 - `torch2` 下全量测试已通过。
 
 训练时仍需注意：
@@ -108,11 +108,13 @@ python runs/video/build_video_figures.py \
 - `curves.json`
 - `curves.png`
 - `final_test/metrics.json`
+- `final_test/metadata.json`
 - `final_test/similarity_matrix.npy`
 - `final_test/cases.json`
 - 主结果表：`figures/E1/video_metrics_summary.csv`
 - 指标柱状图：`figures/E1/E1_task_metrics.png`
-- 相似度热图：`figures/E1/E1_similarity_heatmap.png`
+- 相似度热图：`figures/E1/E1_similarity_heatmap.png`，每个 scene 仅保留第一个 camera/sample。
+- Task/scene 排序相似度热图：`figures/E1/E1_task_scene_sorted_similarity_heatmap.png`，每个 scene 仅保留第一个 camera/sample。
 - Top-K 检索案例表：`figures/E1/video_cases_summary.csv`
 
 ### E2：RH20T VideoMAE backbone 对照
@@ -318,9 +320,6 @@ python runs/video/train_video.py \
   --config configs/video/vjepa_rh20t_shared.json
 
 python runs/video/train_video.py \
-  --config configs/video/vjepa_rh20t_baseline.json
-
-python runs/video/train_video.py \
   --config configs/video/vjepa_rh20t_dual_encoder.json
 ```
 
@@ -335,13 +334,6 @@ python runs/video/evaluate_video.py \
   --output-dir artifacts/runs/video/<E6_SHARED_RUN_NAME>/final_test
 
 python runs/video/evaluate_video.py \
-  --config configs/video/vjepa_rh20t_baseline.json \
-  --checkpoint artifacts/runs/video/<E1_OR_E6_DUAL_HEAD_RUN_NAME>/best_model.pth \
-  --split test \
-  --split-manifest artifacts/runs/video/<E1_OR_E6_DUAL_HEAD_RUN_NAME>/split_manifest.json \
-  --output-dir artifacts/runs/video/<E1_OR_E6_DUAL_HEAD_RUN_NAME>/final_test
-
-python runs/video/evaluate_video.py \
   --config configs/video/vjepa_rh20t_dual_encoder.json \
   --checkpoint artifacts/runs/video/<E6_DUAL_ENCODER_RUN_NAME>/best_model.pth \
   --split test \
@@ -350,7 +342,7 @@ python runs/video/evaluate_video.py \
 
 python runs/video/build_video_figures.py \
   --eval-dir E6_shared=artifacts/runs/video/<E6_SHARED_RUN_NAME>/final_test \
-  --eval-dir E6_dual_head=artifacts/runs/video/<E1_OR_E6_DUAL_HEAD_RUN_NAME>/final_test \
+  --eval-dir E6_dual_head=artifacts/runs/video/<E1_NAME>/final_test \
   --eval-dir E6_dual_encoder=artifacts/runs/video/<E6_DUAL_ENCODER_RUN_NAME>/final_test \
   --output-dir artifacts/runs/video/figures/encoder_mode
 ```
@@ -410,7 +402,8 @@ python runs/video/export_video_embeddings.py \
 最终图表产出：
 
 - 最终主结果表：`figures/final/video_metrics_summary.csv`
-- 相似度热图：`figures/final/BEST_similarity_heatmap.png`
+- 相似度热图：`figures/final/BEST_similarity_heatmap.png`，每个 scene 仅保留第一个 camera/sample。
+- Task/scene 排序相似度热图：`figures/final/BEST_task_scene_sorted_similarity_heatmap.png`，每个 scene 仅保留第一个 camera/sample。
 - 指标柱状图：`figures/final/BEST_task_metrics.png`
 - embedding 原始文件：`final_test/video_embeddings.json`
 - Top-K 成功/失败案例表：`figures/final/video_cases_summary.csv`
@@ -444,6 +437,31 @@ python runs/video/export_video_embeddings.py \
 | 5 | E6 | 比较模型结构，注意 dual_encoder 成本更高。 |
 | 6 | E3 | 最后跑 task-held-out 泛化，用于补充分析。 |
 | 7 | E7 | 对最佳模型做最终导出。 |
+
+一键顺序执行脚本：
+
+```bash
+./runs/video/run_all_video_experiments.sh
+```
+
+脚本默认行为：
+
+- 自动 `conda activate torch2`。
+- 按推荐顺序执行 `E1 -> E2 -> E5 -> E4 -> E6 -> E3 -> E7`。
+- 每个训练 run 完成后，立即使用该 run 的 `split_manifest.json` 评估 `test` split。
+- E6 默认复用 E1 作为 `dual_head` 对照，避免重复训练同一 baseline；若要强制重训，使用 `RUN_E6_DUAL_HEAD_DUPLICATE=1 ./runs/video/run_all_video_experiments.sh`。
+- E7 自动按 `human_to_robot.task.MRR` 从 E1-E6 选择最佳 run，并导出 embedding 与最终图表。
+- 汇总文件写入 `artifacts/runs/video/video_all_experiments_summary.json`。
+
+常用环境变量：
+
+```bash
+CONDA_ENV=torch2 \
+OUTPUT_ROOT=artifacts/runs/video \
+FIGURE_ROOT=artifacts/runs/video/figures \
+TOP_K=5 \
+./runs/video/run_all_video_experiments.sh
+```
 
 ## 7. 停止条件
 

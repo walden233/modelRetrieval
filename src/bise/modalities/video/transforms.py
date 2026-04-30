@@ -29,7 +29,13 @@ def apply_video_transforms(
 
     noise_std = float(config.get("noise_std", 0.0))
     if noise_std > 0:
-        transformed = transformed + torch.randn_like(transformed, generator=generator) * noise_std
+        noise = torch.randn(
+            transformed.shape,
+            generator=generator,
+            device=transformed.device,
+            dtype=transformed.dtype,
+        )
+        transformed = transformed + noise * noise_std
 
     temporal_roll_max = int(config.get("temporal_roll_max", 0))
     if temporal_roll_max > 0 and transformed.shape[0] > 1:

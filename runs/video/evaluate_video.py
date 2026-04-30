@@ -78,6 +78,10 @@ def _save_evaluation_outputs(output_dir: Path, result: dict, cases: list[dict], 
         json.dumps(cases, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
+    (output_dir / "metadata.json").write_text(
+        json.dumps(_json_ready_metadata(result["metadata"]), indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
     np.save(output_dir / "similarity_matrix.npy", result["similarity_matrix"])
     np.save(output_dir / "human_embeddings.npy", result["human_embeddings"])
     np.save(output_dir / "robot_embeddings.npy", result["robot_embeddings"])
@@ -86,6 +90,18 @@ def _save_evaluation_outputs(output_dir: Path, result: dict, cases: list[dict], 
             json.dumps({"split_manifest": str(split_manifest_path)}, indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
+
+
+def _json_ready_metadata(metadata: dict) -> dict:
+    serializable = {}
+    for key, value in metadata.items():
+        if hasattr(value, "tolist"):
+            serializable[key] = value.tolist()
+        elif isinstance(value, list):
+            serializable[key] = [item.tolist() if hasattr(item, "tolist") else item for item in value]
+        else:
+            serializable[key] = value
+    return serializable
 
 
 if __name__ == "__main__":
