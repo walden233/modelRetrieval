@@ -1,5 +1,5 @@
 {
-  "experiment_name": "video_vjepa_rh20t_dual_encoder",
+  "experiment_name": "E6_video_vjepa_rh20t_dual_encoder",
   "output_dir": "artifacts/runs/video",
   "dataset": {
     "type": "rh20t",

@@ -1,5 +1,5 @@
 {
-  "experiment_name": "video_vjepa_rh20t_intra",
+  "experiment_name": "E4_video_vjepa_rh20t_intra",
   "output_dir": "artifacts/runs/video",
   "dataset": {
     "type": "rh20t",
@@ -15,7 +15,7 @@
   },
   "split": {
     "unit": "scene",
-    "seed": 42,
+    "seed": 43,
     "ratios": {
       "train": 0.8,
       "val": 0.1,
@@ -46,8 +46,8 @@
     "grad_clip_norm": 1.0
   },
   "training": {
-    "batch_size": 4,
-    "eval_batch_size": 4,
+    "batch_size": 6,
+    "eval_batch_size": 6,
     "num_epochs": 5,
     "num_workers": 0,
     "amp": true,

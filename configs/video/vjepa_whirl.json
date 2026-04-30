@@ -1,5 +1,5 @@
 {
-  "experiment_name": "video_vjepa_whirl",
+  "experiment_name": "E0_video_vjepa_whirl",
   "output_dir": "artifacts/runs/video",
   "dataset": {
     "type": "whirl",

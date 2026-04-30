@@ -15,6 +15,7 @@ bootstrap()
 
 from bise.common import load_json_config
 from bise.modalities.video import build_retrieval_cases, collate_video_pairs, evaluate_video_retrieval
+from bise.modalities.video.figures import keep_first_camera_per_scene, plot_similarity_heatmap, plot_sorted_similarity_heatmap
 from bise.modalities.video.factory import build_video_dataset, build_video_model, split_video_dataset
 
 
@@ -85,11 +86,21 @@ def _save_evaluation_outputs(output_dir: Path, result: dict, cases: list[dict], 
     np.save(output_dir / "similarity_matrix.npy", result["similarity_matrix"])
     np.save(output_dir / "human_embeddings.npy", result["human_embeddings"])
     np.save(output_dir / "robot_embeddings.npy", result["robot_embeddings"])
+    _save_heatmaps(output_dir, result)
     if split_manifest_path is not None:
         (output_dir / "run_info.json").write_text(
             json.dumps({"split_manifest": str(split_manifest_path)}, indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
+
+
+def _save_heatmaps(output_dir: Path, result: dict) -> None:
+    matrix, metadata = keep_first_camera_per_scene(
+        result["similarity_matrix"],
+        _json_ready_metadata(result["metadata"]),
+    )
+    plot_similarity_heatmap(matrix, output_dir / "similarity_heatmap.png", max_items=120)
+    plot_sorted_similarity_heatmap(matrix, metadata, output_dir / "task_scene_sorted_similarity_heatmap.png", max_items=120)
 
 
 def _json_ready_metadata(metadata: dict) -> dict:

@@ -1,5 +1,5 @@
 {
-  "experiment_name": "video_vjepa_rh20t_baseline",
+  "experiment_name": "E1_video_vjepa_rh20t_baseline",
   "output_dir": "artifacts/runs/video",
   "dataset": {
     "type": "rh20t",

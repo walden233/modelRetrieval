@@ -8,7 +8,7 @@ cd "${PROJECT_ROOT}"
 CONDA_ENV="${CONDA_ENV:-torch2}"
 CONDA_SH="${CONDA_SH:-${HOME}/miniconda3/etc/profile.d/conda.sh}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-artifacts/runs/video}"
-FIGURE_ROOT="${FIGURE_ROOT:-${OUTPUT_ROOT}/figures}"
+FINAL_CHART_ROOT="${FINAL_CHART_ROOT:-${OUTPUT_ROOT}/final_charts}"
 RUN_LOG_ROOT="${RUN_LOG_ROOT:-${OUTPUT_ROOT}/run_logs_$(date +%Y%m%d_%H%M%S)}"
 TOP_K="${TOP_K:-5}"
 
@@ -16,7 +16,7 @@ TOP_K="${TOP_K:-5}"
 # Set RUN_E6_DUAL_HEAD_DUPLICATE=1 to train another dual_head run for E6.
 RUN_E6_DUAL_HEAD_DUPLICATE="${RUN_E6_DUAL_HEAD_DUPLICATE:-0}"
 
-mkdir -p "${OUTPUT_ROOT}" "${FIGURE_ROOT}" "${RUN_LOG_ROOT}"
+mkdir -p "${OUTPUT_ROOT}" "${FINAL_CHART_ROOT}" "${RUN_LOG_ROOT}"
 
 if [[ "${SKIP_CONDA:-0}" != "1" ]]; then
   if [[ ! -f "${CONDA_SH}" ]]; then
@@ -90,13 +90,24 @@ train_and_eval() {
   RUN_CONFIGS["${label}"]="${config}"
 }
 
-build_figures() {
-  local name="$1"
-  shift
-  echo "===== figures: ${name} ====="
-  python runs/video/build_video_figures.py "$@" \
-    --output-dir "${FIGURE_ROOT}/${name}" \
-    2>&1 | tee "${RUN_LOG_ROOT}/figures_${name}.log"
+eval_raw_backbone() {
+  local label="$1"
+  local config="$2"
+  local split_manifest="$3"
+  local run_dir="${OUTPUT_ROOT}/${label}_$(date +%Y%m%d_%H%M%S)"
+
+  echo "===== ${label}: evaluate raw backbone ${config} ====="
+  python runs/video/evaluate_raw_video_backbone.py \
+    --config "${config}" \
+    --split test \
+    --top-k "${TOP_K}" \
+    --split-manifest "${split_manifest}" \
+    --output-dir "${run_dir}" \
+    2>&1 | tee "${RUN_LOG_ROOT}/${label}_eval.log"
+
+  require_file "${run_dir}/final_test/metrics.json"
+  RUN_DIRS["${label}"]="${run_dir}"
+  RUN_CONFIGS["${label}"]="${config}"
 }
 
 select_best_run() {
@@ -128,35 +139,20 @@ PY
 }
 
 echo "Output root: ${OUTPUT_ROOT}"
-echo "Figure root: ${FIGURE_ROOT}"
+echo "Final chart root: ${FINAL_CHART_ROOT}"
 echo "Log root: ${RUN_LOG_ROOT}"
 
 # Recommended order from VIDEO_ENCODER_TRAINING_EXPERIMENT_SCHEDULE.md.
 train_and_eval "E1" "configs/video/vjepa_rh20t_baseline.json"
-build_figures "E1" \
-  --eval-dir "E1=${RUN_DIRS[E1]}/final_test" \
-  --run-dir "E1=${RUN_DIRS[E1]}"
 
 train_and_eval "E2" "configs/video/videomae_rh20t_baseline.json"
-build_figures "backbone" \
-  --eval-dir "E1=${RUN_DIRS[E1]}/final_test" \
-  --eval-dir "E2=${RUN_DIRS[E2]}/final_test" \
-  --run-dir "E1=${RUN_DIRS[E1]}" \
-  --run-dir "E2=${RUN_DIRS[E2]}"
+
+eval_raw_backbone "RAW_VJEPA" "configs/video/vjepa_rh20t_baseline.json" "${RUN_DIRS[E1]}/split_manifest.json"
+eval_raw_backbone "RAW_VIDEOMAE" "configs/video/videomae_rh20t_baseline.json" "${RUN_DIRS[E1]}/split_manifest.json"
 
 train_and_eval "E5" "configs/video/vjepa_rh20t_info_nce.json"
-build_figures "loss" \
-  --eval-dir "E1_multi_positive=${RUN_DIRS[E1]}/final_test" \
-  --eval-dir "E5_info_nce=${RUN_DIRS[E5]}/final_test" \
-  --run-dir "E1_multi_positive=${RUN_DIRS[E1]}" \
-  --run-dir "E5_info_nce=${RUN_DIRS[E5]}"
 
 train_and_eval "E4" "configs/video/vjepa_rh20t_intra.json"
-build_figures "intra" \
-  --eval-dir "E1_no_intra=${RUN_DIRS[E1]}/final_test" \
-  --eval-dir "E4_intra=${RUN_DIRS[E4]}/final_test" \
-  --run-dir "E1_no_intra=${RUN_DIRS[E1]}" \
-  --run-dir "E4_intra=${RUN_DIRS[E4]}"
 
 train_and_eval "E6_shared" "configs/video/vjepa_rh20t_shared.json"
 if [[ "${RUN_E6_DUAL_HEAD_DUPLICATE}" == "1" ]]; then
@@ -166,25 +162,8 @@ else
   RUN_CONFIGS["E6_dual_head"]="${RUN_CONFIGS[E1]}"
 fi
 train_and_eval "E6_dual_encoder" "configs/video/vjepa_rh20t_dual_encoder.json"
-build_figures "encoder_mode" \
-  --eval-dir "E6_shared=${RUN_DIRS[E6_shared]}/final_test" \
-  --eval-dir "E6_dual_head=${RUN_DIRS[E6_dual_head]}/final_test" \
-  --eval-dir "E6_dual_encoder=${RUN_DIRS[E6_dual_encoder]}/final_test"
 
 train_and_eval "E3" "configs/video/vjepa_rh20t_task_heldout.json"
-build_figures "split_generalization" \
-  --eval-dir "E1_scene=${RUN_DIRS[E1]}/final_test" \
-  --eval-dir "E3_task=${RUN_DIRS[E3]}/final_test"
-
-build_figures "all_experiments" \
-  --eval-dir "E1=${RUN_DIRS[E1]}/final_test" \
-  --eval-dir "E2=${RUN_DIRS[E2]}/final_test" \
-  --eval-dir "E3=${RUN_DIRS[E3]}/final_test" \
-  --eval-dir "E4=${RUN_DIRS[E4]}/final_test" \
-  --eval-dir "E5=${RUN_DIRS[E5]}/final_test" \
-  --eval-dir "E6_shared=${RUN_DIRS[E6_shared]}/final_test" \
-  --eval-dir "E6_dual_head=${RUN_DIRS[E6_dual_head]}/final_test" \
-  --eval-dir "E6_dual_encoder=${RUN_DIRS[E6_dual_encoder]}/final_test"
 
 BEST_LINE="$(
   select_best_run \
@@ -217,9 +196,30 @@ python runs/video/export_video_embeddings.py \
   --output "${BEST_RUN_DIR}/final_test/video_embeddings.json" \
   2>&1 | tee "${RUN_LOG_ROOT}/E7_export_embeddings.log"
 
-build_figures "final" \
-  --eval-dir "BEST=${BEST_RUN_DIR}/final_test" \
-  --run-dir "BEST=${BEST_RUN_DIR}"
+FINAL_RUNS_JSON="${OUTPUT_ROOT}/video_final_runs.json"
+cat > "${FINAL_RUNS_JSON}" <<EOF
+{
+  "E1": "${RUN_DIRS[E1]}",
+  "E2": "${RUN_DIRS[E2]}",
+  "E3": "${RUN_DIRS[E3]}",
+  "E4": "${RUN_DIRS[E4]}",
+  "E5": "${RUN_DIRS[E5]}",
+  "E6": "${RUN_DIRS[E6_dual_encoder]}",
+  "RAW_VJEPA": {
+    "run_path": "${RUN_DIRS[RAW_VJEPA]}",
+    "label": "Raw_V-JEPA"
+  },
+  "RAW_VIDEOMAE": {
+    "run_path": "${RUN_DIRS[RAW_VIDEOMAE]}",
+    "label": "Raw_VideoMAE"
+  }
+}
+EOF
+
+python runs/video/export_final_video_charts.py \
+  --runs-json "${FINAL_RUNS_JSON}" \
+  --output-dir "${FINAL_CHART_ROOT}" \
+  2>&1 | tee "${RUN_LOG_ROOT}/E7_final_charts.log"
 
 cat > "${OUTPUT_ROOT}/video_all_experiments_summary.json" <<EOF
 {
@@ -227,7 +227,8 @@ cat > "${OUTPUT_ROOT}/video_all_experiments_summary.json" <<EOF
   "best_config": "${BEST_CONFIG}",
   "best_run_dir": "${BEST_RUN_DIR}",
   "best_h2r_task_mrr": ${BEST_MRR},
-  "figure_root": "${FIGURE_ROOT}",
+  "final_runs_json": "${FINAL_RUNS_JSON}",
+  "final_chart_root": "${FINAL_CHART_ROOT}",
   "log_root": "${RUN_LOG_ROOT}"
 }
 EOF

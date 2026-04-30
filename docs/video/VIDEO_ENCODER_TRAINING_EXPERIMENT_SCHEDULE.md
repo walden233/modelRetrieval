@@ -12,9 +12,10 @@
 - `VideoMAEAdapter` 已修正输入维度问题，兼容 `[B,T,C,H,W]` 与 `[B,C,T,H,W]`。
 - `runs/video/train_video.py` 可按配置训练并保存 `best_model.pth`、`last_model.pth`、`params.json`、`best_metrics.json`、`curves.json`、`curves.png`、`split_manifest.json`。
 - `curves.png` 由 `curves.json` 生成；未启用 intra loss 时，不绘制 `train_loss_inter` 和 `train_loss_intra`。
-- `runs/video/evaluate_video.py` 支持 `--split-manifest` 与 `--output-dir`，可保存 `metrics.json`、`cases.json`、`metadata.json`、`similarity_matrix.npy`、`human_embeddings.npy`、`robot_embeddings.npy`、`run_info.json`。
+- `runs/video/evaluate_video.py` 支持 `--split-manifest` 与 `--output-dir`，可保存 `metrics.json`、`cases.json`、`metadata.json`、`similarity_matrix.npy`、`human_embeddings.npy`、`robot_embeddings.npy`、`run_info.json`、`similarity_heatmap.png`、`task_scene_sorted_similarity_heatmap.png`。
 - `runs/video/export_video_embeddings.py` 支持 `--split-manifest`，可导出 embedding 与检索案例。
-- `runs/video/build_video_figures.py` 统一读取评估目录和训练目录，生成热图、按 `task_id/scene_id` 排序热图、指标柱状图、跨实验汇总表和曲线对比图；热图仅保留每个 scene 在评估顺序中第一个 camera/sample，避免同 scene 双 camera 造成棋盘式明暗交替。
+- `runs/video/export_final_video_charts.py` 读取 E1-E6 run 映射，生成论文用 `video_curves_comparison.png` 和 `video_metrics_comparison.png`。
+- `runs/video/build_video_figures.py` 已弃用；heatmap 由 `evaluate_video.py` 直接生成，最终汇总图由 `export_final_video_charts.py` 生成。
 - `torch2` 下全量测试已通过。
 
 训练时仍需注意：
@@ -96,11 +97,6 @@ python runs/video/evaluate_video.py \
   --split test \
   --split-manifest artifacts/runs/video/<E1_RUN_NAME>/split_manifest.json \
   --output-dir artifacts/runs/video/<E1_RUN_NAME>/final_test
-
-python runs/video/build_video_figures.py \
-  --eval-dir E1=artifacts/runs/video/<E1_RUN_NAME>/final_test \
-  --run-dir E1=artifacts/runs/video/<E1_RUN_NAME> \
-  --output-dir artifacts/runs/video/figures/E1
 ```
 
 图表产出：
@@ -111,11 +107,8 @@ python runs/video/build_video_figures.py \
 - `final_test/metadata.json`
 - `final_test/similarity_matrix.npy`
 - `final_test/cases.json`
-- 主结果表：`figures/E1/video_metrics_summary.csv`
-- 指标柱状图：`figures/E1/E1_task_metrics.png`
-- 相似度热图：`figures/E1/E1_similarity_heatmap.png`，每个 scene 仅保留第一个 camera/sample。
-- Task/scene 排序相似度热图：`figures/E1/E1_task_scene_sorted_similarity_heatmap.png`，每个 scene 仅保留第一个 camera/sample。
-- Top-K 检索案例表：`figures/E1/video_cases_summary.csv`
+- `final_test/similarity_heatmap.png`，每个 scene 仅保留第一个 camera/sample。
+- `final_test/task_scene_sorted_similarity_heatmap.png`，每个 scene 仅保留第一个 camera/sample，只画 task 边界。
 
 ### E2：RH20T VideoMAE backbone 对照
 
@@ -141,13 +134,6 @@ python runs/video/evaluate_video.py \
   --split test \
   --split-manifest artifacts/runs/video/<E2_RUN_NAME>/split_manifest.json \
   --output-dir artifacts/runs/video/<E2_RUN_NAME>/final_test
-
-python runs/video/build_video_figures.py \
-  --eval-dir E1=artifacts/runs/video/<E1_RUN_NAME>/final_test \
-  --eval-dir E2=artifacts/runs/video/<E2_RUN_NAME>/final_test \
-  --run-dir E1=artifacts/runs/video/<E1_RUN_NAME> \
-  --run-dir E2=artifacts/runs/video/<E2_RUN_NAME> \
-  --output-dir artifacts/runs/video/figures/backbone
 ```
 
 对比对象：
@@ -157,8 +143,8 @@ python runs/video/build_video_figures.py \
 
 图表产出：
 
-- Backbone 对照表：`figures/backbone/video_metrics_summary.csv`
-- Backbone 指标柱状图：`figures/backbone/video_metrics_comparison.png`
+- E2 单实验评估产物：`final_test/metrics.json`、`final_test/similarity_heatmap.png`、`final_test/task_scene_sorted_similarity_heatmap.png`。
+- Backbone 对照图统一由 E7 的 `export_final_video_charts.py` 汇总生成。
 - 对比字段：`R@1 / R@5 / R@10 / MRR / NDCG@10`
 
 ### E3：RH20T V-JEPA task-held-out 泛化
@@ -185,11 +171,6 @@ python runs/video/evaluate_video.py \
   --split test \
   --split-manifest artifacts/runs/video/<E3_RUN_NAME>/split_manifest.json \
   --output-dir artifacts/runs/video/<E3_RUN_NAME>/final_test
-
-python runs/video/build_video_figures.py \
-  --eval-dir E1_scene=artifacts/runs/video/<E1_RUN_NAME>/final_test \
-  --eval-dir E3_task=artifacts/runs/video/<E3_RUN_NAME>/final_test \
-  --output-dir artifacts/runs/video/figures/split_generalization
 ```
 
 对比对象：
@@ -199,9 +180,9 @@ python runs/video/build_video_figures.py \
 
 图表产出：
 
-- 泛化对照表：`figures/split_generalization/video_metrics_summary.csv`
-- 泛化指标柱状图：`figures/split_generalization/video_metrics_comparison.png`
-- 失败案例表：`figures/split_generalization/video_cases_summary.csv` 中筛选 `top1_is_positive=false` 的高分样本。
+- E3 单实验评估产物：`final_test/metrics.json`、`final_test/cases.json`、`final_test/similarity_heatmap.png`、`final_test/task_scene_sorted_similarity_heatmap.png`。
+- 泛化对照图统一由 E7 的 `export_final_video_charts.py` 汇总生成。
+- 失败案例从 `final_test/cases.json` 中筛选 `is_positive=false` 的高分样本。
 
 解释重点：
 
@@ -231,13 +212,6 @@ python runs/video/evaluate_video.py \
   --split test \
   --split-manifest artifacts/runs/video/<E4_RUN_NAME>/split_manifest.json \
   --output-dir artifacts/runs/video/<E4_RUN_NAME>/final_test
-
-python runs/video/build_video_figures.py \
-  --eval-dir E1_no_intra=artifacts/runs/video/<E1_RUN_NAME>/final_test \
-  --eval-dir E4_intra=artifacts/runs/video/<E4_RUN_NAME>/final_test \
-  --run-dir E1_no_intra=artifacts/runs/video/<E1_RUN_NAME> \
-  --run-dir E4_intra=artifacts/runs/video/<E4_RUN_NAME> \
-  --output-dir artifacts/runs/video/figures/intra
 ```
 
 对比对象：
@@ -247,9 +221,8 @@ python runs/video/build_video_figures.py \
 
 图表产出：
 
-- Intra loss 对照表：`figures/intra/video_metrics_summary.csv`
-- Loss 曲线图：`figures/intra/video_curves_comparison.png`
-- 指标柱状图：`figures/intra/video_metrics_comparison.png`
+- E4 单实验评估产物：`final_test/metrics.json`、`final_test/similarity_heatmap.png`、`final_test/task_scene_sorted_similarity_heatmap.png`。
+- Intra loss 曲线和指标对照统一由 E7 的 `export_final_video_charts.py` 汇总生成。
 - 注意：E1 未启用 intra loss，其 `curves.png` 和 `curves.json` 不包含有效的 `train_loss_inter/train_loss_intra` 曲线点。
 
 解释重点：
@@ -280,13 +253,6 @@ python runs/video/evaluate_video.py \
   --split test \
   --split-manifest artifacts/runs/video/<E5_RUN_NAME>/split_manifest.json \
   --output-dir artifacts/runs/video/<E5_RUN_NAME>/final_test
-
-python runs/video/build_video_figures.py \
-  --eval-dir E1_multi_positive=artifacts/runs/video/<E1_RUN_NAME>/final_test \
-  --eval-dir E5_info_nce=artifacts/runs/video/<E5_RUN_NAME>/final_test \
-  --run-dir E1_multi_positive=artifacts/runs/video/<E1_RUN_NAME> \
-  --run-dir E5_info_nce=artifacts/runs/video/<E5_RUN_NAME> \
-  --output-dir artifacts/runs/video/figures/loss
 ```
 
 对比对象：
@@ -296,9 +262,8 @@ python runs/video/build_video_figures.py \
 
 图表产出：
 
-- Loss 对照表：`figures/loss/video_metrics_summary.csv`
-- Loss 对照柱状图：`figures/loss/video_metrics_comparison.png`
-- 训练曲线对比：`figures/loss/video_curves_comparison.png`
+- E5 单实验评估产物：`final_test/metrics.json`、`final_test/similarity_heatmap.png`、`final_test/task_scene_sorted_similarity_heatmap.png`。
+- Loss 对照图统一由 E7 的 `export_final_video_charts.py` 汇总生成。
 
 解释重点：
 
@@ -339,12 +304,6 @@ python runs/video/evaluate_video.py \
   --split test \
   --split-manifest artifacts/runs/video/<E6_DUAL_ENCODER_RUN_NAME>/split_manifest.json \
   --output-dir artifacts/runs/video/<E6_DUAL_ENCODER_RUN_NAME>/final_test
-
-python runs/video/build_video_figures.py \
-  --eval-dir E6_shared=artifacts/runs/video/<E6_SHARED_RUN_NAME>/final_test \
-  --eval-dir E6_dual_head=artifacts/runs/video/<E1_NAME>/final_test \
-  --eval-dir E6_dual_encoder=artifacts/runs/video/<E6_DUAL_ENCODER_RUN_NAME>/final_test \
-  --output-dir artifacts/runs/video/figures/encoder_mode
 ```
 
 对比对象：
@@ -355,8 +314,8 @@ python runs/video/build_video_figures.py \
 
 图表产出：
 
-- Encoder mode 对照表：`figures/encoder_mode/video_metrics_summary.csv`
-- Encoder mode 柱状图：`figures/encoder_mode/video_metrics_comparison.png`
+- E6 单实验评估产物：`final_test/metrics.json`、`final_test/similarity_heatmap.png`、`final_test/task_scene_sorted_similarity_heatmap.png`。
+- Encoder mode 对照图统一由 E7 的 `export_final_video_charts.py` 汇总生成。
 - 显存/耗时记录表：`video_encoder_mode_cost.csv`
 
 解释重点：
@@ -381,11 +340,6 @@ python runs/video/evaluate_video.py \
   --split test \
   --split-manifest artifacts/runs/video/<BEST_RUN_NAME>/split_manifest.json \
   --output-dir artifacts/runs/video/<BEST_RUN_NAME>/final_test
-
-python runs/video/build_video_figures.py \
-  --eval-dir BEST=artifacts/runs/video/<BEST_RUN_NAME>/final_test \
-  --run-dir BEST=artifacts/runs/video/<BEST_RUN_NAME> \
-  --output-dir artifacts/runs/video/figures/final
 ```
 
 导出 embedding：
@@ -401,12 +355,70 @@ python runs/video/export_video_embeddings.py \
 
 最终图表产出：
 
-- 最终主结果表：`figures/final/video_metrics_summary.csv`
-- 相似度热图：`figures/final/BEST_similarity_heatmap.png`，每个 scene 仅保留第一个 camera/sample。
-- Task/scene 排序相似度热图：`figures/final/BEST_task_scene_sorted_similarity_heatmap.png`，每个 scene 仅保留第一个 camera/sample。
-- 指标柱状图：`figures/final/BEST_task_metrics.png`
+- 相似度热图：`final_test/similarity_heatmap.png`，每个 scene 仅保留第一个 camera/sample。
+- Task/scene 排序相似度热图：`final_test/task_scene_sorted_similarity_heatmap.png`，每个 scene 仅保留第一个 camera/sample，只画 task 边界。
 - embedding 原始文件：`final_test/video_embeddings.json`
-- Top-K 成功/失败案例表：`figures/final/video_cases_summary.csv`
+- Top-K 成功/失败案例：`final_test/cases.json`
+
+论文用 E1-E6 与 raw backbone 汇总图表：
+
+```bash
+python runs/video/export_final_video_charts.py \
+  --runs-json configs/video/video_final_runs.json \
+  --output-dir artifacts/runs/video/final_charts
+```
+
+输入文件 `configs/video/video_final_runs.json` 需要维护 E1-E6 到 run 目录的映射；如果要把未训练 backbone 加入 `video_metrics_comparison.png`，再加入 `RAW_VJEPA` 和 `RAW_VIDEOMAE`：
+
+```json
+{
+  "E1": "artifacts/runs/video/<E1_RUN_NAME>",
+  "E2": "artifacts/runs/video/<E2_RUN_NAME>",
+  "E3": "artifacts/runs/video/<E3_RUN_NAME>",
+  "E4": "artifacts/runs/video/<E4_RUN_NAME>",
+  "E5": "artifacts/runs/video/<E5_RUN_NAME>",
+  "E6": "artifacts/runs/video/<E6_RUN_NAME>",
+  "RAW_VJEPA": {
+    "run_path": "artifacts/runs/video/<RAW_VJEPA_RUN_NAME>",
+    "label": "Raw_V-JEPA"
+  },
+  "RAW_VIDEOMAE": {
+    "run_path": "artifacts/runs/video/<RAW_VIDEOMAE_RUN_NAME>",
+    "label": "Raw_VideoMAE"
+  }
+}
+```
+
+未训练 raw backbone 的评估命令如下。不要用 `train_video.py` 跳过训练来代表 raw backbone，因为那会保留随机 projection head；这里直接用 backbone feature 做 L2 normalize 后检索。
+
+```bash
+python runs/video/evaluate_raw_video_backbone.py \
+  --config configs/video/vjepa_rh20t_baseline.json \
+  --split test \
+  --split-manifest artifacts/runs/video/<E1_RUN_NAME>/split_manifest.json \
+  --output-dir artifacts/runs/video/RAW_VJEPA_backbone
+
+python runs/video/evaluate_raw_video_backbone.py \
+  --config configs/video/videomae_rh20t_baseline.json \
+  --split test \
+  --split-manifest artifacts/runs/video/<E1_RUN_NAME>/split_manifest.json \
+  --output-dir artifacts/runs/video/RAW_VIDEOMAE_backbone
+```
+
+输出文件：
+
+- `artifacts/runs/video/final_charts/video_curves_comparison.png`：两个子图，`Train Loss` 和 `Validation MRR`，每个实验一条线。
+- `artifacts/runs/video/final_charts/video_metrics_comparison.png`：按 `R1 / R5 / R10 / MRR / NDCG` 聚合的指标柱状图，默认使用 `human_to_robot.task`；如果 JSON 包含 raw entries，也会一起画入该图。
+
+可选方向和粒度：
+
+```bash
+python runs/video/export_final_video_charts.py \
+  --runs-json configs/video/video_final_runs.json \
+  --output-dir artifacts/runs/video/final_charts_r2h_scene \
+  --direction robot_to_human \
+  --level scene
+```
 
 ## 5. 汇总表设计
 
@@ -449,6 +461,7 @@ python runs/video/export_video_embeddings.py \
 - 自动 `conda activate torch2`。
 - 按推荐顺序执行 `E1 -> E2 -> E5 -> E4 -> E6 -> E3 -> E7`。
 - 每个训练 run 完成后，立即使用该 run 的 `split_manifest.json` 评估 `test` split。
+- E1/E2 完成后会额外评估未训练的 Raw V-JEPA 和 Raw VideoMAE backbone，使用 E1 的 `split_manifest.json` 作为固定测试集。
 - E6 默认复用 E1 作为 `dual_head` 对照，避免重复训练同一 baseline；若要强制重训，使用 `RUN_E6_DUAL_HEAD_DUPLICATE=1 ./runs/video/run_all_video_experiments.sh`。
 - E7 自动按 `human_to_robot.task.MRR` 从 E1-E6 选择最佳 run，并导出 embedding 与最终图表。
 - 汇总文件写入 `artifacts/runs/video/video_all_experiments_summary.json`。
@@ -458,7 +471,7 @@ python runs/video/export_video_embeddings.py \
 ```bash
 CONDA_ENV=torch2 \
 OUTPUT_ROOT=artifacts/runs/video \
-FIGURE_ROOT=artifacts/runs/video/figures \
+FINAL_CHART_ROOT=artifacts/runs/video/final_charts \
 TOP_K=5 \
 ./runs/video/run_all_video_experiments.sh
 ```
