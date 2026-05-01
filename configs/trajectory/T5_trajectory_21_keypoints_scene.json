@@ -1,0 +1,33 @@
+{
+  "experiment_name": "T5_trajectory_21_keypoints_scene",
+  "mode": "standard",
+  "data_root": "dataset/RH20T_subset/RH20T_cfg2",
+  "output_dir": "artifacts/runs/trajectory",
+  "split": {
+    "unit": "scene",
+    "seed": 42,
+    "ratios": {
+      "train": 0.8,
+      "val": 0.1,
+      "test": 0.1
+    }
+  },
+  "batch_size": 16,
+  "num_epochs": 60,
+  "learning_rate": 0.0002,
+  "seed": 42,
+  "train_task_positives": true,
+  "evaluate_task_positives": false,
+  "use_6_keypoints": false,
+  "model_params": {
+    "human_input_dim": 63,
+    "robot_input_dim": 7,
+    "d_model": 128,
+    "nhead": 8,
+    "num_layers": 5,
+    "dim_feedforward": 512,
+    "proj_dim": 128,
+    "dropout": 0.15,
+    "tcp_sample_factor": 4
+  }
+}

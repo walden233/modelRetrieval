@@ -76,6 +76,7 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = CrossModalTrajectoryModel(**config["model_params"]).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config["learning_rate"])
+    config.setdefault("checkpoint_selection", _default_checkpoint_selection())
 
     history = {"train_loss": [], "train_loss_inter": [], "train_loss_intra": [], "val_mean_p_rank": [], "val_mrr": [], "val_ndcg": []}
     best_result = None
@@ -135,7 +136,7 @@ def main():
         history["val_mrr"].append(primary_metrics["mrr"])
         history["val_ndcg"].append(primary_metrics["ndcg"])
 
-        current_score = primary_metrics["mrr"] if primary_metrics["mrr"] is not None else -train_loss
+        current_score = _compute_checkpoint_score(train_loss, primary_metrics, config)
         if current_score > best_score:
             best_score = current_score
             best_result = result["metrics"] if result is not None else {}
@@ -144,8 +145,6 @@ def main():
                 _save_eval_artifacts(run_dir, "best_val", result)
 
         print(json.dumps({"epoch": epoch + 1, "train_loss": train_loss, "metrics": result["metrics"] if result is not None else None}, ensure_ascii=False))
-
-    torch.save(model.state_dict(), run_dir / "last_model.pth")
     save_run_artifacts(run_dir, config, history, best_result)
 
 
@@ -166,6 +165,29 @@ def _extract_primary_metrics(result):
         "ndcg": primary["NDCG@10"],
         "mean_percentage_rank": primary["Mean Percentage Rank"],
     }
+
+
+def _default_checkpoint_selection() -> dict:
+    return {"loss_weight": 0.1, "mrr_weight": 1.0, "ndcg_weight": 1.0}
+
+
+def _compute_checkpoint_score(train_loss: float, primary_metrics: dict, config: dict) -> float:
+    selection = config.get("checkpoint_selection") or {}
+    loss_weight = float(selection.get("loss_weight", 0.1))
+    mrr_weight = float(selection.get("mrr_weight", 1.0))
+    ndcg_weight = float(selection.get("ndcg_weight", 1.0))
+    mrr = primary_metrics.get("mrr")
+    ndcg = primary_metrics.get("ndcg")
+
+    if mrr is None and ndcg is None:
+        return -loss_weight * float(train_loss)
+
+    score = -loss_weight * float(train_loss)
+    if mrr is not None:
+        score += mrr_weight * float(mrr)
+    if ndcg is not None:
+        score += ndcg_weight * float(ndcg)
+    return score
 
 
 def _save_eval_artifacts(run_dir: Path, prefix: str, result: dict):

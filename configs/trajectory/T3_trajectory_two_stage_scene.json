@@ -1,0 +1,38 @@
+{
+  "experiment_name": "T3_trajectory_two_stage_scene",
+  "mode": "two_stage",
+  "data_root": "dataset/RH20T_subset/RH20T_cfg2",
+  "output_dir": "artifacts/runs/trajectory",
+  "split": {
+    "unit": "scene",
+    "seed": 42,
+    "ratios": {
+      "train": 0.8,
+      "val": 0.1,
+      "test": 0.1
+    }
+  },
+  "batch_size": 16,
+  "pretrain_epochs": 10,
+  "finetune_epochs": 50,
+  "learning_rate": 0.0002,
+  "seed": 42,
+  "train_task_positives": true,
+  "evaluate_task_positives": false,
+  "use_6_keypoints": true,
+  "intra_loss_weight": 0.3,
+  "intra_task_positive_weight": 0.25,
+  "augmentation_noise_std": 0.005,
+  "augmentation_max_rotation_degrees": 10.0,
+  "model_params": {
+    "human_input_dim": 18,
+    "robot_input_dim": 7,
+    "d_model": 128,
+    "nhead": 8,
+    "num_layers": 5,
+    "dim_feedforward": 512,
+    "proj_dim": 128,
+    "dropout": 0.15,
+    "tcp_sample_factor": 4
+  }
+}

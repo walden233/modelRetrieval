@@ -100,11 +100,11 @@
 
 ## 3. 训练前必须补齐的工程项
 
-这些是正式实验前的必要工作。否则后续实验结果不可信。
+这些是正式实验前的必要工作。当前已在代码中落地，正式实验应直接使用本节定义的入口。
 
 ### P0.1 固定 split manifest
 
-新增或改造轨迹 split 工具，行为对齐视频模态：
+轨迹 split 工具已对齐视频模态：
 
 - 支持 `split.unit = scene | task`。
 - 支持 `split.seed` 与 `split.ratios`。
@@ -124,7 +124,7 @@
 
 ### P0.2 改造训练入口
 
-`runs/trajectory/train_trajectory.py` 应补齐：
+`runs/trajectory/train_trajectory.py` 已补齐：
 
 - `run_dir` 在 split 后保存 `split_manifest.json`。
 - 使用 `train / val / test` 三份 split，但训练阶段只用 train/val。
@@ -134,7 +134,7 @@
 
 ### P0.3 改造评估入口
 
-`runs/trajectory/evaluate_retrieval.py` 应补齐：
+`runs/trajectory/evaluate_retrieval.py` 已补齐：
 
 - `--split train|val|test`
 - `--split-manifest`
@@ -150,7 +150,7 @@
 
 ### P0.4 对齐评估指标
 
-建议新增一个 trajectory evaluator，接口接近视频模态的 `evaluate_video_retrieval`：
+已新增一个 trajectory evaluator，接口接近视频模态的 `evaluate_video_retrieval`：
 
 ```python
 evaluate_trajectory_retrieval(model, dataloader, device) -> {
@@ -167,11 +167,11 @@ evaluate_trajectory_retrieval(model, dataloader, device) -> {
 
 ### P0.5 最终图表脚本
 
-参考视频的 `export_final_video_charts.py`，新增：
+参考视频的 `export_final_video_charts.py`，已新增：
 
 ```bash
 python runs/trajectory/export_final_trajectory_charts.py \
-  --runs-json configs/trajectory/trajectory_final_runs.json \
+  --runs-json artifacts/runs/trajectory/trajectory_final_runs.json \
   --output-dir artifacts/runs/trajectory/final_charts
 ```
 
@@ -181,6 +181,11 @@ python runs/trajectory/export_final_trajectory_charts.py \
 - `trajectory_metrics_comparison.png`
 - `trajectory_curves_comparison_data.json`
 - `trajectory_metrics_comparison_data.json`
+
+说明：
+
+- `configs/trajectory/trajectory_final_runs.json` 是手工汇总时的模板。
+- `runs/trajectory/run_all_trajectory_experiments.sh` 会在实验完成后自动生成实际可用的 `artifacts/runs/trajectory/trajectory_final_runs.json`。
 
 ## 4. 正式实验设计
 
@@ -336,6 +341,53 @@ python runs/trajectory/evaluate_retrieval.py \
 | 4 | T4 | 补充泛化分析。 |
 | 5 | T5 | 如需要解释 keypoint 选择再执行。 |
 
+### 6.1 一键顺序运行
+
+推荐直接执行：
+
+```bash
+bash runs/trajectory/run_all_trajectory_experiments.sh
+```
+
+默认行为：
+
+- 自动激活 `torch2` 环境；如已手工激活环境，可设置 `SKIP_CONDA=1`。
+- 按 T1 -> T2 -> T3 -> T4 -> T5 顺序训练。
+- 每个实验训练结束后立即用本 run 的 `split_manifest.json` 做 test 评估。
+- 每个 run 输出 `final_test/metrics.json`、`cases.json`、embedding、similarity matrix 和两张 heatmap。
+- 自动生成 `artifacts/runs/trajectory/trajectory_final_runs.json`。
+- 自动生成 `artifacts/runs/trajectory/final_charts/trajectory_curves_comparison.png` 和 `trajectory_metrics_comparison.png`。
+
+可选参数：
+
+```bash
+CONDA_ENV=torch2 \
+OUTPUT_ROOT=artifacts/runs/trajectory \
+TOP_K=5 \
+bash runs/trajectory/run_all_trajectory_experiments.sh
+```
+
+如果需要单独运行某个实验，使用：
+
+```bash
+python runs/trajectory/train_trajectory.py \
+  --config configs/trajectory/T1_trajectory_baseline_scene.json
+
+python runs/trajectory/evaluate_retrieval.py \
+  --config configs/trajectory/T1_trajectory_baseline_scene.json \
+  --checkpoint artifacts/runs/trajectory/<T1_RUN>/best_model.pth \
+  --split test \
+  --split-manifest artifacts/runs/trajectory/<T1_RUN>/split_manifest.json \
+  --output-dir artifacts/runs/trajectory/<T1_RUN>/final_test
+```
+
+T2-T5 只需替换 config 和 run 目录：
+
+- `configs/trajectory/T2_trajectory_augment_scene.json`
+- `configs/trajectory/T3_trajectory_two_stage_scene.json`
+- `configs/trajectory/T4_trajectory_task_heldout.json`
+- `configs/trajectory/T5_trajectory_21_keypoints_scene.json`
+
 ## 7. 最终结果呈现
 
 最终报告建议包含：
@@ -385,11 +437,11 @@ artifacts/runs/trajectory/final_charts/
 
 ## 9. 结论
 
-轨迹模态目前的模型与训练逻辑基本可用，但正式实验前必须先修复 split 和评估闭环。优先级最高的是：
+轨迹模态目前的模型、split 和评估闭环已经具备正式实验入口。执行前重点检查：
 
-1. 固定 scene/task split manifest。
-2. 评估入口支持指定 split 和输出完整 artifacts。
-3. 指标对齐视频模态，支持双向 scene/task 结果。
-4. 最终图表脚本保存 PNG 和对应 data JSON。
+1. 是否使用 T1-T5 正式配置，而不是历史 `_fair` 配置。
+2. 每次 test 是否显式传入对应 run 的 `split_manifest.json`。
+3. `final_test/metrics.json` 是否包含双向 scene/task 指标。
+4. 最终图表是否同时保存 PNG 和对应 data JSON。
 
-完成这些后，再执行 T1-T4 即可形成一组足够支撑论文分析的单轨迹实验。
+按 `run_all_trajectory_experiments.sh` 执行 T1-T5 后，即可形成一组足够支撑论文分析的单轨迹实验。

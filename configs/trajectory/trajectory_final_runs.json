@@ -1,0 +1,22 @@
+{
+  "T1": {
+    "run_path": "artifacts/runs/trajectory/<T1_RUN_DIR>",
+    "label": "T1_Baseline"
+  },
+  "T2": {
+    "run_path": "artifacts/runs/trajectory/<T2_RUN_DIR>",
+    "label": "T2_Augment"
+  },
+  "T3": {
+    "run_path": "artifacts/runs/trajectory/<T3_RUN_DIR>",
+    "label": "T3_TwoStage"
+  },
+  "T4": {
+    "run_path": "artifacts/runs/trajectory/<T4_RUN_DIR>",
+    "label": "T4_TaskHeld"
+  },
+  "T5": {
+    "run_path": "artifacts/runs/trajectory/<T5_RUN_DIR>",
+    "label": "T5_21Keypoints"
+  }
+}
