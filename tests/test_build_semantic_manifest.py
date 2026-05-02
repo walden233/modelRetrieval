@@ -61,3 +61,34 @@ def test_normalize_scenes_per_task_treats_non_positive_as_all():
     assert module._normalize_scenes_per_task(2) == 2
     assert module._normalize_scenes_per_task(0) is None
     assert module._normalize_scenes_per_task(-1) is None
+
+
+def test_build_rh20t_manifest_uses_task_scoped_scene_id(tmp_path: Path, monkeypatch):
+    module = _load_build_manifest_module()
+    from bise.data.rh20t.scanner import SceneRecord
+
+    scene_path = tmp_path / "task_0001" / "scene_1"
+    scene_path.mkdir(parents=True)
+    human_path = scene_path / "cam_0_human.mp4"
+    robot_path = scene_path / "cam_0_robot.mp4"
+    human_path.write_bytes(b"")
+    robot_path.write_bytes(b"")
+    monkeypatch.setattr(
+        module,
+        "scan_task_scenes",
+        lambda _: [  # noqa: ARG005
+            [
+                SceneRecord(
+                    scene_path=str(scene_path),
+                    video_pairs=[(str(human_path), str(robot_path))],
+                )
+            ]
+        ],
+    )
+
+    records = module.build_rh20t_manifest({"scenes_per_task": 1}, str(tmp_path))
+
+    assert len(records) == 2
+    assert {record.scene_id for record in records} == {"task_0001/scene_1"}
+    assert {record.metadata["scene_name"] for record in records} == {"scene_1"}
+    assert {record.pair_id for record in records} == {"task_0001_scene_1"}

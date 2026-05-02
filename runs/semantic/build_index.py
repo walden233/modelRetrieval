@@ -16,7 +16,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Build a FAISS index from a feature store JSON file.")
     parser.add_argument("--features", required=True, help="Path to feature_store JSON.")
     parser.add_argument("--output", required=True, help="Output FAISS index path.")
-    parser.add_argument("--field", default="trajectory_embedding", help="Embedding field to index.")
+    parser.add_argument("--field", default="text_embedding", help="Embedding field to index.")
     return parser.parse_args()
 
 

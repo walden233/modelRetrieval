@@ -7,7 +7,7 @@ from typing import Any, Dict, Iterable, List, Sequence
 import numpy as np
 
 from bise.modalities.semantic.schemas import DescriptionReviewRecord, LabelEvaluationRecord, SemanticAnnotation
-from bise.retrieval.metrics import calculate_retrieval_metrics_grouped
+from bise.retrieval.metrics import calculate_label_retrieval_metrics, calculate_retrieval_metrics_grouped
 
 
 def load_jsonl(path: str | Path) -> List[Dict[str, Any]]:
@@ -137,40 +137,19 @@ def evaluate_semantic_retrieval_by_key(
     if gallery_sample_ids is not None and len(gallery_sample_ids) != len(gallery_embeddings):
         raise ValueError("gallery_sample_ids and gallery_embeddings length mismatch.")
     similarity_matrix = query_embeddings @ gallery_embeddings.T
-    ranks: List[int] = []
-    valid_query_count = 0
-    for index, query_key in enumerate(query_keys):
-        positives = {
-            candidate_index
-            for candidate_index, gallery_key in enumerate(gallery_keys)
-            if gallery_key == query_key
-        }
-        if exclude_self and query_sample_ids is not None and gallery_sample_ids is not None:
-            positives = {
-                candidate_index
-                for candidate_index in positives
-                if gallery_sample_ids[candidate_index] != query_sample_ids[index]
-            }
-        if not positives:
-            continue
-        valid_query_count += 1
-        sorted_indices = np.argsort(-similarity_matrix[index])
-        for rank, candidate_index in enumerate(sorted_indices, start=1):
-            if candidate_index in positives:
-                ranks.append(rank)
-                break
-    if not ranks:
-        return {"query_count": len(query_keys), "valid_query_count": valid_query_count, "R@1": 0.0, "R@5": 0.0, "R@10": 0.0, "MRR": 0.0, "Mean Rank": 0.0}
-    rank_array = np.asarray(ranks)
-    return {
-        "query_count": len(query_keys),
-        "valid_query_count": valid_query_count,
-        "R@1": float(np.mean(rank_array <= 1)),
-        "R@5": float(np.mean(rank_array <= 5)),
-        "R@10": float(np.mean(rank_array <= 10)),
-        "MRR": float(np.mean(1.0 / rank_array)),
-        "Mean Rank": float(np.mean(rank_array)),
-    }
+    if exclude_self and query_sample_ids is not None and gallery_sample_ids is not None:
+        similarity_matrix = similarity_matrix.copy()
+        for query_index, query_sample_id in enumerate(query_sample_ids):
+            for gallery_index, gallery_sample_id in enumerate(gallery_sample_ids):
+                if gallery_sample_id == query_sample_id:
+                    similarity_matrix[query_index, gallery_index] = -np.inf
+    metrics = calculate_label_retrieval_metrics(similarity_matrix, query_keys, gallery_keys)
+    for key, value in list(metrics.items()):
+        if isinstance(value, float) and not np.isfinite(value):
+            metrics[key] = 0.0
+    metrics["query_count"] = len(query_keys)
+    metrics["valid_query_count"] = metrics["valid_queries"]
+    return metrics
 
 
 def split_cross_role_annotations(
@@ -257,7 +236,17 @@ def extract_positive_keys(
     allowed = {"pair_id", "task_id", "scene_id", "sample_id"}
     if key_name not in allowed:
         raise ValueError(f"positive_key must be one of: {', '.join(sorted(allowed))}")
+    if key_name == "scene_id":
+        return [_task_scoped_scene_id(annotation) for annotation in annotations]
     return [str(getattr(annotation, key_name)) for annotation in annotations]
+
+
+def _task_scoped_scene_id(annotation: SemanticAnnotation) -> str:
+    scene_id = str(annotation.scene_id)
+    task_id = str(annotation.task_id)
+    if not task_id or scene_id.startswith(f"{task_id}/"):
+        return scene_id
+    return f"{task_id}/{scene_id}"
 
 
 def load_semantic_annotations(path: str | Path) -> List[SemanticAnnotation]:

@@ -1,7 +1,7 @@
 {
   "provider_name": "openai_compatible",
   "base_url": "https://open.bigmodel.cn/api/paas/v4",
-  "api_key": "bec3761cde904f628bedc6ae196991c2.YpJHS1JpwO3YUgJA",
+  "api_key_env": "ZHIPU_API_KEY",
   "model_name": "glm-4.6v",
   "thinking_type": "disabled",
   "timeout_seconds": 60,

@@ -44,8 +44,9 @@ def build_rh20t_manifest(config, data_root: str) -> List[SemanticManifestRecord]
             human_video_path, robot_video_path = select_scene_camera_pair(scene.video_pairs, strategy)
             scene_path = Path(scene.scene_path)
             task_id = scene_path.parent.name
-            scene_id = scene_path.name
-            pair_id = f"{task_id}_{scene_id}"
+            scene_name = scene_path.name
+            scene_id = f"{task_id}/{scene_name}"
+            pair_id = f"{task_id}_{scene_name}"
             robot_cam_id = extract_camera_id(robot_video_path, "_robot.mp4")
             human_cam_id = extract_camera_id(human_video_path, "_human.mp4")
             common_kwargs = {
@@ -56,6 +57,7 @@ def build_rh20t_manifest(config, data_root: str) -> List[SemanticManifestRecord]
                 "label_prompt_version": str(config.get("label_prompt_version", "label_prompt_with_taxonomy_v1")),
                 "joint_prompt_version": str(config.get("joint_prompt_version", "joint_prompt_with_taxonomy_v1")),
                 "taxonomy_version": str(config.get("taxonomy_version", "taxonomy_v1")),
+                "metadata": {"scene_name": scene_name},
             }
             records.append(
                 SemanticManifestRecord(

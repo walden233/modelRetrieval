@@ -1,7 +1,7 @@
 {
   "dataset_type": "rh20t",
-  "data_root": "dataset/RH20T_subset/RH20T_cfg2",
-  "dataset_variant": "cfg2",
+  "data_root": "dataset/RH20T_subset/RH20T_cfg3",
+  "dataset_variant": "cfg3",
   "output_prefix": "artifacts/semantic",
   "provider_config_path": "configs/semantic/provider_api.json",
   "embedder_config_path": "configs/semantic/embedder_transformers.json",
@@ -16,7 +16,7 @@
   "joint_prompt_version": "joint_prompt_with_taxonomy_v1",
   "taxonomy_version": "taxonomy_v1",
   "scenes_per_task": 2,
-  "manifest_start_index": 24,
+  "manifest_start_index": 2,
   "manifest_end_index": -1,
   "preferred_robot_cam_id": "cam_0",
   "preferred_human_cam_id": "cam_0",

@@ -4,6 +4,15 @@
 
 本文档基于当前 `artifacts/semantic`、`runs/semantic`、`runs/batch`、`src/bise/modalities/semantic`、`configs/semantic` 与 `docs/semantic` 的实际实现，评估语义层 VLM 模块设计是否合理、完成度如何、当前硬伤是什么，以及后续需要补充什么。
 
+2026-05-02 修复状态：
+
+- `configs/semantic/provider_api.json` 已改为 `api_key_env`，不再保存明文 key。
+- RH20T manifest 的 `scene_id` 已改为 `task_id/scene_name`，评估阶段也会兼容旧 annotation 并按 `task_id/scene_id` 计算 scene-level 正样本。
+- `runs/semantic/evaluate_semantic_retrieval.py` 已补齐 `metrics.json`、`cases.json`、`NDCG@10`、embedding/matrix 导出。
+- 新增 `runs/semantic/export_final_semantic_charts.py`，可导出 `semantic_metrics_comparison.png` 和原始绘图数据 JSON。
+- `runs/semantic/build_index.py` 默认索引字段已改为 `text_embedding`。
+- 单模态实验入口见 `docs/semantic/SEMANTIC_SINGLE_MODAL_EXPERIMENT_SCHEDULE.md`。
+
 ## 1. 当前结论
 
 语义模块已经不是占位实现，当前已经具备一条可运行的离线语义处理链路：
@@ -44,7 +53,7 @@ manifest 构建
 - `text_embedding` 有一定检索能力。
 - `label_embedding` 当前很弱，且拉低了 `text_plus_label`。
 - 语义模块工程闭环基本成立，但正式实验闭环和指标输出还弱于视频/轨迹模块。
-- 有几个必须修的硬伤，尤其是 API key 明文配置、scene_id 冲突、语义评估指标不完整。
+- 原先几个必须修的硬伤已经在代码层处理；旧 annotation 的 scene-level 评估也已增加兼容归一化，但正式归档仍建议重建 manifest 和 annotation。
 
 已运行语义相关测试：
 
@@ -74,7 +83,7 @@ pytest -q tests/test_semantic_*.py tests/test_build_semantic_manifest.py
 | Pipeline | `pipeline.py` | sync 处理、缓存、失败记录、增量输出基本完整。 |
 | Batch | `batch.py` + `runs/batch/*` | 支持 request shard、submit、sync、ingest，适合大规模离线标注。 |
 | Embedder | `embedder.py` | 支持 hash stub 与 transformers embedding，测试和正式处理可分离。 |
-| Retrieval Eval | `evaluator.py` + `runs/semantic/evaluate_semantic_retrieval.py` | 能完成 role split、text/label/combined 三种检索评估。 |
+| Retrieval Eval | `evaluator.py` + `runs/semantic/evaluate_semantic_retrieval.py` | 能完成 role split、text/label/combined 三种检索评估，并导出标准 metrics/cases。 |
 
 当前语义模块采用“单视频语义理解 + human/robot 跨域语义检索”的方式，与项目目标是匹配的。每个 scene 采样一个 camera pair，然后拆成 `robot` 和 `human` 两条记录，这个粒度也合理，避免每个 camera 都调用 VLM 带来成本爆炸。
 
@@ -82,7 +91,7 @@ pytest -q tests/test_semantic_*.py tests/test_build_semantic_manifest.py
 
 当前设计的主要问题不在代码能否跑，而在“正式实验可信度”和“语义标签可解释性”不足：
 
-- `text_embedding`、`label_embedding`、`combined` 的结果没有形成和视频/轨迹一致的 `final_test/metrics.json`、`cases.json`、图表产物。
+- 旧版 `text_embedding`、`label_embedding`、`combined` 结果没有形成和视频/轨迹一致的标准产物；当前代码已补齐评估产物和 final chart 入口。
 - 语义检索没有固定 split / cfg2->cfg3 all-test 规范，当前更像全量离线评估。
 - `label_only` 明显弱，说明 taxonomy 和 canonical label text 的区分度不足，不能直接作为有力语义结果。
 - prompt 明确要求不要颜色信息，但实际 annotation 中仍出现类似颜色描述，缺少输出后校验。
@@ -100,11 +109,11 @@ pytest -q tests/test_semantic_*.py tests/test_build_semantic_manifest.py
 | Taxonomy normalizer | 基本完成 | 支持 alias、非法值回退；但 taxonomy 粒度偏粗。 |
 | Text embedding | 已完成 | 支持 hash 和 transformers。 |
 | Feature store | 已完成 | 保存到通用 `FeatureStore`，包含 text/label embedding。 |
-| Semantic retrieval | 基本完成 | 支持 text/label/combined、role split、positive key。 |
+| Semantic retrieval | 已完成 | 支持 text/label/combined、role split、positive key、NDCG@10 和标准导出。 |
 | Label gold eval | 半完成 | 入口存在，但缺少 gold labels 数据与正式流程。 |
-| 图表产出 | 未完成 | 没有类似视频/轨迹的 final charts。 |
+| 图表产出 | 已完成 | 支持导出 `semantic_metrics_comparison.png` 和绘图原始数据 JSON。 |
 | cfg3 评估 | 未完成 | 当前没有语义 cfg2->cfg3 all-test 脚本和文档规范。 |
-| 安全配置 | 未完成 | API key 仍在 config 中明文保存。 |
+| 安全配置 | 已完成 | API key 通过 `api_key_env` 从环境变量读取。 |
 
 ## 4. 当前硬伤
 
