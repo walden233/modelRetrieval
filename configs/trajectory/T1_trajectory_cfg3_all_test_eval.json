@@ -1,0 +1,27 @@
+{
+  "experiment_name": "T1_trajectory_cfg3_all_test_eval",
+  "mode": "standard",
+  "data_root": "dataset/RH20T_subset/RH20T_cfg3",
+  "output_dir": "artifacts/runs/trajectory",
+  "split": {
+    "all_as_test": true
+  },
+  "batch_size": 16,
+  "num_epochs": 60,
+  "learning_rate": 0.0002,
+  "seed": 42,
+  "train_task_positives": true,
+  "evaluate_task_positives": false,
+  "use_6_keypoints": true,
+  "model_params": {
+    "human_input_dim": 18,
+    "robot_input_dim": 7,
+    "d_model": 128,
+    "nhead": 8,
+    "num_layers": 5,
+    "dim_feedforward": 512,
+    "proj_dim": 128,
+    "dropout": 0.15,
+    "tcp_sample_factor": 4
+  }
+}

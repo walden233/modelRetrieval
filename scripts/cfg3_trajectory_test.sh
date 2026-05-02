@@ -3,12 +3,11 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON_BIN="${PYTHON_BIN:-/home/ttt/miniconda3/envs/torch2/bin/python}"
-RUN="${RUN:-artifacts/runs/trajectory/T1_trajectory_baseline_scene_20260430_224542}"
+RUN="${RUN:-artifacts/runs/trajectory/T2_trajectory_augment_scene_20260430_225507}"
 CONFIG="${CONFIG:-$RUN/params.json}"
 CHECKPOINT="${CHECKPOINT:-$RUN/best_model.pth}"
-SPLIT="${SPLIT:-test}"
-SPLIT_MANIFEST="${SPLIT_MANIFEST:-$RUN/split_manifest.json}"
-OUTPUT_DIR="${OUTPUT_DIR:-$RUN/final_test}"
+DATA_ROOT="${DATA_ROOT:-dataset/RH20T_subset/RH20T_cfg3}"
+OUTPUT_DIR="${OUTPUT_DIR:-$RUN/cfg3_all_test}"
 TOP_K="${TOP_K:-5}"
 
 cd "$ROOT_DIR"
@@ -16,8 +15,9 @@ cd "$ROOT_DIR"
 exec "$PYTHON_BIN" runs/trajectory/evaluate_retrieval.py \
   --config "$CONFIG" \
   --checkpoint "$CHECKPOINT" \
-  --split "$SPLIT" \
-  --split-manifest "$SPLIT_MANIFEST" \
+  --data-root "$DATA_ROOT" \
+  --all-as-test \
+  --split test \
   --output-dir "$OUTPUT_DIR" \
   --top-k "$TOP_K" \
   "$@"

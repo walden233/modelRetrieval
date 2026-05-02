@@ -37,6 +37,9 @@ def parse_args():
     parser.add_argument("--direction", default="human_to_robot", choices=["human_to_robot", "robot_to_human"])
     parser.add_argument("--level", default="task", choices=["task", "scene"])
     parser.add_argument("--dpi", type=int, default=400, help="PNG resolution.")
+    parser.add_argument("--metrics-subdir", default="final_test", help="Run subdirectory containing metrics.json.")
+    parser.add_argument("--metrics-filename", default="trajectory_metrics_comparison.png", help="Output filename for the metrics chart.")
+    parser.add_argument("--curves-filename", default="trajectory_curves_comparison.png", help="Output filename for the curves chart.")
     return parser.parse_args()
 
 
@@ -46,12 +49,23 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     runs = _load_runs(Path(args.runs_json))
-    experiments = [_load_experiment(key, run_path, label, args.direction, args.level) for key, run_path, label in runs]
+    experiments = [
+        _load_experiment(key, run_path, label, args.direction, args.level, args.metrics_subdir)
+        for key, run_path, label in runs
+    ]
 
     _set_paper_style()
-    _save_plot_data(experiments, output_dir, direction=args.direction, level=args.level)
-    _plot_curves(experiments, output_dir / "trajectory_curves_comparison.png", dpi=args.dpi)
-    _plot_metrics(experiments, output_dir / "trajectory_metrics_comparison.png", dpi=args.dpi)
+    _save_plot_data(
+        experiments,
+        output_dir,
+        direction=args.direction,
+        level=args.level,
+        curves_filename=args.curves_filename,
+        metrics_filename=args.metrics_filename,
+        metrics_subdir=args.metrics_subdir,
+    )
+    _plot_curves(experiments, output_dir / args.curves_filename, dpi=args.dpi)
+    _plot_metrics(experiments, output_dir / args.metrics_filename, dpi=args.dpi)
 
 
 def _load_runs(path: Path) -> list[tuple[str, Path, str | None]]:
@@ -93,11 +107,18 @@ def _extract_label(value: Any) -> str | None:
     return None
 
 
-def _load_experiment(key: str, run_path: Path, label_override: str | None, direction: str, level: str) -> dict[str, Any]:
+def _load_experiment(
+    key: str,
+    run_path: Path,
+    label_override: str | None,
+    direction: str,
+    level: str,
+    metrics_subdir: str,
+) -> dict[str, Any]:
     curves_path = run_path / "curves.json"
-    metrics_path = run_path / "final_test" / "metrics.json"
+    metrics_path = run_path / metrics_subdir / "metrics.json"
     if not metrics_path.exists():
-        raise FileNotFoundError(f"{key} final_test metrics.json not found: {metrics_path}")
+        raise FileNotFoundError(f"{key} metrics.json not found: {metrics_path}")
 
     params = _load_optional_json(run_path / "params.json")
     label = label_override or _label_for_experiment(key, params)
@@ -202,9 +223,17 @@ def _clean_curve(values: list[Any]) -> list[float]:
     return clean_values
 
 
-def _save_plot_data(experiments: list[dict[str, Any]], output_dir: Path, direction: str, level: str) -> None:
+def _save_plot_data(
+    experiments: list[dict[str, Any]],
+    output_dir: Path,
+    direction: str,
+    level: str,
+    curves_filename: str,
+    metrics_filename: str,
+    metrics_subdir: str,
+) -> None:
     curves_payload = {
-        "figure": "trajectory_curves_comparison.png",
+        "figure": curves_filename,
         "series": [
             {
                 "key": experiment["key"],
@@ -218,7 +247,8 @@ def _save_plot_data(experiments: list[dict[str, Any]], output_dir: Path, directi
         ],
     }
     metrics_payload = {
-        "figure": "trajectory_metrics_comparison.png",
+        "figure": metrics_filename,
+        "metrics_subdir": metrics_subdir,
         "direction": direction,
         "level": level,
         "metric_keys": list(METRIC_KEYS),
@@ -236,11 +266,13 @@ def _save_plot_data(experiments: list[dict[str, Any]], output_dir: Path, directi
             for experiment in experiments
         ],
     }
-    (output_dir / "trajectory_curves_comparison_data.json").write_text(
+    curves_data_name = Path(curves_filename).with_suffix(".json").name.replace(".json", "_data.json")
+    metrics_data_name = Path(metrics_filename).with_suffix(".json").name.replace(".json", "_data.json")
+    (output_dir / curves_data_name).write_text(
         json.dumps(curves_payload, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
-    (output_dir / "trajectory_metrics_comparison_data.json").write_text(
+    (output_dir / metrics_data_name).write_text(
         json.dumps(metrics_payload, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )

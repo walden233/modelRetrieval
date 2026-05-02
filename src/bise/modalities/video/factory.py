@@ -70,6 +70,9 @@ def split_video_dataset(dataset, split_config: Dict | None):
     if not split_config:
         return {"train": dataset, "val": None, "test": None}
 
+    if _is_all_test_split(split_config):
+        return _all_as_test_split(dataset)
+
     manifest_path = split_config.get("manifest_path")
     if manifest_path:
         # 若用户已经准备好了固定划分文件，则优先按 manifest 切分。
@@ -83,6 +86,19 @@ def split_video_dataset(dataset, split_config: Dict | None):
     ratios = split_config.get("ratios", {"train": 0.8, "val": 0.1, "test": 0.1})
     seed = int(split_config.get("seed", 42))
     return _split_by_group_unit(dataset, unit=unit, ratios=ratios, seed=seed)
+
+
+def _is_all_test_split(split_config: Dict) -> bool:
+    return bool(split_config.get("all_as_test")) or str(split_config.get("unit", "")).strip().lower() == "all_test"
+
+
+def _all_as_test_split(dataset):
+    indices = list(range(len(dataset)))
+    return {
+        "train": Subset(dataset, []),
+        "val": Subset(dataset, []),
+        "test": Subset(dataset, indices),
+    }
 
 
 def build_split_manifest(split_datasets: Dict[str, object]) -> Dict[str, List[str]]:

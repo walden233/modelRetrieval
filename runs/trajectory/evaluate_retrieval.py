@@ -28,13 +28,17 @@ def parse_args():
     parser.add_argument("--split-manifest", help="Optional split_manifest.json produced by train_trajectory.py.")
     parser.add_argument("--output-dir", help="Optional directory for metrics, cases, embeddings, and similarity matrix.")
     parser.add_argument("--top-k", type=int, default=5, help="Top-k retrieval cases to export in stdout.")
+    parser.add_argument("--data-root", help="Optional trajectory dataset root override, for example dataset/RH20T_subset/RH20T_cfg3.")
+    parser.add_argument("--all-as-test", action="store_true", help="Evaluate the entire dataset as the test split.")
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
     config = load_json_config(args.config)
-    split_config, split_manifest_path = _resolve_split_config(config, args.checkpoint, args.split_manifest)
+    if args.data_root:
+        config["data_root"] = args.data_root
+    split_config, split_manifest_path = _resolve_split_config(config, args.checkpoint, args.split_manifest, args.all_as_test)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     dataset_source = RH20TTrajectoryDataset(
@@ -57,12 +61,20 @@ def main():
     result = evaluate_trajectory_retrieval(model, dataloader, device)
     cases = build_trajectory_retrieval_cases(result, top_k=args.top_k)
     if args.output_dir:
-        _save_evaluation_outputs(Path(args.output_dir), result, cases, split_manifest_path)
+        _save_evaluation_outputs(Path(args.output_dir), result, cases, split_manifest_path, split_config, config["data_root"])
     print(json.dumps({"metrics": result["metrics"], "cases": cases[:5]}, indent=2, ensure_ascii=False))
 
 
-def _resolve_split_config(config: dict, checkpoint: str, explicit_manifest: str | None):
+def _resolve_split_config(config: dict, checkpoint: str, explicit_manifest: str | None, all_as_test: bool):
+    if all_as_test and explicit_manifest:
+        raise ValueError("--all-as-test cannot be combined with --split-manifest.")
+
     split_config = dict(config.get("split") or {"unit": "scene", "seed": config.get("seed", 42), "ratios": {"train": 0.8, "val": 0.1, "test": 0.1}})
+    if all_as_test:
+        return {"all_as_test": True}, None
+    if split_config.get("all_as_test") or str(split_config.get("unit", "")).strip().lower() == "all_test":
+        return split_config, None
+
     manifest_path = Path(explicit_manifest) if explicit_manifest else Path(checkpoint).resolve().parent / "split_manifest.json"
     if explicit_manifest and not manifest_path.exists():
         raise FileNotFoundError(f"Split manifest not found: {manifest_path}")
@@ -72,7 +84,14 @@ def _resolve_split_config(config: dict, checkpoint: str, explicit_manifest: str 
     return split_config, None
 
 
-def _save_evaluation_outputs(output_dir: Path, result: dict, cases: list[dict], split_manifest_path: Path | None) -> None:
+def _save_evaluation_outputs(
+    output_dir: Path,
+    result: dict,
+    cases: list[dict],
+    split_manifest_path: Path | None,
+    split_config: dict,
+    data_root: str,
+) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "metrics.json").write_text(
         json.dumps(result["metrics"], indent=2, ensure_ascii=False),
@@ -91,11 +110,13 @@ def _save_evaluation_outputs(output_dir: Path, result: dict, cases: list[dict], 
     np.save(output_dir / "human_embeddings.npy", result["human_embeddings"])
     np.save(output_dir / "robot_embeddings.npy", result["robot_embeddings"])
     _save_heatmaps(output_dir, result["similarity_matrix"], metadata)
+    run_info = {"split_config": split_config, "data_root": data_root}
     if split_manifest_path is not None:
-        (output_dir / "run_info.json").write_text(
-            json.dumps({"split_manifest": str(split_manifest_path)}, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        run_info["split_manifest"] = str(split_manifest_path)
+    (output_dir / "run_info.json").write_text(
+        json.dumps(run_info, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
 
 
 def _save_heatmaps(output_dir: Path, similarity_matrix, metadata: dict) -> None:

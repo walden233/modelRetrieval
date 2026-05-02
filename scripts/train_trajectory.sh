@@ -2,9 +2,19 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PYTHON_BIN="/home/ttt/miniconda3/envs/torch2/bin/python"
+PYTHON_BIN="${PYTHON_BIN:-/home/ttt/miniconda3/envs/torch2/bin/python}"
+CONFIG="${CONFIG:-configs/trajectory/T1_trajectory_baseline_scene.json}"
+DATA_ROOT="${DATA_ROOT:-}"
+OUTPUT_DIR="${OUTPUT_DIR:-}"
 
-exec "$PYTHON_BIN" \
-  "$ROOT_DIR/tools/train_trajectory.py" \
-  --config "$ROOT_DIR/configs/trajectory/baseline.json" \
-  "$@"
+cd "$ROOT_DIR"
+
+ARGS=(--config "$CONFIG")
+if [[ -n "$DATA_ROOT" ]]; then
+  ARGS+=(--data-root "$DATA_ROOT")
+fi
+if [[ -n "$OUTPUT_DIR" ]]; then
+  ARGS+=(--output-dir "$OUTPUT_DIR")
+fi
+
+exec "$PYTHON_BIN" runs/trajectory/train_trajectory.py "${ARGS[@]}" "$@"

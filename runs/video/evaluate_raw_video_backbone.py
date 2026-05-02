@@ -27,14 +27,20 @@ def parse_args():
     parser.add_argument("--split", default="test", choices=["train", "val", "test"], help="Dataset split to evaluate.")
     parser.add_argument("--split-manifest", help="Optional split_manifest.json from a trained run.")
     parser.add_argument("--top-k", type=int, default=5, help="Top-k retrieval cases to export.")
+    parser.add_argument("--data-root", help="Optional RH20T dataset root override, for example dataset/RH20T_subset/RH20T_cfg3.")
+    parser.add_argument("--all-as-test", action="store_true", help="Evaluate the entire dataset as the test split.")
+    parser.add_argument("--final-subdir", default="final_test", help="Subdirectory inside output-dir for evaluation artifacts.")
+    parser.add_argument("--skip-save-params", action="store_true", help="Do not overwrite params.json in output-dir.")
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
     config = load_json_config(args.config)
+    if args.data_root:
+        config.setdefault("dataset", {})["root_dir"] = args.data_root
     run_dir = ensure_directory(args.output_dir)
-    final_test_dir = ensure_directory(Path(run_dir) / "final_test")
+    final_test_dir = ensure_directory(Path(run_dir) / args.final_subdir)
 
     processor, backbone_adapter = build_video_backbone(
         backbone_type=config["model"]["backbone_type"],
@@ -43,7 +49,12 @@ def main():
     )
     model = RawBackboneRetrievalModel(backbone_adapter)
 
-    split_config, split_manifest_path = _resolve_split_config(config, str(Path(run_dir) / "raw_backbone.pth"), args.split_manifest)
+    split_config, split_manifest_path = _resolve_split_config(
+        config,
+        str(Path(run_dir) / "raw_backbone.pth"),
+        args.split_manifest,
+        all_as_test=args.all_as_test,
+    )
     dataset_source = build_video_dataset(config["dataset"], processor=processor, is_train=False)
     split_datasets = split_video_dataset(dataset_source, split_config)
     dataset = split_datasets.get(args.split)
@@ -61,8 +72,16 @@ def main():
     model = model.to(device)
     result = evaluate_video_retrieval(model, dataloader, device)
     cases = build_retrieval_cases(result, top_k=args.top_k)
-    _save_evaluation_outputs(final_test_dir, result, cases, split_manifest_path)
-    _save_raw_params(run_dir, config, args, split_manifest_path)
+    _save_evaluation_outputs(
+        final_test_dir,
+        result,
+        cases,
+        split_manifest_path,
+        split_config,
+        config["dataset"].get("root_dir"),
+    )
+    if not args.skip_save_params:
+        _save_raw_params(run_dir, config, args, split_manifest_path)
     print(json.dumps({"metrics": result["metrics"], "cases": cases[:5]}, indent=2, ensure_ascii=False))
 
 
@@ -85,6 +104,8 @@ def _save_raw_params(run_dir: Path, config: dict, args, split_manifest_path: Pat
     params["raw_backbone"] = True
     params["source_config"] = args.config
     params.setdefault("split", {})
+    if args.all_as_test:
+        params["split"] = {"all_as_test": True}
     if split_manifest_path is not None:
         params["split"]["manifest_path"] = str(split_manifest_path)
     with (run_dir / "params.json").open("w", encoding="utf-8") as handle:

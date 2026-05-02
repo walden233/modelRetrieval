@@ -74,3 +74,12 @@ def test_split_manifest_round_trip_preserves_sample_order(tmp_path):
 
     assert [splits["train"].dataset.samples[index].sample_id for index in splits["train"].indices] == ["s3", "s1"]
     assert build_split_manifest(splits) == {"train": ["s3", "s1"], "val": ["s2"], "test": []}
+
+
+def test_split_video_dataset_all_as_test():
+    splits = split_video_dataset(_Dataset(), {"all_as_test": True})
+
+    assert len(splits["train"]) == 0
+    assert len(splits["val"]) == 0
+    assert len(splits["test"]) == 3
+    assert build_split_manifest(splits) == {"train": [], "val": [], "test": ["s1", "s2", "s3"]}
