@@ -9,6 +9,17 @@ import matplotlib.pyplot as plt
 
 
 METRIC_KEYS = ("R@1", "R@5", "R@10", "MRR", "NDCG@10")
+SYSTEM_PALETTE = (
+    "#2A6FBB",  # Video
+    "#D95F02",  # Trajectory
+    "#1B9E77",  # Semantic
+    "#7570B3",  # Video+Trajectory
+    "#C43C39",  # Video+Semantic
+    "#6A994E",  # Trajectory+Semantic
+    "#8E6C8A",  # Video+Trajectory+Semantic
+    "#A6761D",
+    "#4D4D4D",
+)
 
 
 def plot_system_metrics(series: list[dict], output_path: str | Path, title: str = "Retrieval System Metrics", dpi: int = 400):
@@ -28,7 +39,6 @@ def plot_system_metrics(series: list[dict], output_path: str | Path, title: str 
     x_positions = range(len(METRIC_KEYS))
     group_width = 0.76
     bar_width = group_width / max(len(series), 1)
-    colors = ("#2A6FBB", "#D95F02", "#1B9E77", "#7570B3", "#C43C39", "#6A994E")
     fig, ax = plt.subplots(figsize=(10.2, 5.4))
     for index, item in enumerate(series):
         values = [float(item["metrics"].get(metric, 0.0) or 0.0) for metric in METRIC_KEYS]
@@ -37,7 +47,7 @@ def plot_system_metrics(series: list[dict], output_path: str | Path, title: str 
             [x + offset for x in x_positions],
             values,
             width=bar_width * 0.9,
-            color=colors[index % len(colors)],
+            color=SYSTEM_PALETTE[index % len(SYSTEM_PALETTE)],
             edgecolor="white",
             linewidth=0.7,
             label=item["label"],

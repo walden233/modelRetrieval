@@ -9,4 +9,5 @@ artifacts/
 *.egg-info/
 dist/
 build/
+tmp/
 .pytest_cache/

@@ -4,7 +4,7 @@
   "data_root": "dataset/RH20T_subset/RH20T_cfg3",
   "output_dir": "artifacts/retrieval/rh20t_cfg3_v1",
   "sampling": {
-    "scenes_per_task": 0,
+    "scenes_per_task": 3,
     "cameras_per_scene": 2
   },
   "video": {
@@ -16,11 +16,11 @@
   "trajectory": {
     "enabled": true,
     "config": "configs/trajectory/T1_trajectory_baseline_scene.json",
-    "checkpoint": "artifacts/runs/trajectory/T1_trajectory_baseline_scene_20260430_224542/best_model.pth",
+    "checkpoint": "artifacts/runs/trajectory/T2_trajectory_augment_scene_20260430_225507/best_model.pth",
     "batch_size": 16
   },
   "semantic": {
-    "enabled": false,
+    "enabled": true,
     "root": "artifacts/semantic/rh20t",
     "cfg": "cfg3",
     "modes": ["text", "label", "combined"]
