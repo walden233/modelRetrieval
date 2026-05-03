@@ -1,0 +1,26 @@
+{
+  "library_dir": "artifacts/retrieval/rh20t_cfg2_v1",
+  "gallery_domain": "robot",
+  "candidate_unit": "scene_camera",
+  "level": "mixed",
+  "scene_task_mixed": {
+    "scene_gain": 1.0,
+    "task_gain": 0.3
+  },
+  "modalities": ["video", "trajectory", "semantic_text"],
+  "fusion": {
+    "method": "weighted_sum",
+    "calibration": "zscore",
+    "missing_policy": "renormalize",
+    "weights": {
+      "video": 0.5,
+      "trajectory": 0.2,
+      "semantic_text": 0.3
+    }
+  },
+  "aggregation": {
+    "camera_to_scene": "max"
+  },
+  "top_k": 10,
+  "require_modalities": ["video", "trajectory", "semantic_text"]
+}

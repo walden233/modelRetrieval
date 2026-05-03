@@ -1,0 +1,32 @@
+{
+  "cfg": "cfg2",
+  "dataset_name": "rh20t",
+  "data_root": "dataset/RH20T_subset/RH20T_cfg2",
+  "output_dir": "artifacts/retrieval/rh20t_cfg2_v1",
+  "sampling": {
+    "scenes_per_task": 3,
+    "cameras_per_scene": 2
+  },
+  "video": {
+    "enabled": true,
+    "config": "configs/video/vjepa_rh20t_baseline.json",
+    "checkpoint": "artifacts/runs/video/video_vjepa_rh20t_baseline_20260429_145608/best_model.pth",
+    "batch_size": 4
+  },
+  "trajectory": {
+    "enabled": true,
+    "config": "configs/trajectory/T1_trajectory_baseline_scene.json",
+    "checkpoint": "artifacts/runs/trajectory/T2_trajectory_augment_scene_20260430_225507/best_model.pth",
+    "batch_size": 16
+  },
+  "semantic": {
+    "enabled": true,
+    "root": "artifacts/semantic/rh20t",
+    "cfg": "cfg2",
+    "modes": ["text", "label", "combined"]
+  },
+  "domains": {
+    "include_human": true,
+    "include_robot": true
+  }
+}
