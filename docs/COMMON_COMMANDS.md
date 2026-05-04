@@ -365,6 +365,15 @@ python runs/restore_charts_from_json.py \
   --overwrite
 ```
 
+也支持从单个 run 的 `curves.json` 恢复曲线图：
+
+```bash
+python runs/restore_charts_from_json.py \
+  --input artifacts/runs/trajectory/T2_trajectory_augment_scene_20260430_225507/curves.json \
+  --output-dir /tmp/restored_charts \
+  --overwrite
+```
+
 ## 6. 常见产物位置
 
 视频：

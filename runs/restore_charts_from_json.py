@@ -1,5 +1,6 @@
 import argparse
 import json
+import math
 import os
 from pathlib import Path
 from typing import Any
@@ -49,8 +50,11 @@ def main():
             skipped.append(str(output_path))
             continue
         payload = json.loads(json_path.read_text(encoding="utf-8"))
+        payload = _normalize_payload(json_path, payload)
         _set_paper_style()
-        if _is_curves_payload(payload):
+        if _is_raw_curves_payload(payload):
+            _plot_raw_curves(payload, output_path, args.dpi)
+        elif _is_curves_payload(payload):
             _plot_curves(payload, output_path, args.dpi)
         elif _is_metrics_payload(payload):
             _plot_metrics(payload, output_path, args.dpi)
@@ -62,7 +66,7 @@ def main():
 
 
 def _discover_chart_jsons(root: Path) -> list[Path]:
-    patterns = ("*_data.json",)
+    patterns = ("*_data.json", "curves.json")
     paths: list[Path] = []
     for pattern in patterns:
         paths.extend(root.rglob(pattern))
@@ -71,9 +75,12 @@ def _discover_chart_jsons(root: Path) -> list[Path]:
 
 def _output_path(json_path: Path, output_dir: str | None) -> Path:
     payload = json.loads(json_path.read_text(encoding="utf-8"))
+    payload = _normalize_payload(json_path, payload)
     figure = payload.get("figure")
     if figure:
         filename = Path(str(figure)).name
+    elif json_path.name == "curves.json" and _is_raw_curves_payload(payload):
+        filename = "curves.png"
     else:
         filename = json_path.name.replace("_data.json", ".png")
     return (Path(output_dir) / filename) if output_dir else (json_path.parent / filename)
@@ -83,6 +90,24 @@ def _is_curves_payload(payload: dict[str, Any]) -> bool:
     return isinstance(payload.get("series"), list) and any(
         "train_loss" in item or "val_mrr" in item for item in payload["series"]
     )
+
+
+def _is_raw_curves_payload(payload: dict[str, Any]) -> bool:
+    return "series" not in payload and any(
+        key in payload
+        for key in (
+            "train_loss",
+            "val_mean_p_rank",
+            "val_mrr",
+            "val_ndcg",
+            "train_loss_inter",
+            "train_loss_intra",
+        )
+    )
+
+
+def _normalize_payload(json_path: Path, payload: dict[str, Any]) -> dict[str, Any]:
+    return payload
 
 
 def _is_metrics_payload(payload: dict[str, Any]) -> bool:
@@ -146,6 +171,67 @@ def _plot_curves(payload: dict[str, Any], output_path: Path, dpi: int) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=dpi, bbox_inches="tight")
     plt.close(fig)
+
+
+def _plot_raw_curves(history: dict[str, Any], output_path: Path, dpi: int) -> None:
+    plot_specs = [
+        ("train_loss", "Train Loss", "Loss", None),
+        # ("val_mean_p_rank", "Validation Mean Percentage Rank", "Mean Percentage Rank", "orange"),
+        ("val_mrr", "Validation MRR", "MRR", "green"),
+        # ("val_ndcg", "Validation NDCG@10", "NDCG@10", "purple"),
+        ("train_loss_inter", "Inter-modal Loss", "Loss", None),
+        ("train_loss_intra", "Intra-modal Loss", "Loss", None),
+    ]
+    active_specs = [
+        spec
+        for spec in plot_specs
+        if any(value is not None for value in history.get(spec[0], []))
+    ]
+    if not active_specs:
+        return
+
+    num_plots = len(active_specs)
+    num_cols = 2 if num_plots > 1 else 1
+    num_rows = math.ceil(num_plots / num_cols)
+    fig, axes = plt.subplots(num_rows, num_cols, figsize=(7.5 * num_cols, 5.5 * num_rows))
+    flattened_axes = _flatten_axes(axes)
+
+    for ax, (key, title, ylabel, color) in zip(flattened_axes, active_specs):
+        _plot_single_curve(ax, history.get(key, []), title, ylabel, color=color)
+    for ax in flattened_axes[len(active_specs):]:
+        ax.set_visible(False)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=dpi, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _plot_single_curve(ax, values: list[Any], title: str, ylabel: str, color: str | None = None) -> None:
+    # 原始训练曲线需要保留 epoch 编号，None 只表示该 epoch 没有此项记录，不能压缩横轴。
+    points = [(index + 1, _safe_float(value)) for index, value in enumerate(values) if value is not None]
+    if not points:
+        ax.set_visible(False)
+        return
+
+    epochs, clean_values = zip(*points)
+    ax.plot(epochs, clean_values, color=color, linewidth=2.2)
+    ax.set_title(title, fontsize=16)
+    ax.set_xlabel("Epoch", fontsize=14)
+    ax.set_ylabel(ylabel, fontsize=14)
+    ax.tick_params(axis="both", labelsize=12)
+    ax.grid(True)
+
+
+def _flatten_axes(axes) -> list:
+    if hasattr(axes, "flatten"):
+        return axes.flatten().tolist()
+    if isinstance(axes, (list, tuple)):
+        flattened = []
+        for axis in axes:
+            flattened.extend(_flatten_axes(axis))
+        return flattened
+    return [axes]
 
 
 def _plot_metrics(payload: dict[str, Any], output_path: Path, dpi: int) -> None:
