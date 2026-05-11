@@ -7,8 +7,8 @@ ANNOTATIONS="${ANNOTATIONS:-artifacts/semantic/rh20t/cfg2/annotations/normalized
 GALLERY_ANNOTATIONS="${GALLERY_ANNOTATIONS:-}"
 QUERY_ROLE="${QUERY_ROLE:-human}"
 GALLERY_ROLE="${GALLERY_ROLE:-robot}"
-POSITIVE_KEY="${POSITIVE_KEY:-pair_id}"
-OUTPUT_DIR="${OUTPUT_DIR:-artifacts/semantic/rh20t/cfg2/evaluation/pair}"
+POSITIVE_KEY="${POSITIVE_KEY:-task_id}"
+OUTPUT_DIR="${OUTPUT_DIR:-artifacts/semantic/rh20t/cfg2/evaluation/task}"
 TOP_K="${TOP_K:-10}"
 
 cd "$ROOT_DIR"
