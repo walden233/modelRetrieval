@@ -326,6 +326,42 @@ scripts/export_retrieval_system_charts.sh
 
 ## 5. 常见 final chart 汇总
 
+### 5.1 配置驱动的一键评估与论文数据导出
+
+现有单步骤入口仍可单独使用；若需要按一份配置串联三模态评估、检索库评估、消融、
+融合权重搜索并导出论文数据，使用：
+
+```bash
+scripts/run_experiment_pipeline.sh --skip-existing
+```
+
+配置文件为 `configs/experiments/paper_baseline_cfg2_cfg3.json`。只跑指定步骤：
+
+```bash
+scripts/run_experiment_pipeline.sh \
+  --only trajectory_T2_cfg2_test,video_E1_cfg2_test,fusion_weight_search_cfg2_to_cfg3 \
+  --skip-existing
+```
+
+查看命令但不执行：
+
+```bash
+scripts/run_experiment_pipeline.sh --dry-run
+```
+
+只跑全部单模态测试（T1–T5、E1–E6、RAW_VJEPA、RAW_VIDEOMAE）：
+
+```bash
+scripts/run_experiment_pipeline.sh --group trajectory_single,video_single --skip-existing
+```
+
+流水线清单和日志位于 `artifacts/experiments/<experiment_id>/`，论文数据包位于
+`artifacts/paper/<experiment_id>/`。单独重新导出：
+
+```bash
+scripts/export_paper_bundle.sh
+```
+
 视频：
 
 ```bash

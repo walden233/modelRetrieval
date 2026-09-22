@@ -1,0 +1,1084 @@
+{
+  "experiment_id": "paper_baseline_cfg2_cfg3",
+  "log_dir": "artifacts/experiments/paper_baseline_cfg2_cfg3/logs",
+  "manifest": "artifacts/experiments/paper_baseline_cfg2_cfg3/pipeline_manifest.json",
+  "steps": [
+    {
+      "name": "trajectory_T2_cfg2_test",
+      "script": "runs/trajectory/evaluate_retrieval.py",
+      "args": [
+        "--config",
+        "artifacts/runs/trajectory/T2_trajectory_augment_scene_20260430_225507/params.json",
+        "--checkpoint",
+        "artifacts/runs/trajectory/T2_trajectory_augment_scene_20260430_225507/best_model.pth",
+        "--split",
+        "test",
+        "--split-manifest",
+        "artifacts/runs/trajectory/T2_trajectory_augment_scene_20260430_225507/split_manifest.json",
+        "--output-dir",
+        "artifacts/runs/trajectory/T2_trajectory_augment_scene_20260430_225507/evaluations/cfg2/test",
+        "--top-k",
+        "10"
+      ],
+      "outputs": [
+        "artifacts/runs/trajectory/T2_trajectory_augment_scene_20260430_225507/evaluations/cfg2/test/metrics.json"
+      ],
+      "groups": [
+        "single_modality",
+        "trajectory_single"
+      ]
+    },
+    {
+      "name": "trajectory_T2_cfg3_all_test",
+      "script": "runs/trajectory/evaluate_retrieval.py",
+      "args": [
+        "--config",
+        "artifacts/runs/trajectory/T2_trajectory_augment_scene_20260430_225507/params.json",
+        "--checkpoint",
+        "artifacts/runs/trajectory/T2_trajectory_augment_scene_20260430_225507/best_model.pth",
+        "--split",
+        "test",
+        "--data-root",
+        "dataset/RH20T_subset/RH20T_cfg3",
+        "--all-as-test",
+        "--output-dir",
+        "artifacts/runs/trajectory/T2_trajectory_augment_scene_20260430_225507/evaluations/cfg3/all_test",
+        "--top-k",
+        "10"
+      ],
+      "outputs": [
+        "artifacts/runs/trajectory/T2_trajectory_augment_scene_20260430_225507/evaluations/cfg3/all_test/metrics.json"
+      ],
+      "groups": [
+        "single_modality",
+        "trajectory_single"
+      ]
+    },
+    {
+      "name": "video_E1_cfg2_test",
+      "script": "runs/video/evaluate_video.py",
+      "args": [
+        "--config",
+        "artifacts/runs/video/video_vjepa_rh20t_baseline_20260429_145608/params.json",
+        "--checkpoint",
+        "artifacts/runs/video/video_vjepa_rh20t_baseline_20260429_145608/best_model.pth",
+        "--split",
+        "test",
+        "--split-manifest",
+        "artifacts/runs/video/video_vjepa_rh20t_baseline_20260429_145608/split_manifest.json",
+        "--output-dir",
+        "artifacts/runs/video/video_vjepa_rh20t_baseline_20260429_145608/evaluations/cfg2/test",
+        "--top-k",
+        "10"
+      ],
+      "outputs": [
+        "artifacts/runs/video/video_vjepa_rh20t_baseline_20260429_145608/evaluations/cfg2/test/metrics.json"
+      ],
+      "groups": [
+        "single_modality",
+        "video_single"
+      ]
+    },
+    {
+      "name": "video_E1_cfg3_all_test",
+      "script": "runs/video/evaluate_video.py",
+      "args": [
+        "--config",
+        "artifacts/runs/video/video_vjepa_rh20t_baseline_20260429_145608/params.json",
+        "--checkpoint",
+        "artifacts/runs/video/video_vjepa_rh20t_baseline_20260429_145608/best_model.pth",
+        "--split",
+        "test",
+        "--data-root",
+        "dataset/RH20T_subset/RH20T_cfg3",
+        "--all-as-test",
+        "--output-dir",
+        "artifacts/runs/video/video_vjepa_rh20t_baseline_20260429_145608/evaluations/cfg3/all_test",
+        "--top-k",
+        "10"
+      ],
+      "outputs": [
+        "artifacts/runs/video/video_vjepa_rh20t_baseline_20260429_145608/evaluations/cfg3/all_test/metrics.json"
+      ],
+      "groups": [
+        "single_modality",
+        "video_single"
+      ]
+    },
+    {
+      "name": "semantic_cfg2_task",
+      "script": "runs/semantic/evaluate_semantic_retrieval.py",
+      "args": [
+        "--annotations",
+        "artifacts/semantic/rh20t/cfg2/annotations/normalized_annotations.jsonl",
+        "--query-role",
+        "human",
+        "--gallery-role",
+        "robot",
+        "--positive-key",
+        "task_id",
+        "--output-dir",
+        "artifacts/semantic/rh20t/cfg2/evaluation/pipeline_task",
+        "--top-k",
+        "10"
+      ],
+      "outputs": [
+        "artifacts/semantic/rh20t/cfg2/evaluation/pipeline_task/metrics.json"
+      ],
+      "groups": [
+        "single_modality",
+        "semantic_single"
+      ]
+    },
+    {
+      "name": "semantic_cfg3_task",
+      "script": "runs/semantic/evaluate_semantic_retrieval.py",
+      "args": [
+        "--annotations",
+        "artifacts/semantic/rh20t/cfg3/annotations/normalized_annotations.jsonl",
+        "--query-role",
+        "human",
+        "--gallery-role",
+        "robot",
+        "--positive-key",
+        "task_id",
+        "--output-dir",
+        "artifacts/semantic/rh20t/cfg3/evaluation/pipeline_task",
+        "--top-k",
+        "10"
+      ],
+      "outputs": [
+        "artifacts/semantic/rh20t/cfg3/evaluation/pipeline_task/metrics.json"
+      ],
+      "groups": [
+        "single_modality",
+        "semantic_single"
+      ]
+    },
+    {
+      "name": "build_library_cfg2",
+      "script": "runs/retrieval/build_retrieval_library.py",
+      "args": [
+        "--config",
+        "configs/retrieval/library_rh20t_cfg2.json"
+      ],
+      "outputs": [
+        "artifacts/retrieval/rh20t_cfg2_v1/coverage.json"
+      ],
+      "groups": [
+        "retrieval_system"
+      ]
+    },
+    {
+      "name": "build_library_cfg3",
+      "script": "runs/retrieval/build_retrieval_library.py",
+      "args": [
+        "--config",
+        "configs/retrieval/library_rh20t_cfg3.json"
+      ],
+      "outputs": [
+        "artifacts/retrieval/rh20t_cfg3_v1/coverage.json"
+      ],
+      "groups": [
+        "retrieval_system"
+      ]
+    },
+    {
+      "name": "retrieval_cfg2_full",
+      "script": "runs/retrieval/evaluate_retrieval_system.py",
+      "args": [
+        "--library-dir",
+        "artifacts/retrieval/rh20t_cfg2_v1",
+        "--config",
+        "configs/retrieval/system_eval_full_modalities.json",
+        "--level",
+        "mixed",
+        "--require-modalities",
+        "video,trajectory,semantic_text",
+        "--output-dir",
+        "artifacts/retrieval/rh20t_cfg2_v1/eval/pipeline_full",
+        "--top-k",
+        "10"
+      ],
+      "outputs": [
+        "artifacts/retrieval/rh20t_cfg2_v1/eval/pipeline_full/metrics.json"
+      ],
+      "groups": [
+        "retrieval_system"
+      ]
+    },
+    {
+      "name": "retrieval_cfg3_full",
+      "script": "runs/retrieval/evaluate_retrieval_system.py",
+      "args": [
+        "--library-dir",
+        "artifacts/retrieval/rh20t_cfg3_v1",
+        "--config",
+        "configs/retrieval/system_eval_full_modalities.json",
+        "--level",
+        "mixed",
+        "--require-modalities",
+        "video,trajectory,semantic_text",
+        "--output-dir",
+        "artifacts/retrieval/rh20t_cfg3_v1/eval/pipeline_full",
+        "--top-k",
+        "10"
+      ],
+      "outputs": [
+        "artifacts/retrieval/rh20t_cfg3_v1/eval/pipeline_full/metrics.json"
+      ],
+      "groups": [
+        "retrieval_system"
+      ]
+    },
+    {
+      "name": "retrieval_cfg2_ablation",
+      "runner": "bash",
+      "script": "scripts/run_retrieval_system_ablation.sh",
+      "env": {
+        "LIBRARY_DIR": "artifacts/retrieval/rh20t_cfg2_v1",
+        "OUTPUT_ROOT": "artifacts/retrieval/rh20t_cfg2_v1/eval/pipeline_ablation",
+        "LEVEL": "mixed"
+      },
+      "outputs": [
+        "artifacts/retrieval/rh20t_cfg2_v1/eval/pipeline_ablation/ablation_runs.json"
+      ],
+      "groups": [
+        "retrieval_system"
+      ]
+    },
+    {
+      "name": "fusion_weight_search_cfg2_to_cfg3",
+      "script": "runs/retrieval/search_fusion_weights.py",
+      "args": [
+        "--search-library",
+        "artifacts/retrieval/rh20t_cfg2_v1",
+        "--test-library",
+        "artifacts/retrieval/rh20t_cfg3_v1",
+        "--config",
+        "configs/retrieval/system_default.json",
+        "--step",
+        "0.1",
+        "--output-dir",
+        "artifacts/retrieval/pipeline_weight_search_cfg2_to_cfg3"
+      ],
+      "outputs": [
+        "artifacts/retrieval/pipeline_weight_search_cfg2_to_cfg3/final_comparison.csv"
+      ],
+      "groups": [
+        "weight_search"
+      ]
+    },
+    {
+      "name": "trajectory_T1_cfg2_test",
+      "script": "runs/trajectory/evaluate_retrieval.py",
+      "args": [
+        "--config",
+        "artifacts/runs/trajectory/T1_trajectory_baseline_scene_20260430_224542/params.json",
+        "--checkpoint",
+        "artifacts/runs/trajectory/T1_trajectory_baseline_scene_20260430_224542/best_model.pth",
+        "--split",
+        "test",
+        "--split-manifest",
+        "artifacts/runs/trajectory/T1_trajectory_baseline_scene_20260430_224542/split_manifest.json",
+        "--output-dir",
+        "artifacts/runs/trajectory/T1_trajectory_baseline_scene_20260430_224542/evaluations/cfg2/test",
+        "--top-k",
+        "10"
+      ],
+      "outputs": [
+        "artifacts/runs/trajectory/T1_trajectory_baseline_scene_20260430_224542/evaluations/cfg2/test/metrics.json"
+      ],
+      "groups": [
+        "single_modality",
+        "trajectory_single"
+      ]
+    },
+    {
+      "name": "trajectory_T1_cfg3_all_test",
+      "script": "runs/trajectory/evaluate_retrieval.py",
+      "args": [
+        "--config",
+        "artifacts/runs/trajectory/T1_trajectory_baseline_scene_20260430_224542/params.json",
+        "--checkpoint",
+        "artifacts/runs/trajectory/T1_trajectory_baseline_scene_20260430_224542/best_model.pth",
+        "--split",
+        "test",
+        "--data-root",
+        "dataset/RH20T_subset/RH20T_cfg3",
+        "--all-as-test",
+        "--output-dir",
+        "artifacts/runs/trajectory/T1_trajectory_baseline_scene_20260430_224542/evaluations/cfg3/all_test",
+        "--top-k",
+        "10"
+      ],
+      "outputs": [
+        "artifacts/runs/trajectory/T1_trajectory_baseline_scene_20260430_224542/evaluations/cfg3/all_test/metrics.json"
+      ],
+      "groups": [
+        "single_modality",
+        "trajectory_single"
+      ]
+    },
+    {
+      "name": "trajectory_T3_cfg2_test",
+      "script": "runs/trajectory/evaluate_retrieval.py",
+      "args": [
+        "--config",
+        "artifacts/runs/trajectory/T3_trajectory_two_stage_scene_20260430_234159/params.json",
+        "--checkpoint",
+        "artifacts/runs/trajectory/T3_trajectory_two_stage_scene_20260430_234159/best_model.pth",
+        "--split",
+        "test",
+        "--split-manifest",
+        "artifacts/runs/trajectory/T3_trajectory_two_stage_scene_20260430_234159/split_manifest.json",
+        "--output-dir",
+        "artifacts/runs/trajectory/T3_trajectory_two_stage_scene_20260430_234159/evaluations/cfg2/test",
+        "--top-k",
+        "10"
+      ],
+      "outputs": [
+        "artifacts/runs/trajectory/T3_trajectory_two_stage_scene_20260430_234159/evaluations/cfg2/test/metrics.json"
+      ],
+      "groups": [
+        "single_modality",
+        "trajectory_single"
+      ]
+    },
+    {
+      "name": "trajectory_T3_cfg3_all_test",
+      "script": "runs/trajectory/evaluate_retrieval.py",
+      "args": [
+        "--config",
+        "artifacts/runs/trajectory/T3_trajectory_two_stage_scene_20260430_234159/params.json",
+        "--checkpoint",
+        "artifacts/runs/trajectory/T3_trajectory_two_stage_scene_20260430_234159/best_model.pth",
+        "--split",
+        "test",
+        "--data-root",
+        "dataset/RH20T_subset/RH20T_cfg3",
+        "--all-as-test",
+        "--output-dir",
+        "artifacts/runs/trajectory/T3_trajectory_two_stage_scene_20260430_234159/evaluations/cfg3/all_test",
+        "--top-k",
+        "10"
+      ],
+      "outputs": [
+        "artifacts/runs/trajectory/T3_trajectory_two_stage_scene_20260430_234159/evaluations/cfg3/all_test/metrics.json"
+      ],
+      "groups": [
+        "single_modality",
+        "trajectory_single"
+      ]
+    },
+    {
+      "name": "trajectory_T4_cfg2_test",
+      "script": "runs/trajectory/evaluate_retrieval.py",
+      "args": [
+        "--config",
+        "artifacts/runs/trajectory/T4_trajectory_task_heldout_20260501_010434/params.json",
+        "--checkpoint",
+        "artifacts/runs/trajectory/T4_trajectory_task_heldout_20260501_010434/best_model.pth",
+        "--split",
+        "test",
+        "--split-manifest",
+        "artifacts/runs/trajectory/T4_trajectory_task_heldout_20260501_010434/split_manifest.json",
+        "--output-dir",
+        "artifacts/runs/trajectory/T4_trajectory_task_heldout_20260501_010434/evaluations/cfg2/test",
+        "--top-k",
+        "10"
+      ],
+      "outputs": [
+        "artifacts/runs/trajectory/T4_trajectory_task_heldout_20260501_010434/evaluations/cfg2/test/metrics.json"
+      ],
+      "groups": [
+        "single_modality",
+        "trajectory_single"
+      ]
+    },
+    {
+      "name": "trajectory_T4_cfg3_all_test",
+      "script": "runs/trajectory/evaluate_retrieval.py",
+      "args": [
+        "--config",
+        "artifacts/runs/trajectory/T4_trajectory_task_heldout_20260501_010434/params.json",
+        "--checkpoint",
+        "artifacts/runs/trajectory/T4_trajectory_task_heldout_20260501_010434/best_model.pth",
+        "--split",
+        "test",
+        "--data-root",
+        "dataset/RH20T_subset/RH20T_cfg3",
+        "--all-as-test",
+        "--output-dir",
+        "artifacts/runs/trajectory/T4_trajectory_task_heldout_20260501_010434/evaluations/cfg3/all_test",
+        "--top-k",
+        "10"
+      ],
+      "outputs": [
+        "artifacts/runs/trajectory/T4_trajectory_task_heldout_20260501_010434/evaluations/cfg3/all_test/metrics.json"
+      ],
+      "groups": [
+        "single_modality",
+        "trajectory_single"
+      ]
+    },
+    {
+      "name": "trajectory_T5_cfg2_test",
+      "script": "runs/trajectory/evaluate_retrieval.py",
+      "args": [
+        "--config",
+        "artifacts/runs/trajectory/T5_trajectory_21_keypoints_scene_20260501_011432/params.json",
+        "--checkpoint",
+        "artifacts/runs/trajectory/T5_trajectory_21_keypoints_scene_20260501_011432/best_model.pth",
+        "--split",
+        "test",
+        "--split-manifest",
+        "artifacts/runs/trajectory/T5_trajectory_21_keypoints_scene_20260501_011432/split_manifest.json",
+        "--output-dir",
+        "artifacts/runs/trajectory/T5_trajectory_21_keypoints_scene_20260501_011432/evaluations/cfg2/test",
+        "--top-k",
+        "10"
+      ],
+      "outputs": [
+        "artifacts/runs/trajectory/T5_trajectory_21_keypoints_scene_20260501_011432/evaluations/cfg2/test/metrics.json"
+      ],
+      "groups": [
+        "single_modality",
+        "trajectory_single"
+      ]
+    },
+    {
+      "name": "trajectory_T5_cfg3_all_test",
+      "script": "runs/trajectory/evaluate_retrieval.py",
+      "args": [
+        "--config",
+        "artifacts/runs/trajectory/T5_trajectory_21_keypoints_scene_20260501_011432/params.json",
+        "--checkpoint",
+        "artifacts/runs/trajectory/T5_trajectory_21_keypoints_scene_20260501_011432/best_model.pth",
+        "--split",
+        "test",
+        "--data-root",
+        "dataset/RH20T_subset/RH20T_cfg3",
+        "--all-as-test",
+        "--output-dir",
+        "artifacts/runs/trajectory/T5_trajectory_21_keypoints_scene_20260501_011432/evaluations/cfg3/all_test",
+        "--top-k",
+        "10"
+      ],
+      "outputs": [
+        "artifacts/runs/trajectory/T5_trajectory_21_keypoints_scene_20260501_011432/evaluations/cfg3/all_test/metrics.json"
+      ],
+      "groups": [
+        "single_modality",
+        "trajectory_single"
+      ]
+    },
+    {
+      "name": "video_E2_cfg2_test",
+      "script": "runs/video/evaluate_video.py",
+      "args": [
+        "--config",
+        "artifacts/runs/video/video_videomae_rh20t_baseline_20260429_173122/params.json",
+        "--checkpoint",
+        "artifacts/runs/video/video_videomae_rh20t_baseline_20260429_173122/best_model.pth",
+        "--split",
+        "test",
+        "--split-manifest",
+        "artifacts/runs/video/video_videomae_rh20t_baseline_20260429_173122/split_manifest.json",
+        "--output-dir",
+        "artifacts/runs/video/video_videomae_rh20t_baseline_20260429_173122/evaluations/cfg2/test",
+        "--top-k",
+        "10"
+      ],
+      "outputs": [
+        "artifacts/runs/video/video_videomae_rh20t_baseline_20260429_173122/evaluations/cfg2/test/metrics.json"
+      ],
+      "groups": [
+        "single_modality",
+        "video_single"
+      ]
+    },
+    {
+      "name": "video_E2_cfg3_all_test",
+      "script": "runs/video/evaluate_video.py",
+      "args": [
+        "--config",
+        "artifacts/runs/video/video_videomae_rh20t_baseline_20260429_173122/params.json",
+        "--checkpoint",
+        "artifacts/runs/video/video_videomae_rh20t_baseline_20260429_173122/best_model.pth",
+        "--split",
+        "test",
+        "--data-root",
+        "dataset/RH20T_subset/RH20T_cfg3",
+        "--all-as-test",
+        "--output-dir",
+        "artifacts/runs/video/video_videomae_rh20t_baseline_20260429_173122/evaluations/cfg3/all_test",
+        "--top-k",
+        "10"
+      ],
+      "outputs": [
+        "artifacts/runs/video/video_videomae_rh20t_baseline_20260429_173122/evaluations/cfg3/all_test/metrics.json"
+      ],
+      "groups": [
+        "single_modality",
+        "video_single"
+      ]
+    },
+    {
+      "name": "video_E3_cfg2_test",
+      "script": "runs/video/evaluate_video.py",
+      "args": [
+        "--config",
+        "artifacts/runs/video/video_vjepa_rh20t_task_heldout_20260429_192410/params.json",
+        "--checkpoint",
+        "artifacts/runs/video/video_vjepa_rh20t_task_heldout_20260429_192410/best_model.pth",
+        "--split",
+        "test",
+        "--split-manifest",
+        "artifacts/runs/video/video_vjepa_rh20t_task_heldout_20260429_192410/split_manifest.json",
+        "--output-dir",
+        "artifacts/runs/video/video_vjepa_rh20t_task_heldout_20260429_192410/evaluations/cfg2/test",
+        "--top-k",
+        "10"
+      ],
+      "outputs": [
+        "artifacts/runs/video/video_vjepa_rh20t_task_heldout_20260429_192410/evaluations/cfg2/test/metrics.json"
+      ],
+      "groups": [
+        "single_modality",
+        "video_single"
+      ]
+    },
+    {
+      "name": "video_E3_cfg3_all_test",
+      "script": "runs/video/evaluate_video.py",
+      "args": [
+        "--config",
+        "artifacts/runs/video/video_vjepa_rh20t_task_heldout_20260429_192410/params.json",
+        "--checkpoint",
+        "artifacts/runs/video/video_vjepa_rh20t_task_heldout_20260429_192410/best_model.pth",
+        "--split",
+        "test",
+        "--data-root",
+        "dataset/RH20T_subset/RH20T_cfg3",
+        "--all-as-test",
+        "--output-dir",
+        "artifacts/runs/video/video_vjepa_rh20t_task_heldout_20260429_192410/evaluations/cfg3/all_test",
+        "--top-k",
+        "10"
+      ],
+      "outputs": [
+        "artifacts/runs/video/video_vjepa_rh20t_task_heldout_20260429_192410/evaluations/cfg3/all_test/metrics.json"
+      ],
+      "groups": [
+        "single_modality",
+        "video_single"
+      ]
+    },
+    {
+      "name": "video_E4_cfg2_test",
+      "script": "runs/video/evaluate_video.py",
+      "args": [
+        "--config",
+        "artifacts/runs/video/video_vjepa_rh20t_intra_20260429_202630/params.json",
+        "--checkpoint",
+        "artifacts/runs/video/video_vjepa_rh20t_intra_20260429_202630/best_model.pth",
+        "--split",
+        "test",
+        "--split-manifest",
+        "artifacts/runs/video/video_vjepa_rh20t_intra_20260429_202630/split_manifest.json",
+        "--output-dir",
+        "artifacts/runs/video/video_vjepa_rh20t_intra_20260429_202630/evaluations/cfg2/test",
+        "--top-k",
+        "10"
+      ],
+      "outputs": [
+        "artifacts/runs/video/video_vjepa_rh20t_intra_20260429_202630/evaluations/cfg2/test/metrics.json"
+      ],
+      "groups": [
+        "single_modality",
+        "video_single"
+      ]
+    },
+    {
+      "name": "video_E4_cfg3_all_test",
+      "script": "runs/video/evaluate_video.py",
+      "args": [
+        "--config",
+        "artifacts/runs/video/video_vjepa_rh20t_intra_20260429_202630/params.json",
+        "--checkpoint",
+        "artifacts/runs/video/video_vjepa_rh20t_intra_20260429_202630/best_model.pth",
+        "--split",
+        "test",
+        "--data-root",
+        "dataset/RH20T_subset/RH20T_cfg3",
+        "--all-as-test",
+        "--output-dir",
+        "artifacts/runs/video/video_vjepa_rh20t_intra_20260429_202630/evaluations/cfg3/all_test",
+        "--top-k",
+        "10"
+      ],
+      "outputs": [
+        "artifacts/runs/video/video_vjepa_rh20t_intra_20260429_202630/evaluations/cfg3/all_test/metrics.json"
+      ],
+      "groups": [
+        "single_modality",
+        "video_single"
+      ]
+    },
+    {
+      "name": "video_E5_cfg2_test",
+      "script": "runs/video/evaluate_video.py",
+      "args": [
+        "--config",
+        "artifacts/runs/video/video_vjepa_rh20t_info_nce_20260429_220514/params.json",
+        "--checkpoint",
+        "artifacts/runs/video/video_vjepa_rh20t_info_nce_20260429_220514/best_model.pth",
+        "--split",
+        "test",
+        "--split-manifest",
+        "artifacts/runs/video/video_vjepa_rh20t_info_nce_20260429_220514/split_manifest.json",
+        "--output-dir",
+        "artifacts/runs/video/video_vjepa_rh20t_info_nce_20260429_220514/evaluations/cfg2/test",
+        "--top-k",
+        "10"
+      ],
+      "outputs": [
+        "artifacts/runs/video/video_vjepa_rh20t_info_nce_20260429_220514/evaluations/cfg2/test/metrics.json"
+      ],
+      "groups": [
+        "single_modality",
+        "video_single"
+      ]
+    },
+    {
+      "name": "video_E5_cfg3_all_test",
+      "script": "runs/video/evaluate_video.py",
+      "args": [
+        "--config",
+        "artifacts/runs/video/video_vjepa_rh20t_info_nce_20260429_220514/params.json",
+        "--checkpoint",
+        "artifacts/runs/video/video_vjepa_rh20t_info_nce_20260429_220514/best_model.pth",
+        "--split",
+        "test",
+        "--data-root",
+        "dataset/RH20T_subset/RH20T_cfg3",
+        "--all-as-test",
+        "--output-dir",
+        "artifacts/runs/video/video_vjepa_rh20t_info_nce_20260429_220514/evaluations/cfg3/all_test",
+        "--top-k",
+        "10"
+      ],
+      "outputs": [
+        "artifacts/runs/video/video_vjepa_rh20t_info_nce_20260429_220514/evaluations/cfg3/all_test/metrics.json"
+      ],
+      "groups": [
+        "single_modality",
+        "video_single"
+      ]
+    },
+    {
+      "name": "video_E6_cfg2_test",
+      "script": "runs/video/evaluate_video.py",
+      "args": [
+        "--config",
+        "artifacts/runs/video/video_vjepa_rh20t_dual_encoder_20260430_134519/params.json",
+        "--checkpoint",
+        "artifacts/runs/video/video_vjepa_rh20t_dual_encoder_20260430_134519/best_model.pth",
+        "--split",
+        "test",
+        "--split-manifest",
+        "artifacts/runs/video/video_vjepa_rh20t_dual_encoder_20260430_134519/split_manifest.json",
+        "--output-dir",
+        "artifacts/runs/video/video_vjepa_rh20t_dual_encoder_20260430_134519/evaluations/cfg2/test",
+        "--top-k",
+        "10"
+      ],
+      "outputs": [
+        "artifacts/runs/video/video_vjepa_rh20t_dual_encoder_20260430_134519/evaluations/cfg2/test/metrics.json"
+      ],
+      "groups": [
+        "single_modality",
+        "video_single"
+      ]
+    },
+    {
+      "name": "video_E6_cfg3_all_test",
+      "script": "runs/video/evaluate_video.py",
+      "args": [
+        "--config",
+        "artifacts/runs/video/video_vjepa_rh20t_dual_encoder_20260430_134519/params.json",
+        "--checkpoint",
+        "artifacts/runs/video/video_vjepa_rh20t_dual_encoder_20260430_134519/best_model.pth",
+        "--split",
+        "test",
+        "--data-root",
+        "dataset/RH20T_subset/RH20T_cfg3",
+        "--all-as-test",
+        "--output-dir",
+        "artifacts/runs/video/video_vjepa_rh20t_dual_encoder_20260430_134519/evaluations/cfg3/all_test",
+        "--top-k",
+        "10"
+      ],
+      "outputs": [
+        "artifacts/runs/video/video_vjepa_rh20t_dual_encoder_20260430_134519/evaluations/cfg3/all_test/metrics.json"
+      ],
+      "groups": [
+        "single_modality",
+        "video_single"
+      ]
+    },
+    {
+      "name": "video_RAW_VJEPA_cfg2_test",
+      "script": "runs/video/evaluate_raw_video_backbone.py",
+      "args": [
+        "--config",
+        "configs/video/vjepa_rh20t_baseline.json",
+        "--split",
+        "test",
+        "--split-manifest",
+        "artifacts/runs/video/video_vjepa_rh20t_baseline_20260429_145608/split_manifest.json",
+        "--output-dir",
+        "artifacts/runs/video/RAW_VJEPA_backbone/evaluations/cfg2",
+        "--final-subdir",
+        "test",
+        "--top-k",
+        "10"
+      ],
+      "outputs": [
+        "artifacts/runs/video/RAW_VJEPA_backbone/evaluations/cfg2/test/metrics.json"
+      ],
+      "groups": [
+        "single_modality",
+        "video_single"
+      ]
+    },
+    {
+      "name": "video_RAW_VJEPA_cfg3_all_test",
+      "script": "runs/video/evaluate_raw_video_backbone.py",
+      "args": [
+        "--config",
+        "configs/video/vjepa_rh20t_baseline.json",
+        "--split",
+        "test",
+        "--data-root",
+        "dataset/RH20T_subset/RH20T_cfg3",
+        "--all-as-test",
+        "--output-dir",
+        "artifacts/runs/video/RAW_VJEPA_backbone/evaluations/cfg3",
+        "--final-subdir",
+        "all_test",
+        "--top-k",
+        "10"
+      ],
+      "outputs": [
+        "artifacts/runs/video/RAW_VJEPA_backbone/evaluations/cfg3/all_test/metrics.json"
+      ],
+      "groups": [
+        "single_modality",
+        "video_single"
+      ]
+    },
+    {
+      "name": "video_RAW_VIDEOMAE_cfg2_test",
+      "script": "runs/video/evaluate_raw_video_backbone.py",
+      "args": [
+        "--config",
+        "configs/video/videomae_rh20t_baseline.json",
+        "--split",
+        "test",
+        "--split-manifest",
+        "artifacts/runs/video/video_vjepa_rh20t_baseline_20260429_145608/split_manifest.json",
+        "--output-dir",
+        "artifacts/runs/video/RAW_VIDEOMAE_backbone/evaluations/cfg2",
+        "--final-subdir",
+        "test",
+        "--top-k",
+        "10"
+      ],
+      "outputs": [
+        "artifacts/runs/video/RAW_VIDEOMAE_backbone/evaluations/cfg2/test/metrics.json"
+      ],
+      "groups": [
+        "single_modality",
+        "video_single"
+      ]
+    },
+    {
+      "name": "video_RAW_VIDEOMAE_cfg3_all_test",
+      "script": "runs/video/evaluate_raw_video_backbone.py",
+      "args": [
+        "--config",
+        "configs/video/videomae_rh20t_baseline.json",
+        "--split",
+        "test",
+        "--data-root",
+        "dataset/RH20T_subset/RH20T_cfg3",
+        "--all-as-test",
+        "--output-dir",
+        "artifacts/runs/video/RAW_VIDEOMAE_backbone/evaluations/cfg3",
+        "--final-subdir",
+        "all_test",
+        "--top-k",
+        "10"
+      ],
+      "outputs": [
+        "artifacts/runs/video/RAW_VIDEOMAE_backbone/evaluations/cfg3/all_test/metrics.json"
+      ],
+      "groups": [
+        "single_modality",
+        "video_single"
+      ]
+    }
+  ],
+  "bundle": {
+    "enabled": true,
+    "output_dir": "artifacts/paper/paper_baseline_cfg2_cfg3",
+    "include_steps": [
+      "trajectory_T2_cfg2_test",
+      "trajectory_T2_cfg3_all_test",
+      "video_E1_cfg2_test",
+      "video_E1_cfg3_all_test",
+      "semantic_cfg2_task",
+      "semantic_cfg3_task",
+      "retrieval_cfg2_full",
+      "retrieval_cfg3_full",
+      "retrieval_cfg2_ablation",
+      "fusion_weight_search_cfg2_to_cfg3",
+      "video_RAW_VJEPA_cfg2_test",
+      "trajectory_T3_cfg2_test",
+      "video_RAW_VIDEOMAE_cfg2_test",
+      "video_E5_cfg3_all_test",
+      "trajectory_T1_cfg3_all_test",
+      "video_E2_cfg3_all_test",
+      "trajectory_T1_cfg2_test",
+      "video_E6_cfg2_test",
+      "video_E2_cfg2_test",
+      "video_RAW_VJEPA_cfg3_all_test",
+      "video_E5_cfg2_test",
+      "video_E4_cfg2_test",
+      "video_E4_cfg3_all_test",
+      "video_RAW_VIDEOMAE_cfg3_all_test",
+      "video_E3_cfg3_all_test",
+      "trajectory_T5_cfg3_all_test",
+      "trajectory_T4_cfg2_test",
+      "trajectory_T3_cfg3_all_test",
+      "video_E3_cfg2_test",
+      "trajectory_T4_cfg3_all_test",
+      "trajectory_T5_cfg2_test",
+      "video_E6_cfg3_all_test"
+    ],
+    "patterns": [
+      {
+        "root": "artifacts/runs/trajectory/T2_trajectory_augment_scene_20260430_225507",
+        "target": "source_runs/trajectory_T2",
+        "patterns": [
+          "params.json",
+          "best_metrics.json",
+          "curves.json",
+          "curves.png",
+          "split_manifest.json"
+        ]
+      },
+      {
+        "root": "artifacts/runs/video/video_vjepa_rh20t_baseline_20260429_145608",
+        "target": "source_runs/video_VJEPA",
+        "patterns": [
+          "params.json",
+          "best_metrics.json",
+          "curves.json",
+          "curves.png",
+          "split_manifest.json"
+        ]
+      },
+      {
+        "root": "artifacts/runs/trajectory/final_charts",
+        "target": "charts/trajectory",
+        "patterns": [
+          "*.png",
+          "*.json"
+        ]
+      },
+      {
+        "root": "artifacts/runs/video/final_charts",
+        "target": "charts/video",
+        "patterns": [
+          "*.png",
+          "*.json"
+        ]
+      },
+      {
+        "root": "artifacts/semantic/rh20t/cfg2/final_charts",
+        "target": "charts/semantic_cfg2",
+        "patterns": [
+          "*.png",
+          "*.json"
+        ]
+      },
+      {
+        "root": "artifacts/semantic/rh20t/cfg3/final_charts",
+        "target": "charts/semantic_cfg3",
+        "patterns": [
+          "*.png",
+          "*.json"
+        ]
+      },
+      {
+        "root": "artifacts/retrieval/final_charts",
+        "target": "charts/retrieval_cfg2",
+        "patterns": [
+          "*.png",
+          "*.json"
+        ]
+      },
+      {
+        "root": "artifacts/retrieval/final_charts_cfg3",
+        "target": "charts/retrieval_cfg3",
+        "patterns": [
+          "*.png",
+          "*.json"
+        ]
+      },
+      {
+        "root": "artifacts/runs/trajectory/T1_trajectory_baseline_scene_20260430_224542",
+        "target": "source_runs/trajectory_T1",
+        "patterns": [
+          "params.json",
+          "best_metrics.json",
+          "curves.json",
+          "curves.png",
+          "split_manifest.json"
+        ]
+      },
+      {
+        "root": "artifacts/runs/trajectory/T3_trajectory_two_stage_scene_20260430_234159",
+        "target": "source_runs/trajectory_T3",
+        "patterns": [
+          "params.json",
+          "best_metrics.json",
+          "curves.json",
+          "curves.png",
+          "split_manifest.json"
+        ]
+      },
+      {
+        "root": "artifacts/runs/trajectory/T4_trajectory_task_heldout_20260501_010434",
+        "target": "source_runs/trajectory_T4",
+        "patterns": [
+          "params.json",
+          "best_metrics.json",
+          "curves.json",
+          "curves.png",
+          "split_manifest.json"
+        ]
+      },
+      {
+        "root": "artifacts/runs/trajectory/T5_trajectory_21_keypoints_scene_20260501_011432",
+        "target": "source_runs/trajectory_T5",
+        "patterns": [
+          "params.json",
+          "best_metrics.json",
+          "curves.json",
+          "curves.png",
+          "split_manifest.json"
+        ]
+      },
+      {
+        "root": "artifacts/runs/video/video_vjepa_rh20t_baseline_20260429_145608",
+        "target": "source_runs/video_E1",
+        "patterns": [
+          "params.json",
+          "best_metrics.json",
+          "curves.json",
+          "curves.png",
+          "split_manifest.json"
+        ]
+      },
+      {
+        "root": "artifacts/runs/video/video_videomae_rh20t_baseline_20260429_173122",
+        "target": "source_runs/video_E2",
+        "patterns": [
+          "params.json",
+          "best_metrics.json",
+          "curves.json",
+          "curves.png",
+          "split_manifest.json"
+        ]
+      },
+      {
+        "root": "artifacts/runs/video/video_vjepa_rh20t_task_heldout_20260429_192410",
+        "target": "source_runs/video_E3",
+        "patterns": [
+          "params.json",
+          "best_metrics.json",
+          "curves.json",
+          "curves.png",
+          "split_manifest.json"
+        ]
+      },
+      {
+        "root": "artifacts/runs/video/video_vjepa_rh20t_intra_20260429_202630",
+        "target": "source_runs/video_E4",
+        "patterns": [
+          "params.json",
+          "best_metrics.json",
+          "curves.json",
+          "curves.png",
+          "split_manifest.json"
+        ]
+      },
+      {
+        "root": "artifacts/runs/video/video_vjepa_rh20t_info_nce_20260429_220514",
+        "target": "source_runs/video_E5",
+        "patterns": [
+          "params.json",
+          "best_metrics.json",
+          "curves.json",
+          "curves.png",
+          "split_manifest.json"
+        ]
+      },
+      {
+        "root": "artifacts/runs/video/video_vjepa_rh20t_dual_encoder_20260430_134519",
+        "target": "source_runs/video_E6",
+        "patterns": [
+          "params.json",
+          "best_metrics.json",
+          "curves.json",
+          "curves.png",
+          "split_manifest.json"
+        ]
+      },
+      {
+        "root": "artifacts/runs/video/RAW_VJEPA_backbone",
+        "target": "source_runs/video_RAW_VJEPA",
+        "patterns": [
+          "params.json",
+          "best_metrics.json",
+          "curves.json",
+          "curves.png",
+          "split_manifest.json"
+        ]
+      },
+      {
+        "root": "artifacts/runs/video/RAW_VIDEOMAE_backbone",
+        "target": "source_runs/video_RAW_VIDEOMAE",
+        "patterns": [
+          "params.json",
+          "best_metrics.json",
+          "curves.json",
+          "curves.png",
+          "split_manifest.json"
+        ]
+      },
+      {
+        "root": "artifacts/retrieval/pipeline_weight_search_cfg2_to_cfg3/cfg3_test/trajectory_zero_v06_s04",
+        "target": "diagnostics/trajectory_zero_v06_s04",
+        "patterns": [
+          "*.json",
+          "*.npy"
+        ]
+      }
+    ]
+  }
+}

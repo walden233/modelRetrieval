@@ -19,6 +19,11 @@ def parse_args():
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--level", default="scene", choices=["scene", "task"])
     parser.add_argument("--dpi", type=int, default=400)
+    parser.add_argument(
+        "--data-name",
+        default="system_metrics_comparison_data.json",
+        help="Filename for the exported chart data JSON.",
+    )
     return parser.parse_args()
 
 
@@ -33,7 +38,7 @@ def main():
         series.append({"label": str(label), "eval_dir": str(eval_dir), "metrics": metrics})
     plot_system_metrics(series, output_dir / "system_metrics_comparison.png", dpi=args.dpi)
     save_json(
-        output_dir / "system_metrics_comparison_data.json",
+        output_dir / args.data_name,
         {
             "level": args.level,
             "metric_keys": list(METRIC_KEYS),
