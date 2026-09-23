@@ -1,6 +1,8 @@
 import torch
 from tqdm import tqdm
 
+from bise.data.rh20t.collate import trajectory_context_kwargs
+
 from bise.retrieval.metrics import calculate_label_retrieval_metrics
 
 
@@ -19,7 +21,7 @@ def evaluate_retrieval(model, dataloader, device, group_by_task: bool = False):
             human_mask = batch["human_mask"].to(device)
             tcp_bases = batch["tcp_bases"].to(device)
             tcp_mask = batch["tcp_mask"].to(device)
-            human_embeds, robot_embeds, _ = model(human_poses, human_mask, tcp_bases, tcp_mask)
+            human_embeds, robot_embeds, _ = model(human_poses, human_mask, tcp_bases, tcp_mask, **trajectory_context_kwargs(batch, device))
             all_human_embeds.append(human_embeds.cpu())
             all_robot_embeds.append(robot_embeds.cpu())
             all_human_scenes.append(batch["human_scene_indices"])
@@ -63,7 +65,7 @@ def evaluate_retrieval_grouped(model, dataloader, device, group_by_task: bool = 
             human_mask = batch["human_mask"].to(device)
             tcp_bases = batch["tcp_bases"].to(device)
             tcp_mask = batch["tcp_mask"].to(device)
-            human_embeds, robot_embeds, _ = model(human_poses, human_mask, tcp_bases, tcp_mask)
+            human_embeds, robot_embeds, _ = model(human_poses, human_mask, tcp_bases, tcp_mask, **trajectory_context_kwargs(batch, device))
             all_human_embeds.append(human_embeds.cpu())
             all_robot_embeds.append(robot_embeds.cpu())
             all_human_scenes.append(batch["human_scene_indices"])
@@ -148,7 +150,7 @@ def evaluate_trajectory_retrieval(model, dataloader, device):
             human_mask = batch["human_mask"].to(device)
             tcp_bases = batch["tcp_bases"].to(device)
             tcp_mask = batch["tcp_mask"].to(device)
-            human_embeds, robot_embeds, _ = model(human_poses, human_mask, tcp_bases, tcp_mask)
+            human_embeds, robot_embeds, _ = model(human_poses, human_mask, tcp_bases, tcp_mask, **trajectory_context_kwargs(batch, device))
             all_human_embeds.append(human_embeds.cpu())
             all_robot_embeds.append(robot_embeds.cpu())
             for key in (

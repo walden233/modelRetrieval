@@ -96,6 +96,13 @@ def _load_split_manifest(path: Path):
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise ValueError("Trajectory split manifest must be a JSON object with split keys.")
+    seen = set()
+    for split_name, scene_ids in payload.items():
+        if not isinstance(scene_ids, list) or any(not isinstance(s, str) for s in scene_ids):
+            raise ValueError(f"Invalid scene IDs in split {split_name}")
+        if len(set(scene_ids)) != len(scene_ids) or seen.intersection(scene_ids):
+            raise ValueError("Duplicate or overlapping scene IDs in split manifest")
+        seen.update(scene_ids)
     return {split_name: list(scene_ids) for split_name, scene_ids in payload.items()}
 
 
@@ -123,3 +130,39 @@ def _collect_scene_ids(dataset) -> List[str]:
     if hasattr(dataset, "scenes"):
         return [scene_id_from_record(scene) for scene in dataset.scenes]
     raise TypeError(f"Cannot collect scene ids from dataset type: {type(dataset).__name__}")
+
+
+def build_trajectory_dataset(config: dict, checkpoint: str | None = None):
+    from bise.data.rh20t.trajectory_dataset import RH20TTrajectoryDataset
+
+    params = dict(config.get("data_params") or {})
+    manifests = config.get("data_manifests") or {}
+    root_name = Path(config["data_root"]).name
+    if manifests:
+        if root_name not in manifests:
+            raise ValueError(f"No trajectory data manifest configured for {root_name}")
+        params["manifest_path"] = manifests[root_name]
+    if checkpoint is not None:
+        snapshot = Path(checkpoint).resolve().parent / "data_manifest.json"
+        if snapshot.exists():
+            frozen = json.loads(snapshot.read_text())
+            if Path(frozen["data_root"]).resolve() == Path(config["data_root"]).resolve():
+                params["manifest_path"] = str(snapshot)
+    if params.get("max_robot_frames") is not None and config["model_params"].get("tcp_sample_factor", 1) != 1:
+        raise ValueError("Dataset sampling cannot be combined with model TCP subsampling")
+    if bool(params.get("preserve_timing")) != bool(config["model_params"].get("temporal_features")):
+        raise ValueError("preserve_timing and temporal_features must be enabled together")
+    return RH20TTrajectoryDataset(config["data_root"], config.get("use_6_keypoints", False), **params)
+
+
+def build_trajectory_model(config: dict, device):
+    from .models import CrossModalTrajectoryModel
+
+    params = dict(config["model_params"])
+    frames = config.get("reference_frames") or {}
+    if frames:
+        root_name = Path(config["data_root"]).name
+        if root_name not in frames or not frames[root_name].get("source"):
+            raise ValueError(f"A sourced TCP-to-reference transform is required for {root_name}")
+        params["tcp_to_reference"] = frames[root_name]["tcp_to_reference"]
+    return CrossModalTrajectoryModel(**params).to(device)

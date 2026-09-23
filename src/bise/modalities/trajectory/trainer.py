@@ -1,11 +1,14 @@
 import torch
 from tqdm import tqdm
 
+from bise.data.rh20t.collate import trajectory_context_kwargs
+
 from .augmentations import augment_human_poses_rotation, augment_robot_tcp_rotation
 from .losses import multi_positive_intra_modal_loss, trajectory_symmetric_contrastive_loss
 
 
-def _build_augmentations(human_poses, tcp_bases, noise_std: float, max_rotation_degrees: float):
+def _build_augmentations(human_poses, tcp_bases, noise_std: float,
+                         max_rotation_degrees: float, quaternion_order: str = "wxyz"):
     human_aug1 = augment_human_poses_rotation(
         human_poses,
         noise_std=noise_std,
@@ -18,11 +21,13 @@ def _build_augmentations(human_poses, tcp_bases, noise_std: float, max_rotation_
     )
     robot_aug1 = augment_robot_tcp_rotation(
         tcp_bases,
+        quaternion_order=quaternion_order,
         noise_std=noise_std,
         max_angle_degrees=max_rotation_degrees,
     )
     robot_aug2 = augment_robot_tcp_rotation(
         tcp_bases,
+        quaternion_order=quaternion_order,
         noise_std=noise_std,
         max_angle_degrees=max_rotation_degrees,
     )
@@ -42,18 +47,20 @@ def _compute_intra_loss(
     robot_scene_labels,
     robot_task_labels,
     intra_task_positive_weight: float,
+    context: dict | None = None,
 ):
+    context = context or {}
     human_loss = multi_positive_intra_modal_loss(
-        model.forward_human(human_aug1, human_mask),
-        model.forward_human(human_aug2, human_mask),
+        model.forward_human(human_aug1, human_mask, context.get("human_context")),
+        model.forward_human(human_aug2, human_mask, context.get("human_context")),
         model.logit_scale_intra.exp(),
         human_scene_labels,
         human_task_labels,
         task_positive_weight=intra_task_positive_weight,
     )
     robot_loss = multi_positive_intra_modal_loss(
-        model.forward_robot(robot_aug1, tcp_mask),
-        model.forward_robot(robot_aug2, tcp_mask),
+        model.forward_robot(robot_aug1, tcp_mask, context.get("robot_context")),
+        model.forward_robot(robot_aug2, tcp_mask, context.get("robot_context")),
         model.logit_scale_intra.exp(),
         robot_scene_labels,
         robot_task_labels,
@@ -74,10 +81,13 @@ def train_trajectory_epoch(model, dataloader, optimizer, device, use_task_labels
         human_mask = batch["human_mask"].to(device)
         tcp_bases = batch["tcp_bases"].to(device)
         tcp_mask = batch["tcp_mask"].to(device)
+        context = trajectory_context_kwargs(batch, device)
         human_labels = batch[human_label_key].to(device)
         robot_labels = batch[robot_label_key].to(device)
-        human_embeds, robot_embeds, logit_scale = model(human_poses, human_mask, tcp_bases, tcp_mask)
+        human_embeds, robot_embeds, logit_scale = model(human_poses, human_mask, tcp_bases, tcp_mask, **context)
         loss = trajectory_symmetric_contrastive_loss(human_embeds, robot_embeds, human_labels, robot_labels, logit_scale)
+        if not torch.isfinite(loss):
+            raise FloatingPointError("Non-finite trajectory training loss")
         loss.backward()
         optimizer.step()
         total_loss += loss.item()
@@ -103,6 +113,7 @@ def pretrain_intra_modal_epoch(
         human_mask = batch["human_mask"].to(device)
         tcp_bases = batch["tcp_bases"].to(device)
         tcp_mask = batch["tcp_mask"].to(device)
+        context = trajectory_context_kwargs(batch, device)
         human_scene_labels = batch["human_scene_indices"].to(device)
         human_task_labels = batch["human_task_indices"].to(device)
         robot_scene_labels = batch["robot_scene_indices"].to(device)
@@ -112,6 +123,7 @@ def pretrain_intra_modal_epoch(
             tcp_bases,
             augmentation_noise_std,
             augmentation_max_rotation_degrees,
+            model.quaternion_order,
         )
         loss = _compute_intra_loss(
             model,
@@ -126,7 +138,10 @@ def pretrain_intra_modal_epoch(
             robot_scene_labels,
             robot_task_labels,
             intra_task_positive_weight,
+            context,
         )
+        if not torch.isfinite(loss):
+            raise FloatingPointError("Non-finite trajectory training loss")
         loss.backward()
         optimizer.step()
         total_loss += loss.item()
@@ -158,6 +173,7 @@ def train_augmented_trajectory_epoch(
         human_mask = batch["human_mask"].to(device)
         tcp_bases = batch["tcp_bases"].to(device)
         tcp_mask = batch["tcp_mask"].to(device)
+        context = trajectory_context_kwargs(batch, device)
         human_labels = batch[human_label_key].to(device)
         robot_labels = batch[robot_label_key].to(device)
         human_scene_labels = batch["human_scene_indices"].to(device)
@@ -170,6 +186,7 @@ def train_augmented_trajectory_epoch(
             tcp_bases,
             augmentation_noise_std,
             augmentation_max_rotation_degrees,
+            model.quaternion_order,
         )
         loss_intra = _compute_intra_loss(
             model,
@@ -184,12 +201,15 @@ def train_augmented_trajectory_epoch(
             robot_scene_labels,
             robot_task_labels,
             intra_task_positive_weight,
+            context,
         )
 
-        human_embeds, robot_embeds, logit_scale = model(human_poses, human_mask, tcp_bases, tcp_mask)
+        human_embeds, robot_embeds, logit_scale = model(human_poses, human_mask, tcp_bases, tcp_mask, **context)
         loss_inter = trajectory_symmetric_contrastive_loss(human_embeds, robot_embeds, human_labels, robot_labels, logit_scale)
 
         loss = loss_inter + intra_loss_weight * loss_intra
+        if not torch.isfinite(loss):
+            raise FloatingPointError("Non-finite trajectory training loss")
         loss.backward()
         optimizer.step()
         total_loss += loss.item()

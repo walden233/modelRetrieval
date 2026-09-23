@@ -16,8 +16,9 @@ from _bootstrap import bootstrap
 bootstrap()
 
 from bise.common import load_json_config
-from bise.data import RH20TTrajectoryDataset, collate_trajectories
-from bise.modalities.trajectory import CrossModalTrajectoryModel
+from bise.data import collate_trajectories
+from bise.modalities.trajectory.factory import build_trajectory_dataset, build_trajectory_model
+from bise.data.rh20t.collate import trajectory_context
 from bise.modalities.video import collate_video_pairs
 from bise.modalities.video.factory import build_video_dataset, build_video_model
 from bise.retrieval.system.io import load_json, save_json, save_jsonl
@@ -135,10 +136,7 @@ class LibraryBuilder:
         # 轨迹特征同样从 checkpoint 重新抽取，human pose 对应 query，robot tcp 对应 gallery。
         trajectory_config = load_json_config(self.config["trajectory"]["config"])
         trajectory_config["data_root"] = self.config["data_root"]
-        dataset = RH20TTrajectoryDataset(
-            root_dir=trajectory_config["data_root"],
-            use_6_keypoints=trajectory_config.get("use_6_keypoints", False),
-        )
+        dataset = build_trajectory_dataset(trajectory_config, self.config["trajectory"]["checkpoint"])
         dataset.scenes = _filter_trajectory_scenes(dataset.scenes, _sampling(self.config))
         dataloader = DataLoader(
             dataset,
@@ -147,7 +145,9 @@ class LibraryBuilder:
             collate_fn=collate_trajectories,
         )
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        model = CrossModalTrajectoryModel(**trajectory_config["model_params"]).to(device)
+        from bise.modalities.trajectory.provenance import validate_checkpoint_config
+        validate_checkpoint_config(trajectory_config, self.config["trajectory"]["checkpoint"])
+        model = build_trajectory_model(trajectory_config, device)
         model.load_state_dict(torch.load(self.config["trajectory"]["checkpoint"], map_location=device))
         model.eval()
         camera_limit = _positive_or_none(_sampling(self.config).get("cameras_per_scene"))
@@ -155,7 +155,7 @@ class LibraryBuilder:
         with torch.no_grad():
             for batch in dataloader:
                 if self.include_human:
-                    human_embeddings = model.forward_human(batch["human_poses"].to(device), batch["human_mask"].to(device)).cpu().numpy()
+                    human_embeddings = model.forward_human(batch["human_poses"].to(device), batch["human_mask"].to(device), trajectory_context(batch, "human", device)).cpu().numpy()
                     for index, embedding in enumerate(human_embeddings):
                         if _skip_camera(camera_counts, "human", batch["human_scene_ids"][index], camera_limit):
                             continue
@@ -169,7 +169,7 @@ class LibraryBuilder:
                             source_path=batch["human_scene_paths"][index],
                         )
                 if self.include_robot:
-                    robot_embeddings = model.forward_robot(batch["tcp_bases"].to(device), batch["tcp_mask"].to(device)).cpu().numpy()
+                    robot_embeddings = model.forward_robot(batch["tcp_bases"].to(device), batch["tcp_mask"].to(device), trajectory_context(batch, "robot", device)).cpu().numpy()
                     for index, embedding in enumerate(robot_embeddings):
                         if _skip_camera(camera_counts, "robot", batch["robot_scene_ids"][index], camera_limit):
                             continue

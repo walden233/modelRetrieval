@@ -2,6 +2,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+from ..geometry import robot_pose_features, validate_rigid_transform
+
 
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model: int, max_len: int = 2000):
@@ -22,9 +24,12 @@ class TrajectoryEncoder(nn.Module):
         num_encoder_layers: int,
         dim_feedforward: int,
         dropout: float = 0.1,
+        temporal_features: bool = False,
     ):
         super().__init__()
         self.input_proj = nn.Linear(input_dim, d_model)
+        self.time_proj = nn.Linear(3, d_model) if temporal_features else None
+        self.missing_token = nn.Parameter(torch.zeros(1, 1, d_model)) if temporal_features else None
         self.pos_encoder = PositionalEncoding(d_model)
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=d_model,
@@ -38,12 +43,22 @@ class TrajectoryEncoder(nn.Module):
         nn.init.xavier_uniform_(self.input_proj.weight)
         nn.init.constant_(self.input_proj.bias, 0.0)
 
-    def forward(self, src: torch.Tensor, src_padding_mask: torch.Tensor, sample_factor: int = 1) -> torch.Tensor:
+    def forward(self, src: torch.Tensor, src_padding_mask: torch.Tensor,
+                sample_factor: int = 1, context: torch.Tensor | None = None) -> torch.Tensor:
         if sample_factor > 1:
             src = src[:, ::sample_factor, :]
             src_padding_mask = src_padding_mask[:, ::sample_factor]
+            if context is not None:
+                context = context[:, ::sample_factor]
 
         src = self.input_proj(src)
+        if self.time_proj is not None:
+            if context is None or context.shape != (*src.shape[:2], 3):
+                raise ValueError("Time-aware trajectory encoding requires aligned time/observation context")
+            observed = context[..., 2:3].bool()
+            src = torch.where(observed, src, self.missing_token) + self.time_proj(context)
+        if src.shape[1] + 1 > self.pos_encoder.pe.shape[1]:
+            raise ValueError("Trajectory exceeds positional encoding; configure a dataset frame limit")
         batch_size = src.shape[0]
         cls_tokens = self.cls_token.expand(batch_size, -1, -1)
         src = torch.cat((cls_tokens, src), dim=1)
@@ -66,8 +81,23 @@ class CrossModalTrajectoryModel(nn.Module):
         proj_dim: int,
         dropout: float = 0.1,
         tcp_sample_factor: int = 1,
+        robot_representation: str = "raw7",
+        quaternion_order: str = "wxyz",
+        temporal_features: bool = False,
+        tcp_to_reference=None,
     ):
         super().__init__()
+        if quaternion_order not in {"wxyz", "xyzw"}:
+            raise ValueError("quaternion_order must be explicit wxyz or xyzw")
+        expected_dim = {"raw7": 7, "rot6d": 9, "relative_rot6d": 9}.get(robot_representation)
+        if robot_input_dim != expected_dim:
+            raise ValueError("robot_input_dim does not match robot_representation")
+        self.robot_representation = robot_representation
+        self.quaternion_order = quaternion_order
+        self.register_buffer("tcp_to_reference", validate_rigid_transform(tcp_to_reference)
+                             if tcp_to_reference is not None else None, persistent=False)
+        if self.tcp_to_reference is not None and robot_representation == "raw7":
+            raise ValueError("Tool correction requires rot6d or relative_rot6d")
         self.human_encoder = TrajectoryEncoder(
             input_dim=human_input_dim,
             d_model=d_model,
@@ -75,6 +105,7 @@ class CrossModalTrajectoryModel(nn.Module):
             num_encoder_layers=num_layers,
             dim_feedforward=dim_feedforward,
             dropout=dropout,
+            temporal_features=temporal_features,
         )
         self.robot_encoder = TrajectoryEncoder(
             input_dim=robot_input_dim,
@@ -83,6 +114,7 @@ class CrossModalTrajectoryModel(nn.Module):
             num_encoder_layers=num_layers,
             dim_feedforward=dim_feedforward,
             dropout=dropout,
+            temporal_features=temporal_features,
         )
         self.projection_head = nn.Sequential(
             nn.Linear(d_model, d_model),
@@ -97,13 +129,18 @@ class CrossModalTrajectoryModel(nn.Module):
     def safe_l2norm(self, tensor: torch.Tensor) -> torch.Tensor:
         return tensor / tensor.norm(p=2, dim=-1, keepdim=True).clamp(min=self.eps)
 
-    def forward_human(self, human_poses: torch.Tensor, human_mask: torch.Tensor) -> torch.Tensor:
+    def forward_human(self, human_poses: torch.Tensor, human_mask: torch.Tensor,
+                      context: torch.Tensor | None = None) -> torch.Tensor:
         human_poses_flat = human_poses.view(human_poses.size(0), human_poses.size(1), -1)
-        human_features = self.human_encoder(human_poses_flat, human_mask)
+        human_features = self.human_encoder(human_poses_flat, human_mask, context=context)
         return self.safe_l2norm(self.projection_head(human_features))
 
-    def forward_robot(self, tcp_bases: torch.Tensor, tcp_mask: torch.Tensor) -> torch.Tensor:
-        robot_features = self.robot_encoder(tcp_bases, tcp_mask, sample_factor=self.tcp_sample_factor)
+    def forward_robot(self, tcp_bases: torch.Tensor, tcp_mask: torch.Tensor,
+                      context: torch.Tensor | None = None) -> torch.Tensor:
+        features = robot_pose_features(tcp_bases, tcp_mask, self.robot_representation,
+                                       self.quaternion_order, self.tcp_to_reference)
+        robot_features = self.robot_encoder(features, tcp_mask,
+                                            sample_factor=self.tcp_sample_factor, context=context)
         return self.safe_l2norm(self.projection_head(robot_features))
 
     def forward(
@@ -112,7 +149,9 @@ class CrossModalTrajectoryModel(nn.Module):
         human_mask: torch.Tensor,
         tcp_bases: torch.Tensor,
         tcp_mask: torch.Tensor,
+        human_context: torch.Tensor | None = None,
+        robot_context: torch.Tensor | None = None,
     ):
-        human_embeddings = self.forward_human(human_poses, human_mask)
-        robot_embeddings = self.forward_robot(tcp_bases, tcp_mask)
+        human_embeddings = self.forward_human(human_poses, human_mask, human_context)
+        robot_embeddings = self.forward_robot(tcp_bases, tcp_mask, robot_context)
         return human_embeddings, robot_embeddings, self.logit_scale_inter.exp()

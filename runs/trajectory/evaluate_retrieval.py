@@ -14,9 +14,9 @@ from _bootstrap import bootstrap
 bootstrap()
 
 from bise.common import load_json_config
-from bise.data import RH20TTrajectoryDataset, collate_trajectories
-from bise.modalities.trajectory import CrossModalTrajectoryModel, build_trajectory_retrieval_cases, evaluate_trajectory_retrieval
-from bise.modalities.trajectory.factory import split_trajectory_dataset
+from bise.data import collate_trajectories
+from bise.modalities.trajectory import build_trajectory_retrieval_cases, evaluate_trajectory_retrieval
+from bise.modalities.trajectory.factory import build_trajectory_dataset, build_trajectory_model, split_trajectory_dataset
 from bise.modalities.video.figures import keep_first_camera_per_scene, plot_similarity_heatmap, plot_sorted_similarity_heatmap
 
 
@@ -41,10 +41,8 @@ def main():
     split_config, split_manifest_path = _resolve_split_config(config, args.checkpoint, args.split_manifest, args.all_as_test)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    dataset_source = RH20TTrajectoryDataset(
-        root_dir=config["data_root"],
-        use_6_keypoints=config.get("use_6_keypoints", False),
-    )
+    torch.set_num_threads(int(config.get("torch_num_threads", 4)))
+    dataset_source = build_trajectory_dataset(config, args.checkpoint)
     split_datasets = split_trajectory_dataset(dataset_source, split_config)
     dataset = split_datasets.get(args.split)
     if dataset is None or len(dataset) == 0:
@@ -56,12 +54,16 @@ def main():
         shuffle=False,
         collate_fn=collate_trajectories,
     )
-    model = CrossModalTrajectoryModel(**config["model_params"]).to(device)
-    model.load_state_dict(torch.load(args.checkpoint, map_location=device))
+    from bise.modalities.trajectory.provenance import validate_checkpoint_config
+    validate_checkpoint_config(config, args.checkpoint)
+    model = build_trajectory_model(config, device)
+    model.load_state_dict(torch.load(args.checkpoint, map_location=device, weights_only=True))
     result = evaluate_trajectory_retrieval(model, dataloader, device)
     cases = build_trajectory_retrieval_cases(result, top_k=args.top_k)
     if args.output_dir:
         _save_evaluation_outputs(Path(args.output_dir), result, cases, split_manifest_path, split_config, config["data_root"])
+        from bise.modalities.trajectory.provenance import save_evaluation_provenance
+        save_evaluation_provenance(Path(args.output_dir), config, args.checkpoint, dataset_source.manifest)
     print(json.dumps({"metrics": result["metrics"], "cases": cases[:5]}, indent=2, ensure_ascii=False))
 
 

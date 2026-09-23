@@ -88,12 +88,17 @@ def augment_robot_tcp_rotation(
     noise_std: float = 0.005,
     max_angle_degrees: float = 10.0,
     rotate_about_first_position: bool = True,
+    quaternion_order: str = "wxyz",
 ) -> torch.Tensor:
     batch_size, seq_len, _ = tcp_batch.shape
     device = tcp_batch.device
     dtype = tcp_batch.dtype
     positions = tcp_batch[..., :3]
     quaternions = tcp_batch[..., 3:]
+    if quaternion_order == "wxyz":
+        quaternions = quaternions[..., [1, 2, 3, 0]]
+    elif quaternion_order != "xyzw":
+        raise ValueError("quaternion_order must be wxyz or xyzw")
 
     rotation, q_rot = _rand_z_rotation(batch_size, device=device, dtype=dtype, max_angle_degrees=max_angle_degrees)
     expanded_rotation = rotation.unsqueeze(1).expand(-1, seq_len, -1, -1).reshape(batch_size * seq_len, 3, 3)
@@ -119,4 +124,6 @@ def augment_robot_tcp_rotation(
     ).view(batch_size, seq_len, 4)
     new_quaternions = F.normalize(new_quaternions, dim=-1)
 
+    if quaternion_order == "wxyz":
+        new_quaternions = new_quaternions[..., [3, 0, 1, 2]]
     return torch.cat([rotated_positions, new_quaternions], dim=-1)

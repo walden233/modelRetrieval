@@ -19,6 +19,7 @@ def collate_trajectories(batch):
     robot_camera_ids = []
     human_scene_paths = []
     robot_scene_paths = []
+    human_times, robot_times, human_observed, human_frame_indices = [], [], [], []
     max_robot_len = 999
 
     for item in batch:
@@ -34,14 +35,25 @@ def collate_trajectories(batch):
         human_camera_ids.extend(item.get("camera_ids", [""] * len(item["human_poses"])))
         human_scene_paths.extend([item.get("scene_path", "")] * len(item["human_poses"]))
 
+        for i, trajectory in enumerate(item["human_poses"]):
+            human_times.append(item.get("human_times", [])[i] if "human_times" in item
+                               else torch.arange(len(trajectory), dtype=torch.float32))
+            human_observed.append(item.get("human_observed", [])[i] if "human_observed" in item
+                                  else torch.ones(len(trajectory), dtype=torch.bool))
+            human_frame_indices.append(item.get("human_frame_indices", [])[i]
+                                       if "human_frame_indices" in item
+                                       else torch.arange(len(trajectory)))
         sampled_tcp_bases = []
-        for trajectory in item["tcp_bases"]:
+        for i, trajectory in enumerate(item["tcp_bases"]):
             original_length = len(trajectory)
             if original_length == 0:
-                sampled_tcp_bases.append(trajectory)
-                continue
+                raise ValueError("Cannot collate an empty robot trajectory")
 
-            stride = max(1, int(math.ceil(original_length / max_robot_len)))
+            stride = (1 if item.get("sampled_once") else
+                      max(1, int(math.ceil(original_length / max_robot_len))))
+            times = (item["robot_times"][i] if "robot_times" in item
+                     else torch.arange(original_length, dtype=torch.float32))
+            robot_times.append(times[::stride])
             sampled_tcp_bases.append(trajectory[::stride])
 
         all_tcp_bases.extend(sampled_tcp_bases)
@@ -73,6 +85,10 @@ def collate_trajectories(batch):
 #   - 训练时，如果按 scene 定义正样本，就用 *_scene_indices
 #   - 训练时，如果按 task 定义正样本，就用 *_task_indices
     return {
+        "human_times": pad_sequence(human_times, batch_first=True),
+        "robot_times": pad_sequence(robot_times, batch_first=True),
+        "human_observed": pad_sequence(human_observed, batch_first=True, padding_value=False),
+        "human_frame_indices": pad_sequence(human_frame_indices, batch_first=True, padding_value=-1),
         "human_poses": padded_human_poses,
         "human_mask": human_mask,
         "tcp_bases": padded_tcp_bases,
@@ -90,3 +106,24 @@ def collate_trajectories(batch):
         "human_scene_paths": human_scene_paths,
         "robot_scene_paths": robot_scene_paths,
     }
+
+
+def trajectory_context(batch: dict, domain: str, device) -> torch.Tensor | None:
+    """Progress, log elapsed interval, observation flag; human time is frame index."""
+    key = "human_times" if domain == "human" else "robot_times"
+    if key not in batch:
+        return None
+    times = batch[key].to(device)
+    mask = batch["human_mask" if domain == "human" else "tcp_mask"].to(device)
+    duration = times.masked_fill(~mask, 0).amax(dim=1, keepdim=True).clamp_min(1e-6)
+    progress = times / duration
+    delta = torch.zeros_like(times)
+    delta[:, 1:] = (times[:, 1:] - times[:, :-1]).clamp_min(0)
+    observed = batch["human_observed"].to(device) if domain == "human" else mask
+    context = torch.stack([progress, torch.log1p(delta), observed.float()], dim=-1)
+    return context.masked_fill(~mask.unsqueeze(-1), 0)
+
+
+def trajectory_context_kwargs(batch: dict, device) -> dict:
+    return {"human_context": trajectory_context(batch, "human", device),
+            "robot_context": trajectory_context(batch, "robot", device)}
