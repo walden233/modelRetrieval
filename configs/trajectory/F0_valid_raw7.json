@@ -4,7 +4,10 @@
   "data_root": "dataset/RH20T_subset/RH20T_cfg2",
   "output_dir": "artifacts/runs/trajectory",
   "split": {
-    "manifest_path": "artifacts/manifests/trajectory_first_batch/cfg2_split.json"
+    "fixed_test_manifest_path": "artifacts/manifests/rh20t_shared_v1/cfg2_fixed_test_scenes.json",
+    "fixed_test_fraction": 0.1,
+    "val_ratio_of_remaining": 0.1111111111111111,
+    "unit": "scene"
   },
   "batch_size": 8,
   "num_epochs": 60,

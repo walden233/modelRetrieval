@@ -82,6 +82,10 @@ def split_video_dataset(dataset, split_config: Dict | None):
             for split_name, sample_ids in split_map.items()
         }
 
+    fixed_test_path = split_config.get("fixed_test_manifest_path")
+    if fixed_test_path:
+        return _split_with_fixed_test_scenes(dataset, split_config, resolve_path(fixed_test_path))
+
     unit = split_config.get("unit", "sample")
     ratios = split_config.get("ratios", {"train": 0.8, "val": 0.1, "test": 0.1})
     seed = int(split_config.get("seed", 42))
@@ -143,6 +147,56 @@ def _split_by_group_unit(dataset, unit: str, ratios: Dict[str, float], seed: int
             [index for key in keys for index in groups[key]],
         )
         for split_name, keys in split_groups.items()
+    }
+
+
+def _split_with_fixed_test_scenes(dataset, split_config: Dict, fixed_test_path: Path):
+    if split_config.get("unit", "scene") != "scene":
+        raise ValueError("The shared fixed test manifest contains scene IDs and requires unit=scene")
+    split_map = _load_split_manifest(fixed_test_path)
+    fixed_test_scenes = split_map.get("test")
+    if not fixed_test_scenes:
+        raise ValueError("Fixed test manifest must contain a non-empty test split")
+
+    scene_groups: Dict[str, List[int]] = {}
+    for index, sample in enumerate(dataset.samples):
+        scene_groups.setdefault(sample.scene_id, []).append(index)
+    missing = [scene_id for scene_id in fixed_test_scenes if scene_id not in scene_groups]
+    if missing:
+        preview = ", ".join(missing[:5])
+        raise ValueError(f"{len(missing)} fixed test scenes are not in the video dataset. Examples: {preview}")
+
+    expected_fraction = float(split_config.get("fixed_test_fraction", 0.1))
+    if not 0.0 < expected_fraction < 1.0:
+        raise ValueError("fixed_test_fraction must be between zero and one")
+    expected_count = int(round(len(scene_groups) * expected_fraction))
+    if len(fixed_test_scenes) != expected_count:
+        raise ValueError(
+            f"Fixed test split has {len(fixed_test_scenes)} scenes; expected {expected_count} "
+            f"for fraction {expected_fraction}"
+        )
+
+    test_scene_set = set(fixed_test_scenes)
+    remaining_scenes = [scene_id for scene_id in scene_groups if scene_id not in test_scene_set]
+    val_fraction = float(split_config.get("val_ratio_of_remaining", 1.0 / 9.0))
+    if not 0.0 < val_fraction < 1.0:
+        raise ValueError("val_ratio_of_remaining must be between zero and one")
+    rng = np.random.default_rng(int(split_config.get("seed", 42)))
+    rng.shuffle(remaining_scenes)
+    val_count = int(round(len(remaining_scenes) * val_fraction))
+    if val_count < 1 or val_count >= len(remaining_scenes):
+        raise ValueError("Dynamic train/validation pool is too small for the requested ratio")
+    val_scene_set = set(remaining_scenes[:val_count])
+    train_indices = [index for scene_id, indices in scene_groups.items()
+                     if scene_id not in test_scene_set and scene_id not in val_scene_set
+                     for index in indices]
+    val_indices = [index for scene_id, indices in scene_groups.items()
+                   if scene_id in val_scene_set for index in indices]
+    test_indices = [index for scene_id in fixed_test_scenes for index in scene_groups[scene_id]]
+    return {
+        "train": Subset(dataset, train_indices),
+        "val": Subset(dataset, val_indices),
+        "test": Subset(dataset, test_indices),
     }
 
 

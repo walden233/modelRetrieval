@@ -1,6 +1,7 @@
 {
   "experiment_name": "E2_video_videomae_rh20t_baseline",
   "output_dir": "artifacts/runs/video",
+  "seed": 42,
   "dataset": {
     "type": "rh20t",
     "root_dir": "dataset/RH20T_subset/RH20T_cfg2",
@@ -9,13 +10,10 @@
     "max_pairs_per_scene": 2
   },
   "split": {
-    "unit": "scene",
-    "seed": 42,
-    "ratios": {
-      "train": 0.8,
-      "val": 0.1,
-      "test": 0.1
-    }
+    "fixed_test_manifest_path": "artifacts/manifests/rh20t_shared_v1/cfg2_fixed_test_scenes.json",
+    "fixed_test_fraction": 0.1,
+    "val_ratio_of_remaining": 0.1111111111111111,
+    "unit": "scene"
   },
   "model": {
     "backbone_type": "videomae",

@@ -109,7 +109,7 @@ def collate_trajectories(batch):
 
 
 def trajectory_context(batch: dict, domain: str, device) -> torch.Tensor | None:
-    """Progress, log elapsed interval, observation flag; human time is frame index."""
+    """Progress, log elapsed interval, observation flag; units follow dataset times."""
     key = "human_times" if domain == "human" else "robot_times"
     if key not in batch:
         return None

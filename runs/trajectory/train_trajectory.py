@@ -35,6 +35,7 @@ def parse_args():
     parser.add_argument("--output-dir", help="Optional output dir override.")
     parser.add_argument("--epochs", type=int, help="Override epochs for a closed-loop short run.")
     parser.add_argument("--run-dir", help="Exact new run directory (must not exist).")
+    parser.add_argument("--seed", type=int, help="Override training and dynamic split seed.")
     return parser.parse_args()
 
 
@@ -42,6 +43,8 @@ def main():
     args = parse_args()
     config = load_json_config(args.config)
     config = merge_overrides(config, {"data_root": args.data_root, "output_dir": args.output_dir})
+    if args.seed is not None:
+        config["seed"] = args.seed
     if args.epochs is not None:
         if args.epochs < 1:
             raise ValueError("--epochs must be positive")
@@ -57,12 +60,19 @@ def main():
 
     dataset = build_trajectory_dataset(config)
     (run_dir / "data_manifest.json").write_text(json.dumps(dataset.manifest, indent=2))
-    split_config = config.get("split") or {"unit": "scene", "seed": config.get("seed", 42), "ratios": {"train": 0.8, "val": 0.1, "test": 0.1}}
+    split_config = dict(config.get("split") or {"unit": "scene", "seed": config.get("seed", 42), "ratios": {"train": 0.8, "val": 0.1, "test": 0.1}})
+    if split_config.get("fixed_test_manifest_path") and "seed" not in split_config:
+        split_config["seed"] = int(config.get("seed", 42))
     split_datasets = split_trajectory_dataset(dataset, split_config)
     split_manifest = build_split_manifest(split_datasets)
     split_manifest_path = run_dir / "split_manifest.json"
     with split_manifest_path.open("w", encoding="utf-8") as handle:
         json.dump(split_manifest, handle, indent=2, ensure_ascii=False)
+    print(json.dumps({
+        "split_counts": {name: len(scene_ids) for name, scene_ids in split_manifest.items()},
+        "split_seed": split_config.get("seed"),
+        "fixed_test": bool(split_config.get("fixed_test_manifest_path")),
+    }, ensure_ascii=False), flush=True)
     config["split"] = dict(split_config)
     config["split"]["manifest_path"] = str(split_manifest_path)
 

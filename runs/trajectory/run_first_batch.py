@@ -45,6 +45,8 @@ def main():
     parser.add_argument("--epochs", type=int, default=60)
     parser.add_argument("--groups", nargs="+", choices=GROUPS, default=GROUPS)
     parser.add_argument("--run-root")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="Training seed and dynamic train/validation split seed")
     parser.add_argument("--manifest-dir", default="artifacts/manifests/trajectory_first_batch")
     parser.add_argument("--dataset-root", default="dataset/RH20T_subset")
     args = parser.parse_args()
@@ -53,16 +55,35 @@ def main():
     out = Path(args.run_root or f"artifacts/runs/trajectory/first_batch_{datetime.datetime.now():%Y%m%d_%H%M%S}")
     out.mkdir(parents=True, exist_ok=False)
     manifests = Path(args.manifest_dir)
-    required = [manifests / name for name in ("cfg2_valid.json", "cfg3_valid.json", "cfg2_split.json")]
-    if not all(p.exists() for p in required):
+    shared_test = Path("artifacts/manifests/rh20t_shared_v1/cfg2_fixed_test_scenes.json")
+    valid_manifests = [manifests / name for name in ("cfg2_valid.json", "cfg3_valid.json")]
+    if not all(p.exists() for p in valid_manifests):
         run_logged([sys.executable, "runs/trajectory/prepare_first_batch.py", "--dataset-root",
                     args.dataset_root, "--output-dir", manifests], out / "prepare.log")
+    legacy_shared_source = Path("artifacts/manifests/trajectory_hand_3d_v1/cfg2_split.json")
+    if not shared_test.exists() and legacy_shared_source.exists():
+        shared_test.parent.mkdir(parents=True, exist_ok=True)
+        legacy = json.loads(legacy_shared_source.read_text(encoding="utf-8"))
+        shared_test.write_text(json.dumps({"test": legacy["test"]}, indent=2), encoding="utf-8")
+    missing = [path for path in [*valid_manifests, shared_test] if not path.is_file()]
+    if missing:
+        raise FileNotFoundError(
+            "Missing required manifests: " + ", ".join(map(str, missing))
+            + ". Generate the shared test manifest with runs/trajectory/prepare_hand_3d.py."
+        )
     summary = {"epochs": args.epochs, "purpose": "short_run_validation" if args.epochs < 60 else "training",
                "groups": {}}
     for group in args.groups:
         config = json.loads(Path(f"configs/trajectory/{group}.json").read_text())
+        config["seed"] = args.seed
         config["data_root"] = str(Path(args.dataset_root) / "RH20T_cfg2")
-        config["split"] = {"manifest_path": str(manifests / "cfg2_split.json")}
+        config["split"] = {
+            "fixed_test_manifest_path": str(shared_test),
+            "fixed_test_fraction": 0.1,
+            "val_ratio_of_remaining": 1.0 / 9.0,
+            "unit": "scene",
+            "seed": args.seed,
+        }
         config["data_manifests"] = {f"RH20T_{cfg}": str(manifests / f"{cfg}_valid.json") for cfg in ("cfg2", "cfg3")}
         config_path = out / f"{group}_config.json"
         config_path.write_text(json.dumps(config, indent=2))

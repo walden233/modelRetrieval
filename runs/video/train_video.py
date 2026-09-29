@@ -1,12 +1,14 @@
 import argparse
 import datetime
 import json
+import random
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import torch
+import numpy as np
 from torch.amp import GradScaler
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
@@ -28,6 +30,7 @@ def parse_args():
     parser.add_argument("--data-root", help="Optional RH20T root override.")
     parser.add_argument("--output-dir", help="Optional output dir override.")
     parser.add_argument("--resume", help="Optional checkpoint path for resuming.")
+    parser.add_argument("--seed", type=int, help="Override training and dynamic split seed.")
     return parser.parse_args()
 
 
@@ -35,10 +38,19 @@ def main():
     args = parse_args()
     config = load_json_config(args.config)
     config = merge_overrides(config, {"output_dir": args.output_dir})
+    if args.seed is not None:
+        config["seed"] = args.seed
     if args.csv_path:
         config.setdefault("dataset", {})["csv_path"] = args.csv_path
     if args.data_root:
         config.setdefault("dataset", {})["root_dir"] = args.data_root
+
+    seed = int(config.get("seed", 42))
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
     # 拿到预训练模型和对应 processor。
     processor, model = build_video_model(config["model"])
@@ -47,12 +59,25 @@ def main():
     run_dir = ensure_directory(Path(config["output_dir"]) / run_name)
     
     train_dataset = build_video_dataset(config["dataset"], processor=processor, is_train=True)
-    split_datasets = split_video_dataset(train_dataset, config.get("split"))
+    split_config = dict(config.get("split") or {})
+    if split_config.get("fixed_test_manifest_path") and "seed" not in split_config:
+        split_config["seed"] = seed
+    split_datasets = split_video_dataset(train_dataset, split_config)
     split_manifest = build_split_manifest(split_datasets)
     split_manifest_path = run_dir / "split_manifest.json"
     with split_manifest_path.open("w", encoding="utf-8") as handle:
         json.dump(split_manifest, handle, indent=2, ensure_ascii=False)
-    config.setdefault("split", {})["manifest_path"] = str(split_manifest_path)
+    print(json.dumps({
+        "split_sample_counts": {name: len(sample_ids) for name, sample_ids in split_manifest.items()},
+        "split_scene_counts": {
+            name: _count_subset_scenes(train_dataset, subset)
+            for name, subset in split_datasets.items()
+        },
+        "split_seed": split_config.get("seed"),
+        "fixed_test": bool(split_config.get("fixed_test_manifest_path")),
+    }, ensure_ascii=False), flush=True)
+    config["split"] = split_config
+    config["split"]["manifest_path"] = str(split_manifest_path)
 
     val_source = build_video_dataset(config["dataset"], processor=processor, is_train=False)
     val_dataset = _mirror_subset(val_source, split_datasets.get("val"))
@@ -143,6 +168,13 @@ def main():
             )
         )
     save_run_artifacts(run_dir, config, history, best_result)
+
+
+def _count_subset_scenes(source_dataset, subset) -> int:
+    if subset is None:
+        return 0
+    indices = subset.indices if hasattr(subset, "indices") else range(len(source_dataset))
+    return len({source_dataset.samples[index].scene_id for index in indices})
 
 
 def _mirror_subset(source_dataset, subset):

@@ -1,3 +1,4 @@
+import json
 import sys
 from pathlib import Path
 
@@ -83,3 +84,35 @@ def test_split_video_dataset_all_as_test():
     assert len(splits["val"]) == 0
     assert len(splits["test"]) == 3
     assert build_split_manifest(splits) == {"train": [], "val": [], "test": ["s1", "s2", "s3"]}
+
+
+def test_shared_fixed_test_scenes_expand_to_all_video_samples(tmp_path):
+    dataset = _Dataset()
+    dataset.samples = [
+        VideoPairSample(
+            sample_id=f"s{scene}_{camera}", pair_id=f"p{scene}_{camera}", dataset_name="toy",
+            task_id=f"task_{scene // 2}", scene_id=f"scene_{scene}", camera_id=f"cam_{camera}",
+            human_video_path="/tmp/h.mp4", robot_video_path="/tmp/r.mp4",
+        )
+        for scene in range(20) for camera in range(2)
+    ]
+    manifest_path = tmp_path / "fixed_test_scenes.json"
+    fixed_test = ["scene_18", "scene_19"]
+    manifest_path.write_text(json.dumps({"test": fixed_test}))
+    base = {
+        "fixed_test_manifest_path": str(manifest_path),
+        "fixed_test_fraction": 0.1,
+        "val_ratio_of_remaining": 1.0 / 9.0,
+        "unit": "scene",
+    }
+
+    split_42 = split_video_dataset(dataset, {**base, "seed": 42})
+    split_43 = split_video_dataset(dataset, {**base, "seed": 43})
+    scenes = lambda subset: {dataset.samples[index].scene_id for index in subset.indices}
+
+    assert scenes(split_42["test"]) == set(fixed_test)
+    assert scenes(split_43["test"]) == set(fixed_test)
+    assert len(split_42["test"]) == 4
+    assert len(scenes(split_42["train"])) == 16
+    assert len(scenes(split_42["val"])) == 2
+    assert scenes(split_42["val"]) != scenes(split_43["val"])

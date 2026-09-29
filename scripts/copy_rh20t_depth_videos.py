@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Copy matched RH20T cfg3 robot and human depth videos into the subset."""
+"""Copy matched RH20T robot and human depth videos into a subset."""
 
 import argparse
+import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path, PureWindowsPath
@@ -45,10 +47,11 @@ def build_copy_manifest(mapping_path: Path, subset_root: Path, original_root: st
             raise ValueError(f"Robot/human camera mismatch in {scene_dir}")
 
         original_scene_id = row["original_scene_ids"][0]
-        original_root_path = PureWindowsPath(original_root)
+        local_source = Path(original_root).is_dir()
+        original_root_path = Path(original_root) if local_source else PureWindowsPath(original_root)
         robot_source_scene = original_root_path / original_scene_id
         human_source_scene = original_root_path / (original_scene_id + "_human")
-        destination_unc = wsl_unc_path(scene_dir)
+        destination_unc = None if local_source else wsl_unc_path(scene_dir)
         for camera_id in sorted(robot_cameras):
             pair_count += 1
             for role, source_scene in (
@@ -57,7 +60,7 @@ def build_copy_manifest(mapping_path: Path, subset_root: Path, original_root: st
             ):
                 source = source_scene / camera_id / "depth.mp4"
                 destination = scene_dir / f"{camera_id}_{role}_depth.mp4"
-                destination_windows = destination_unc + "\\" + destination.name
+                destination_windows = str(destination) if local_source else destination_unc + "\\" + destination.name
                 files.append(
                     {
                         "subset_scene_id": scene_id,
@@ -78,6 +81,34 @@ def build_copy_manifest(mapping_path: Path, subset_root: Path, original_root: st
         "file_count": len(files),
         "files": files,
     }
+
+
+def run_local_copy(files: list[dict]) -> list[dict]:
+    results = []
+    for item in files:
+        source = Path(item["source_path"])
+        destination = Path(item["destination_path"])
+        row = dict(item)
+        if not source.is_file():
+            row["status"] = "missing_source"
+        elif destination.is_file():
+            row["status"] = "already_exact" if source.stat().st_size == destination.stat().st_size and file_sha256(source) == file_sha256(destination) else "destination_conflict"
+        else:
+            shutil.copy2(source, destination)
+            row["status"] = "copied" if source.stat().st_size == destination.stat().st_size and file_sha256(source) == file_sha256(destination) else "hash_mismatch"
+        if row["status"] in ("copied", "already_exact"):
+            row["size_bytes"] = destination.stat().st_size
+            row["sha256"] = file_sha256(destination)
+        results.append(row)
+    return results
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def run_powershell_copy(manifest_unc: str) -> list[dict]:
@@ -154,7 +185,8 @@ def main() -> int:
     output_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
 
     try:
-        results = run_powershell_copy(wsl_unc_path(output_path))
+        results = (run_local_copy(manifest["files"]) if Path(args.original_root).is_dir()
+                   else run_powershell_copy(wsl_unc_path(output_path)))
     except (OSError, subprocess.SubprocessError, json.JSONDecodeError) as exc:
         manifest["copy_error"] = str(exc)
         output_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
