@@ -1,4 +1,4 @@
-"""Search cfg2 fusion weights and evaluate the fixed choice on cfg3 features."""
+"""Search fusion weights on one library and optionally transfer them to another."""
 
 import argparse
 import csv
@@ -98,6 +98,31 @@ def filter_search_queries(library):
     return replace(library, query_items=queries), audit
 
 
+def filter_complete_queries(library):
+    queries = [
+        query for query in library.query_items
+        if set(MODALITIES).issubset(library.item_feature_map(query))
+    ]
+    if not queries:
+        raise ValueError("No queries with all required modalities remain in the search library.")
+    selected_ids = {query.query_id for query in queries}
+    return replace(library, query_items=queries), {
+        "split_manifests": {},
+        "original_query_count": len(library.query_items),
+        "selected_query_count": len(queries),
+        "selected_scene_count": len({query.scene_id for query in queries}),
+        "query_ids": [query.query_id for query in queries],
+        "excluded_query_ids": {
+            "missing_modalities": [
+                query.query_id for query in library.query_items
+                if query.query_id not in selected_ids
+            ]
+        },
+        "excluded_counts": {"missing_modalities": len(library.query_items) - len(queries)},
+        "policy": "All complete queries; no training-split exclusion.",
+    }
+
+
 def weighted_config(config, weights, library_dir):
     result = deepcopy(config)
     result["library_dir"] = str(library_dir)
@@ -144,7 +169,7 @@ def save_evaluation(output_dir, result, config):
     np.save(output_dir / "fused_similarity_matrix.npy", result["similarity_matrix"])
 
 
-def plot_search(rows, best, output_dir):
+def plot_search(rows, best, output_dir, search_cfg):
     import os
 
     os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
@@ -163,7 +188,7 @@ def plot_search(rows, best, output_dir):
     ax.set(xlabel="Video weight", ylabel="Trajectory weight",
            title="Fusion weight search (semantic weight = 1 - video - trajectory)")
     ax.legend()
-    fig.colorbar(points, ax=ax, label="cfg2 tuning task MRR")
+    fig.colorbar(points, ax=ax, label=f"{search_cfg} tuning task MRR")
     fig.tight_layout()
     fig.savefig(output_dir / "weight_search.png", dpi=300)
     plt.close(fig)
@@ -173,6 +198,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--search-library", default="artifacts/retrieval/rh20t_cfg2_v1")
     parser.add_argument("--test-library", default="artifacts/retrieval/rh20t_cfg3_v1")
+    parser.add_argument(
+        "--search-query-policy", choices=("non_training", "all_complete"),
+        default="non_training",
+        help="Use split manifests to exclude training scenes, or search all complete queries.",
+    )
     parser.add_argument("--config", default="configs/retrieval/system_default.json")
     parser.add_argument("--step", type=float, default=0.1)
     parser.add_argument("--output-dir", default="artifacts/retrieval/weight_search_cfg2_to_cfg3")
@@ -187,8 +217,11 @@ def main():
     test_library = load_retrieval_library(resolve_path(args.test_library))
     if not search_library.config.get("cfg") or not test_library.config.get("cfg"):
         parser.error("Both libraries must declare cfg in library_config.json.")
-    if search_library.config["cfg"] == test_library.config["cfg"]:
-        parser.error("Search and final-test libraries must use different configurations.")
+    same_library = search_library.root_dir.resolve() == test_library.root_dir.resolve()
+    if search_library.config["cfg"] == test_library.config["cfg"] and not same_library:
+        parser.error("Same-configuration search/test inputs must refer to the same library.")
+    if same_library and args.search_query_policy != "all_complete":
+        parser.error("Same-library tuning requires --search-query-policy all_complete.")
     for modality in ("video", "trajectory"):
         search_checkpoint = search_library.config.get(modality, {}).get("checkpoint")
         test_checkpoint = test_library.config.get(modality, {}).get("checkpoint")
@@ -197,7 +230,10 @@ def main():
         if resolve_path(search_checkpoint) != resolve_path(test_checkpoint):
             parser.error(f"Libraries use different {modality} checkpoints; hold models fixed.")
 
-    search_library, audit = filter_search_queries(search_library)
+    if args.search_query_policy == "non_training":
+        search_library, audit = filter_search_queries(search_library)
+    else:
+        search_library, audit = filter_complete_queries(search_library)
     output_dir.mkdir(parents=True, exist_ok=True)
     save_json(output_dir / "query_filter.json", audit)
     save_json(output_dir / "run_info.json", {
@@ -206,6 +242,8 @@ def main():
         "search_library_config": search_library.config,
         "test_library_config": test_library.config,
         "config": config, "step": args.step, "weight_count": len(grid),
+        "search_query_policy": args.search_query_policy,
+        "same_library_tuning": same_library,
         "selection": "task MRR, then NDCG@10, then nearest uniform, then lexicographic weights",
     })
     print(f"Tuning: {len(search_library.query_items)} queries, "
@@ -234,14 +272,17 @@ def main():
     save_json(output_dir / "best_config.json", best_config)
 
     comparison = []
+    search_name = f"{search_library.config['cfg']}_tuning"
+    test_name = f"{test_library.config['cfg']}_test"
     for name, weights, search_result in (
         ("uniform", uniform, uniform_result), ("selected", best_weights, best_result),
     ):
-        save_evaluation(output_dir / "cfg2_tuning" / name, search_result,
+        save_evaluation(output_dir / search_name / name, search_result,
                         weighted_config(config, weights, search_library.root_dir))
-        final_result = evaluate_weights(test_library, config, weights)
-        save_evaluation(output_dir / "cfg3_test" / name, final_result,
-                        weighted_config(config, weights, test_library.root_dir))
+        final_result = search_result if same_library else evaluate_weights(test_library, config, weights)
+        if not same_library:
+            save_evaluation(output_dir / test_name / name, final_result,
+                            weighted_config(config, weights, test_library.root_dir))
         comparison.append({
             "method": name, **weights,
             **{key: final_result["metrics"]["task"][key] for key in METRICS},
@@ -250,7 +291,7 @@ def main():
         })
     write_csv(output_dir / "final_comparison.csv", comparison)
     save_json(output_dir / "final_comparison.json", comparison)
-    plot_search(rows, best_weights, output_dir)
+    plot_search(rows, best_weights, output_dir, search_library.config["cfg"])
     print(f"Selected weights: {best_weights}\nResults: {output_dir}", flush=True)
 
 

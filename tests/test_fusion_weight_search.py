@@ -125,3 +125,36 @@ def test_cli_saves_reusable_config_and_does_not_filter_cfg3_by_cfg2_scene(tmp_pa
     assert len(json.loads((output / "weight_search.json").read_text())) == 4
     with pytest.raises(SystemExit):
         main()
+
+
+def test_cli_can_tune_on_all_complete_queries_in_one_library(tmp_path, monkeypatch):
+    checkpoint_config = {}
+    for modality in ("video", "trajectory"):
+        root = tmp_path / modality
+        save_json(root / "split_manifest.json", {"train": ["task_0001/scene_1"]})
+        checkpoint_config[modality] = {"checkpoint": str(root / "best_model.pth")}
+    library_root = _build_tiny_library(tmp_path / "cfg3")
+    save_json(library_root / "library_config.json", {"cfg": "cfg3", **checkpoint_config})
+    for name in ("query_human_eval", "gallery_robot"):
+        path = library_root / "manifests" / f"{name}.jsonl"
+        items = [json.loads(line) for line in path.read_text().splitlines()]
+        for item in items:
+            item["feature_ids"]["trajectory"] = item["feature_ids"]["video"]
+        path.write_text("\n".join(json.dumps(item) for item in items) + "\n")
+    config = tmp_path / "config.json"
+    save_json(config, {"fusion": {"calibration": "none"}})
+    output = tmp_path / "cfg3_weight_search"
+    monkeypatch.setattr(sys, "argv", [
+        "search", "--search-library", str(library_root),
+        "--test-library", str(library_root),
+        "--search-query-policy", "all_complete", "--config", str(config),
+        "--step", "1", "--output-dir", str(output),
+    ])
+
+    main()
+
+    audit = json.loads((output / "query_filter.json").read_text())
+    assert audit["selected_query_count"] == 2
+    assert audit["split_manifests"] == {}
+    assert (output / "cfg3_tuning" / "selected" / "metrics.json").is_file()
+    assert not (output / "cfg3_test").exists()

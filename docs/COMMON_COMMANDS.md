@@ -343,6 +343,15 @@ scripts/run_experiment_pipeline.sh \
   --skip-existing
 ```
 
+Video intra 三模态论文包使用独立配置。cfg2 检索库只读取公共固定测试 scene，
+cfg3 仍使用原有全集采样协议。流水线先在 cfg2 搜索三模态融合权重，再执行均匀权重
+消融；cfg2/cfg3 的最终柱状图都会额外包含一列最优权重三模态结果：
+
+```bash
+CONFIG=configs/experiments/paper_video_intra_cfg2_cfg3.json \
+scripts/run_experiment_pipeline.sh --skip-existing
+```
+
 查看命令但不执行：
 
 ```bash

@@ -15,9 +15,10 @@ from _bootstrap import bootstrap
 
 bootstrap()
 
-from bise.common import load_json_config
+from bise.common import load_json_config, resolve_path
 from bise.data import collate_trajectories
 from bise.modalities.trajectory.factory import build_trajectory_dataset, build_trajectory_model
+from bise.modalities.trajectory.provenance import validate_checkpoint_config
 from bise.data.rh20t.collate import trajectory_context
 from bise.modalities.video import collate_video_pairs
 from bise.modalities.video.factory import build_video_dataset, build_video_model
@@ -57,6 +58,7 @@ def main():
     (output_dir / "eval").mkdir(exist_ok=True)
 
     builder = LibraryBuilder(config, output_dir)
+    builder.preflight()
     if config.get("video", {}).get("enabled", False):
         builder.add_video_features()
     if config.get("trajectory", {}).get("enabled", False):
@@ -76,9 +78,31 @@ class LibraryBuilder:
         self.cfg = _normalize_cfg(config["cfg"])
         self.include_human = bool(config.get("domains", {}).get("include_human", True))
         self.include_robot = bool(config.get("domains", {}).get("include_robot", True))
+        self.allowed_scene_ids, self.scene_selection = _load_scene_selection(config)
         self.feature_records: list[dict[str, Any]] = []
         self.scenes: dict[str, dict[str, Any]] = {}
         self.arrays: dict[str, list[np.ndarray]] = defaultdict(list)
+        self._trajectory_inputs = None
+
+    def preflight(self) -> None:
+        """Validate cheap inputs before running expensive video feature extraction."""
+        if self.config.get("trajectory", {}).get("enabled", False):
+            self._trajectory_inputs = self._prepare_trajectory_inputs()
+
+    def _prepare_trajectory_inputs(self):
+        trajectory_config = load_json_config(self.config["trajectory"]["config"])
+        trajectory_config["data_root"] = self.config["data_root"]
+        checkpoint = self.config["trajectory"]["checkpoint"]
+        # Check the model/data representation first. This produces a useful error
+        # before a mismatched config can select the wrong manifest implementation.
+        validate_checkpoint_config(trajectory_config, checkpoint)
+        dataset = build_trajectory_dataset(trajectory_config, checkpoint)
+        dataset.scenes = _filter_trajectory_scenes(
+            dataset.scenes, _sampling(self.config), self.allowed_scene_ids
+        )
+        if not dataset.scenes:
+            raise ValueError("No trajectory scenes remain after retrieval-library filtering")
+        return trajectory_config, dataset
 
     def add_video_features(self) -> None:
         # 视频特征直接从模型 checkpoint 重新抽取，不依赖任何 <best_run>/final_test 评估产物。
@@ -89,7 +113,9 @@ class LibraryBuilder:
         video_config["dataset"]["max_pairs_per_scene"] = _positive_or_none(_sampling(self.config).get("cameras_per_scene"))
         processor, model = build_video_model(video_config["model"])
         dataset = build_video_dataset(video_config["dataset"], processor=processor, is_train=False)
-        dataset.samples = _filter_video_samples(dataset.samples, _sampling(self.config))
+        dataset.samples = _filter_video_samples(
+            dataset.samples, _sampling(self.config), self.allowed_scene_ids
+        )
         dataloader = DataLoader(
             dataset,
             batch_size=int(self.config["video"].get("batch_size", video_config.get("training", {}).get("eval_batch_size", 4))),
@@ -134,10 +160,9 @@ class LibraryBuilder:
 
     def add_trajectory_features(self) -> None:
         # 轨迹特征同样从 checkpoint 重新抽取，human pose 对应 query，robot tcp 对应 gallery。
-        trajectory_config = load_json_config(self.config["trajectory"]["config"])
-        trajectory_config["data_root"] = self.config["data_root"]
-        dataset = build_trajectory_dataset(trajectory_config, self.config["trajectory"]["checkpoint"])
-        dataset.scenes = _filter_trajectory_scenes(dataset.scenes, _sampling(self.config))
+        if self._trajectory_inputs is None:
+            self._trajectory_inputs = self._prepare_trajectory_inputs()
+        trajectory_config, dataset = self._trajectory_inputs
         dataloader = DataLoader(
             dataset,
             batch_size=int(self.config["trajectory"].get("batch_size", trajectory_config.get("batch_size", 16))),
@@ -145,8 +170,6 @@ class LibraryBuilder:
             collate_fn=collate_trajectories,
         )
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        from bise.modalities.trajectory.provenance import validate_checkpoint_config
-        validate_checkpoint_config(trajectory_config, self.config["trajectory"]["checkpoint"])
         model = build_trajectory_model(trajectory_config, device)
         model.load_state_dict(torch.load(self.config["trajectory"]["checkpoint"], map_location=device))
         model.eval()
@@ -235,13 +258,22 @@ class LibraryBuilder:
         by_modality = defaultdict(lambda: {"human": 0, "robot": 0})
         for record in self.feature_records:
             by_modality[record["modality"]][record["domain"]] += 1
-        return {
+        coverage = {
             "scene_count": len(self.scenes),
             "feature_count": len(self.feature_records),
             "gallery_count": len(gallery_items or []),
             "query_count": len(query_items or []),
             "by_modality": dict(by_modality),
         }
+        if self.scene_selection is not None:
+            included = {scene["scene_id"] for scene in self.scenes.values()}
+            coverage["scene_selection"] = {
+                **self.scene_selection,
+                "requested_scene_count": len(self.allowed_scene_ids),
+                "included_scene_count": len(included),
+                "missing_scene_ids": sorted(self.allowed_scene_ids - included),
+            }
+        return coverage
 
     def _add_feature(
         self,
@@ -255,6 +287,8 @@ class LibraryBuilder:
     ) -> None:
         # 所有模态最终都落到同一套 FeatureRecord 格式，后续查询/评估不再关心特征来源。
         scene_id = normalize_scene_id(task_id, scene_id)
+        if self.allowed_scene_ids is not None and scene_id not in self.allowed_scene_ids:
+            return
         camera_id = normalize_camera_id(camera_id)
         entity_key = make_entity_key(self.dataset_name, self.cfg, task_id, scene_id)
         self.scenes.setdefault(
@@ -411,34 +445,63 @@ def _positive_or_none(value: Any) -> int | None:
     return count if count > 0 else None
 
 
-def _filter_video_samples(samples, sampling: dict[str, Any]):
+def _filter_video_samples(samples, sampling: dict[str, Any], allowed_scene_ids=None):
     scenes_per_task = _positive_or_none(sampling.get("scenes_per_task"))
-    if scenes_per_task is None:
-        return list(samples)
     seen_scenes: dict[str, list[str]] = defaultdict(list)
     filtered = []
     for sample in samples:
+        if allowed_scene_ids is not None and sample.scene_id not in allowed_scene_ids:
+            continue
         if sample.scene_id not in seen_scenes[sample.task_id]:
-            if len(seen_scenes[sample.task_id]) >= scenes_per_task:
+            if scenes_per_task is not None and len(seen_scenes[sample.task_id]) >= scenes_per_task:
                 continue
             seen_scenes[sample.task_id].append(sample.scene_id)
         filtered.append(sample)
     return filtered
 
 
-def _filter_trajectory_scenes(scenes, sampling: dict[str, Any]):
+def _filter_trajectory_scenes(scenes, sampling: dict[str, Any], allowed_scene_ids=None):
     scenes_per_task = _positive_or_none(sampling.get("scenes_per_task"))
-    if scenes_per_task is None:
-        return list(scenes)
     counts: dict[str, int] = defaultdict(int)
     filtered = []
     for scene in scenes:
         task_id = Path(scene.scene_path).parent.name
-        if counts[task_id] >= scenes_per_task:
+        scene_id = f"{task_id}/{Path(scene.scene_path).name}"
+        if allowed_scene_ids is not None and scene_id not in allowed_scene_ids:
+            continue
+        if scenes_per_task is not None and counts[task_id] >= scenes_per_task:
             continue
         counts[task_id] += 1
         filtered.append(scene)
     return filtered
+
+
+def _load_scene_selection(config: dict[str, Any]):
+    selection = dict(config.get("scene_selection") or {})
+    if not selection:
+        return None, None
+    manifest_value = selection.get("manifest_path")
+    split_name = str(selection.get("split", "test"))
+    if not manifest_value:
+        raise ValueError("scene_selection requires manifest_path")
+    manifest_path = resolve_path(manifest_value)
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    scene_ids = payload.get(split_name) if isinstance(payload, dict) else None
+    if not isinstance(scene_ids, list) or not scene_ids or any(not isinstance(x, str) for x in scene_ids):
+        raise ValueError(f"Scene selection manifest has no valid {split_name!r} list: {manifest_path}")
+    if len(scene_ids) != len(set(scene_ids)):
+        raise ValueError(f"Duplicate scene IDs in {manifest_path}:{split_name}")
+    normalized = {_split_scene_id(value) for value in scene_ids}
+    return normalized, {"manifest_path": str(manifest_path), "split": split_name}
+
+
+def _split_scene_id(value: str) -> str:
+    parts = str(value).split("::")
+    if len(parts) == 4 and parts[1].startswith("task_"):
+        return f"{parts[1]}/{parts[2]}"
+    if len(parts) == 1 and len(parts[0].split("/")) == 2:
+        return parts[0]
+    raise ValueError(f"Unsupported scene/sample ID in split manifest: {value!r}")
 
 
 def _skip_camera(counts: dict[tuple[str, str], int], domain: str, scene_id: str, limit: int | None) -> bool:

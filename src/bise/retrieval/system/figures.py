@@ -50,7 +50,7 @@ def plot_system_metrics(series: list[dict], output_path: str | Path, title: str 
             color=SYSTEM_PALETTE[index % len(SYSTEM_PALETTE)],
             edgecolor="white",
             linewidth=0.7,
-            label=item["label"],
+            label=item.get("plot_label", item["label"]),
         )
     ax.set_title(title, fontsize=14, fontweight="bold", pad=10)
     ax.set_ylabel("Score")

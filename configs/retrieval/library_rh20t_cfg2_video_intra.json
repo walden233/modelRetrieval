@@ -2,9 +2,13 @@
   "cfg": "cfg2",
   "dataset_name": "rh20t",
   "data_root": "dataset/RH20T_subset/RH20T_cfg2",
-  "output_dir": "artifacts/retrieval/rh20t_cfg2_video_intra_v1",
+  "output_dir": "artifacts/retrieval/rh20t_cfg2_test_video_intra_v2",
+  "scene_selection": {
+    "manifest_path": "artifacts/manifests/rh20t_shared_v1/cfg2_fixed_test_scenes2.json",
+    "split": "test"
+  },
   "sampling": {
-    "scenes_per_task": 3,
+    "scenes_per_task": 0,
     "cameras_per_scene": 2
   },
   "video": {
@@ -15,8 +19,8 @@
   },
   "trajectory": {
     "enabled": true,
-    "config": "configs/trajectory/T1_trajectory_baseline_scene.json",
-    "checkpoint": "artifacts/runs/trajectory/T2_trajectory_augment_scene_20260430_225507/best_model.pth",
+    "config": "configs/trajectory/N0_hand_3d_base.json",
+    "checkpoint": "artifacts/runs/trajectory/hand_3d_n0_n2_seed42_60ep/N0_hand_3d_base/best_model.pth",
     "batch_size": 16
   },
   "semantic": {

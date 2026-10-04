@@ -4,14 +4,14 @@
   "manifest": "artifacts/experiments/paper_video_intra_cfg2_cfg3/pipeline_manifest.json",
   "steps": [
     {
-      "name": "build_library_cfg2_video_intra",
+      "name": "build_library_cfg2_test_video_intra",
       "script": "runs/retrieval/build_retrieval_library.py",
       "args": [
         "--config",
         "configs/retrieval/library_rh20t_cfg2_video_intra.json"
       ],
       "outputs": [
-        "artifacts/retrieval/rh20t_cfg2_video_intra_v1/coverage.json"
+        "artifacts/retrieval/rh20t_cfg2_test_video_intra_v2/coverage.json"
       ],
       "groups": [
         "retrieval_system"
@@ -25,18 +25,18 @@
         "configs/retrieval/library_rh20t_cfg3_video_intra.json"
       ],
       "outputs": [
-        "artifacts/retrieval/rh20t_cfg3_video_intra_v1/coverage.json"
+        "artifacts/retrieval/rh20t_cfg3_video_intra_v2/coverage.json"
       ],
       "groups": [
         "retrieval_system"
       ]
     },
     {
-      "name": "retrieval_cfg2_full_video_intra",
+      "name": "retrieval_cfg2_test_video_intra",
       "script": "runs/retrieval/evaluate_retrieval_system.py",
       "args": [
         "--library-dir",
-        "artifacts/retrieval/rh20t_cfg2_video_intra_v1",
+        "artifacts/retrieval/rh20t_cfg2_test_video_intra_v2",
         "--config",
         "configs/retrieval/system_eval_full_modalities_video_intra.json",
         "--level",
@@ -44,12 +44,12 @@
         "--require-modalities",
         "video,trajectory,semantic_text",
         "--output-dir",
-        "artifacts/retrieval/rh20t_cfg2_video_intra_v1/eval/full_modalities_mixed",
+        "artifacts/retrieval/rh20t_cfg2_test_video_intra_v2/eval/full_modalities_mixed",
         "--top-k",
         "10"
       ],
       "outputs": [
-        "artifacts/retrieval/rh20t_cfg2_video_intra_v1/eval/full_modalities_mixed/metrics.json"
+        "artifacts/retrieval/rh20t_cfg2_test_video_intra_v2/eval/full_modalities_mixed/metrics.json"
       ],
       "groups": [
         "retrieval_system"
@@ -60,7 +60,7 @@
       "script": "runs/retrieval/evaluate_retrieval_system.py",
       "args": [
         "--library-dir",
-        "artifacts/retrieval/rh20t_cfg3_video_intra_v1",
+        "artifacts/retrieval/rh20t_cfg3_video_intra_v2",
         "--config",
         "configs/retrieval/system_eval_full_modalities_video_intra.json",
         "--level",
@@ -68,28 +68,76 @@
         "--require-modalities",
         "video,trajectory,semantic_text",
         "--output-dir",
-        "artifacts/retrieval/rh20t_cfg3_video_intra_v1/eval/full_modalities_mixed",
+        "artifacts/retrieval/rh20t_cfg3_video_intra_v2/eval/full_modalities_mixed",
         "--top-k",
         "10"
       ],
       "outputs": [
-        "artifacts/retrieval/rh20t_cfg3_video_intra_v1/eval/full_modalities_mixed/metrics.json"
+        "artifacts/retrieval/rh20t_cfg3_video_intra_v2/eval/full_modalities_mixed/metrics.json"
       ],
       "groups": [
         "retrieval_system"
       ]
     },
     {
-      "name": "retrieval_cfg2_ablation_video_intra",
+      "name": "fusion_weight_search_video_intra_cfg2_test_to_cfg3",
+      "script": "runs/retrieval/search_fusion_weights.py",
+      "args": [
+        "--search-library",
+        "artifacts/retrieval/rh20t_cfg2_test_video_intra_v2",
+        "--test-library",
+        "artifacts/retrieval/rh20t_cfg3_video_intra_v2",
+        "--config",
+        "configs/retrieval/system_eval_full_modalities_video_intra.json",
+        "--step",
+        "0.1",
+        "--output-dir",
+        "artifacts/retrieval/rh20t_cfg2_test_video_intra_v2/weight_search"
+      ],
+      "outputs": [
+        "artifacts/retrieval/rh20t_cfg2_test_video_intra_v2/weight_search/final_comparison.csv"
+      ],
+      "groups": [
+        "weight_search"
+      ]
+    },
+    {
+      "name": "fusion_weight_search_video_intra_cfg3",
+      "script": "runs/retrieval/search_fusion_weights.py",
+      "args": [
+        "--search-library",
+        "artifacts/retrieval/rh20t_cfg3_video_intra_v2",
+        "--test-library",
+        "artifacts/retrieval/rh20t_cfg3_video_intra_v2",
+        "--search-query-policy",
+        "all_complete",
+        "--config",
+        "configs/retrieval/system_eval_full_modalities_video_intra.json",
+        "--step",
+        "0.1",
+        "--output-dir",
+        "artifacts/retrieval/rh20t_cfg3_video_intra_v2/weight_search"
+      ],
+      "outputs": [
+        "artifacts/retrieval/rh20t_cfg3_video_intra_v2/weight_search/final_comparison.csv"
+      ],
+      "groups": [
+        "weight_search"
+      ]
+    },
+    {
+      "name": "retrieval_cfg2_test_ablation_video_intra",
       "runner": "bash",
       "script": "scripts/run_retrieval_system_ablation.sh",
       "env": {
-        "LIBRARY_DIR": "artifacts/retrieval/rh20t_cfg2_video_intra_v1",
-        "OUTPUT_ROOT": "artifacts/retrieval/rh20t_cfg2_video_intra_v1/eval/ablation_uniform",
-        "LEVEL": "mixed"
+        "LIBRARY_DIR": "artifacts/retrieval/rh20t_cfg2_test_video_intra_v2",
+        "OUTPUT_ROOT": "artifacts/retrieval/rh20t_cfg2_test_video_intra_v2/eval/ablation_uniform_with_optimized",
+        "LEVEL": "mixed",
+        "WEIGHTED_RUN_DIR": "artifacts/retrieval/rh20t_cfg2_test_video_intra_v2/weight_search/cfg2_tuning/selected",
+        "WEIGHTED_LABEL": "Video+Trajectory+Semantic (cfg2-selected)"
       },
       "outputs": [
-        "artifacts/retrieval/rh20t_cfg2_video_intra_v1/eval/ablation_uniform/ablation_runs.json"
+        "artifacts/retrieval/rh20t_cfg2_test_video_intra_v2/eval/ablation_uniform_with_optimized/ablation_runs.json"
       ],
       "groups": [
         "retrieval_system"
@@ -100,47 +148,29 @@
       "runner": "bash",
       "script": "scripts/run_retrieval_system_ablation.sh",
       "env": {
-        "LIBRARY_DIR": "artifacts/retrieval/rh20t_cfg3_video_intra_v1",
-        "OUTPUT_ROOT": "artifacts/retrieval/rh20t_cfg3_video_intra_v1/eval/ablation_uniform",
-        "LEVEL": "mixed"
+        "LIBRARY_DIR": "artifacts/retrieval/rh20t_cfg3_video_intra_v2",
+        "OUTPUT_ROOT": "artifacts/retrieval/rh20t_cfg3_video_intra_v2/eval/ablation_uniform_with_optimized",
+        "LEVEL": "mixed",
+        "WEIGHTED_RUN_DIR": "artifacts/retrieval/rh20t_cfg2_test_video_intra_v2/weight_search/cfg3_test/selected",
+        "WEIGHTED_LABEL": "Video+Trajectory+Semantic (cfg2-selected)",
+        "WEIGHTED_RUN_DIR_2": "artifacts/retrieval/rh20t_cfg3_video_intra_v2/weight_search/cfg3_tuning/selected",
+        "WEIGHTED_LABEL_2": "Video+Trajectory+Semantic (cfg3-selected)"
       },
       "outputs": [
-        "artifacts/retrieval/rh20t_cfg3_video_intra_v1/eval/ablation_uniform/ablation_runs.json"
+        "artifacts/retrieval/rh20t_cfg3_video_intra_v2/eval/ablation_uniform_with_optimized/ablation_runs.json"
       ],
       "groups": [
         "retrieval_system"
       ]
     },
     {
-      "name": "fusion_weight_search_video_intra_cfg2_to_cfg3",
-      "script": "runs/retrieval/search_fusion_weights.py",
-      "args": [
-        "--search-library",
-        "artifacts/retrieval/rh20t_cfg2_video_intra_v1",
-        "--test-library",
-        "artifacts/retrieval/rh20t_cfg3_video_intra_v1",
-        "--config",
-        "configs/retrieval/system_eval_full_modalities_video_intra.json",
-        "--step",
-        "0.1",
-        "--output-dir",
-        "artifacts/retrieval/weight_search_video_intra_cfg2_to_cfg3"
-      ],
-      "outputs": [
-        "artifacts/retrieval/weight_search_video_intra_cfg2_to_cfg3/final_comparison.csv"
-      ],
-      "groups": [
-        "weight_search"
-      ]
-    },
-    {
-      "name": "export_retrieval_charts_cfg2_task_video_intra",
+      "name": "export_retrieval_charts_cfg2_test_task_video_intra",
       "script": "runs/retrieval/export_retrieval_system_charts.py",
       "args": [
         "--runs-json",
-        "artifacts/retrieval/rh20t_cfg2_video_intra_v1/eval/ablation_uniform/ablation_runs.json",
+        "artifacts/retrieval/rh20t_cfg2_test_video_intra_v2/eval/ablation_uniform_with_optimized/ablation_runs.json",
         "--output-dir",
-        "artifacts/retrieval/rh20t_cfg2_video_intra_v1/eval/ablation_uniform/charts_task",
+        "artifacts/retrieval/rh20t_cfg2_test_video_intra_v2/eval/ablation_uniform_with_optimized/charts_task",
         "--level",
         "task",
         "--dpi",
@@ -149,8 +179,8 @@
         "system_metrics_cfg2_data.json"
       ],
       "outputs": [
-        "artifacts/retrieval/rh20t_cfg2_video_intra_v1/eval/ablation_uniform/charts_task/system_metrics_comparison.png",
-        "artifacts/retrieval/rh20t_cfg2_video_intra_v1/eval/ablation_uniform/charts_task/system_metrics_cfg2_data.json"
+        "artifacts/retrieval/rh20t_cfg2_test_video_intra_v2/eval/ablation_uniform_with_optimized/charts_task/system_metrics_comparison.png",
+        "artifacts/retrieval/rh20t_cfg2_test_video_intra_v2/eval/ablation_uniform_with_optimized/charts_task/system_metrics_cfg2_data.json"
       ],
       "groups": [
         "chart_export"
@@ -161,9 +191,9 @@
       "script": "runs/retrieval/export_retrieval_system_charts.py",
       "args": [
         "--runs-json",
-        "artifacts/retrieval/rh20t_cfg3_video_intra_v1/eval/ablation_uniform/ablation_runs.json",
+        "artifacts/retrieval/rh20t_cfg3_video_intra_v2/eval/ablation_uniform_with_optimized/ablation_runs.json",
         "--output-dir",
-        "artifacts/retrieval/rh20t_cfg3_video_intra_v1/eval/ablation_uniform/charts_task",
+        "artifacts/retrieval/rh20t_cfg3_video_intra_v2/eval/ablation_uniform_with_optimized/charts_task",
         "--level",
         "task",
         "--dpi",
@@ -172,8 +202,8 @@
         "system_metrics_cfg3_data.json"
       ],
       "outputs": [
-        "artifacts/retrieval/rh20t_cfg3_video_intra_v1/eval/ablation_uniform/charts_task/system_metrics_comparison.png",
-        "artifacts/retrieval/rh20t_cfg3_video_intra_v1/eval/ablation_uniform/charts_task/system_metrics_cfg3_data.json"
+        "artifacts/retrieval/rh20t_cfg3_video_intra_v2/eval/ablation_uniform_with_optimized/charts_task/system_metrics_comparison.png",
+        "artifacts/retrieval/rh20t_cfg3_video_intra_v2/eval/ablation_uniform_with_optimized/charts_task/system_metrics_cfg3_data.json"
       ],
       "groups": [
         "chart_export"
@@ -184,12 +214,13 @@
     "enabled": true,
     "output_dir": "artifacts/paper/paper_video_intra_cfg2_cfg3",
     "include_steps": [
-      "retrieval_cfg2_full_video_intra",
+      "retrieval_cfg2_test_video_intra",
       "retrieval_cfg3_full_video_intra",
-      "retrieval_cfg2_ablation_video_intra",
+      "retrieval_cfg2_test_ablation_video_intra",
       "retrieval_cfg3_ablation_video_intra",
-      "fusion_weight_search_video_intra_cfg2_to_cfg3",
-      "export_retrieval_charts_cfg2_task_video_intra",
+      "fusion_weight_search_video_intra_cfg2_test_to_cfg3",
+      "fusion_weight_search_video_intra_cfg3",
+      "export_retrieval_charts_cfg2_test_task_video_intra",
       "export_retrieval_charts_cfg3_task_video_intra"
     ],
     "patterns": [
@@ -205,8 +236,8 @@
         ]
       },
       {
-        "root": "artifacts/runs/trajectory/T2_trajectory_augment_scene_20260430_225507",
-        "target": "source_runs/trajectory_T2",
+        "root": "artifacts/runs/trajectory/hand_3d_n0_n2_seed42_60ep/N0_hand_3d_base",
+        "target": "source_runs/trajectory_N0",
         "patterns": [
           "params.json",
           "best_metrics.json",
@@ -216,7 +247,7 @@
         ]
       },
       {
-        "root": "artifacts/retrieval/rh20t_cfg2_video_intra_v1/eval/ablation_uniform/charts_task",
+        "root": "artifacts/retrieval/rh20t_cfg2_test_video_intra_v2/eval/ablation_uniform_with_optimized/charts_task",
         "target": "charts/retrieval_cfg2",
         "patterns": [
           "system_metrics_comparison.png",
@@ -224,7 +255,7 @@
         ]
       },
       {
-        "root": "artifacts/retrieval/rh20t_cfg3_video_intra_v1/eval/ablation_uniform/charts_task",
+        "root": "artifacts/retrieval/rh20t_cfg3_video_intra_v2/eval/ablation_uniform_with_optimized/charts_task",
         "target": "charts/retrieval_cfg3",
         "patterns": [
           "system_metrics_comparison.png",

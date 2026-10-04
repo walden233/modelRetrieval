@@ -8,6 +8,10 @@ OUTPUT_ROOT="${OUTPUT_ROOT:-artifacts/retrieval/rh20t_cfg3_v1/eval/ablation_unif
 LEVEL="${LEVEL:-mixed}"
 REQUIRE_MODALITIES="${REQUIRE_MODALITIES:-video,trajectory,semantic_text}"
 TOP_K="${TOP_K:-10}"
+WEIGHTED_RUN_DIR="${WEIGHTED_RUN_DIR:-}"
+WEIGHTED_LABEL="${WEIGHTED_LABEL:-Video+Trajectory+Semantic (Optimized)}"
+WEIGHTED_RUN_DIR_2="${WEIGHTED_RUN_DIR_2:-}"
+WEIGHTED_LABEL_2="${WEIGHTED_LABEL_2:-Video+Trajectory+Semantic (Optimized 2)}"
 
 cd "$ROOT_DIR"
 
@@ -45,6 +49,10 @@ mkdir -p "$OUTPUT_ROOT"
 RUNS_JSON="$OUTPUT_ROOT/ablation_runs.json"
 printf '{\n' > "$RUNS_JSON"
 
+extra_count=0
+[[ -n "$WEIGHTED_RUN_DIR" ]] && extra_count=$((extra_count + 1))
+[[ -n "$WEIGHTED_RUN_DIR_2" ]] && extra_count=$((extra_count + 1))
+
 for index in "${!LABELS[@]}"; do
   label="${LABELS[$index]}"
   config="${CONFIGS[$index]}"
@@ -59,11 +67,29 @@ for index in "${!LABELS[@]}"; do
     --top-k "$TOP_K"
 
   comma=","
-  if [[ "$index" -eq "$((${#LABELS[@]} - 1))" ]]; then
+  if [[ "$index" -eq "$((${#LABELS[@]} - 1))" && "$extra_count" -eq 0 ]]; then
     comma=""
   fi
   printf '  "%s": "%s"%s\n' "$label" "$output_dir" "$comma" >> "$RUNS_JSON"
 done
+
+if [[ -n "$WEIGHTED_RUN_DIR" ]]; then
+  if [[ ! -f "$WEIGHTED_RUN_DIR/metrics.json" ]]; then
+    echo "Missing optimized-weight metrics: $WEIGHTED_RUN_DIR/metrics.json" >&2
+    exit 1
+  fi
+  comma=""
+  [[ -n "$WEIGHTED_RUN_DIR_2" ]] && comma=","
+  printf '  "%s": "%s"%s\n' "$WEIGHTED_LABEL" "$WEIGHTED_RUN_DIR" "$comma" >> "$RUNS_JSON"
+fi
+
+if [[ -n "$WEIGHTED_RUN_DIR_2" ]]; then
+  if [[ ! -f "$WEIGHTED_RUN_DIR_2/metrics.json" ]]; then
+    echo "Missing second optimized-weight metrics: $WEIGHTED_RUN_DIR_2/metrics.json" >&2
+    exit 1
+  fi
+  printf '  "%s": "%s"\n' "$WEIGHTED_LABEL_2" "$WEIGHTED_RUN_DIR_2" >> "$RUNS_JSON"
+fi
 
 printf '}\n' >> "$RUNS_JSON"
 

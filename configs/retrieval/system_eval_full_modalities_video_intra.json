@@ -1,5 +1,5 @@
 {
-  "library_dir": "artifacts/retrieval/rh20t_cfg2_video_intra_v1",
+  "library_dir": "artifacts/retrieval/rh20t_cfg2_test_video_intra_v2",
   "gallery_domain": "robot",
   "candidate_unit": "scene_camera",
   "level": "mixed",
