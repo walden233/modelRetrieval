@@ -1,0 +1,40 @@
+{
+  "cfg": "cfg2",
+  "dataset_name": "rh20t",
+  "data_root": "dataset/RH20T_subset/RH20T_cfg2",
+  "output_dir": "artifacts/retrieval/retrain/s42/cfg2",
+  "scene_selection": {
+    "manifest_path": "artifacts/manifests/rh20t_shared_v1/cfg2_split_manifest.json",
+    "split": "test"
+  },
+  "sampling": {
+    "scenes_per_task": 0,
+    "cameras_per_scene": 2
+  },
+  "video": {
+    "enabled": true,
+    "config": "configs/retrain/video/E4.json",
+    "checkpoint": "artifacts/runs/retrain/s42/video/E4/best_model.pth",
+    "batch_size": 4
+  },
+  "trajectory": {
+    "enabled": true,
+    "config": "configs/retrain/trajectory/N0.json",
+    "checkpoint": "artifacts/runs/retrain/s42/trajectory/N0/best_model.pth",
+    "batch_size": 16
+  },
+  "semantic": {
+    "enabled": true,
+    "root": "artifacts/semantic/rh20t",
+    "cfg": "cfg2",
+    "modes": [
+      "text",
+      "label",
+      "combined"
+    ]
+  },
+  "domains": {
+    "include_human": true,
+    "include_robot": true
+  }
+}

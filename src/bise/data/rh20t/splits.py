@@ -1,0 +1,235 @@
+"""Frozen scene splits and camera pairs for the retrain protocol."""
+
+import json
+from pathlib import Path
+
+import numpy as np
+
+from bise.common.paths import resolve_path
+from bise.common.fingerprints import file_hash, object_hash, write_json
+
+
+SPLITS = ("train", "val", "test")
+PROTOCOL = "retrain_v2"
+
+
+def scene_id(value: str) -> str:
+    parts = value.split("::")
+    if len(parts) == 4 and parts[0] == "rh20t":
+        return f"{parts[1]}/{parts[2]}"
+    if len(value.split("/")) == 2:
+        return value
+    raise ValueError(f"Unsupported RH20T identity: {value}")
+
+
+def load_split_map(path: str | Path) -> dict:
+    payload = json.loads(resolve_path(path).read_text())
+    if not isinstance(payload, dict):
+        raise ValueError("Split manifest must be an object")
+    mapping = {key: payload[key] for key in SPLITS if key in payload}
+    if not mapping:
+        raise ValueError("Split manifest has no train/val/test lists")
+    seen = set()
+    for key, values in mapping.items():
+        if not isinstance(values, list) or any(not isinstance(x, str) for x in values):
+            raise ValueError(f"Invalid identities in split {key}")
+        if len(set(values)) != len(values) or seen.intersection(values):
+            raise ValueError("Duplicate or overlapping identities in split manifest")
+        seen.update(values)
+    return mapping
+
+
+def validate_split(mapping: dict, unit: str = "scene") -> dict:
+    scenes = {key: {scene_id(x) for x in mapping.get(key, [])} for key in SPLITS}
+    counts = {key: {"samples": len(mapping.get(key, [])), "scenes": len(scenes[key]),
+                    "tasks": len({x.split('/')[0] for x in scenes[key]})} for key in SPLITS}
+    for i, left in enumerate(SPLITS):
+        values = mapping.get(left, [])
+        if len(values) != len(set(values)):
+            raise ValueError(f"Duplicate samples in {left}")
+        for right in SPLITS[i + 1:]:
+            overlap = scenes[left] & scenes[right]
+            if overlap:
+                raise ValueError(f"Scene overlap {left}/{right}: {sorted(overlap)[:5]}")
+            if unit == "task":
+                tasks = {x.split('/')[0] for x in scenes[left]}
+                other = {x.split('/')[0] for x in scenes[right]}
+                if tasks & other:
+                    raise ValueError(f"Task overlap {left}/{right}: {sorted(tasks & other)[:5]}")
+    return counts
+
+
+def load_protocol(path: str | Path, data_root: str | Path | None = None) -> dict:
+    path = resolve_path(path)
+    payload = json.loads(path.read_text())
+    if payload.get("protocol") != PROTOCOL or payload.get("schema_version") != 2:
+        raise ValueError(f"Expected {PROTOCOL} manifest: {path}")
+    mapping = load_split_map(path)
+    validate_split(mapping)
+    if data_root is not None and resolve_path(data_root) != resolve_path(payload["data_root"]):
+        raise ValueError(f"Manifest belongs to a different data root: {path}")
+    data_path = resolve_path(payload["data_manifest"])
+    if file_hash(data_path) != payload["data_sha256"]:
+        raise ValueError(f"Frozen trajectory inventory changed: {data_path}")
+    data = json.loads(data_path.read_text())
+    if (data.get("human_source") != "hand_3d_base"
+            or resolve_path(data["data_root"]) != resolve_path(payload["data_root"])):
+        raise ValueError(f"Invalid frozen trajectory inventory: {data_path}")
+    if object_hash(payload["video_pairs"]) != payload["inventory_sha256"]:
+        raise ValueError(f"Frozen video inventory changed: {path}")
+    eligible = payload["eligible_scenes"]
+    if len(set(eligible)) != len(eligible):
+        raise ValueError("Duplicate eligible scenes")
+    if not set(mapping.get("test", []) + mapping.get("val", [])) <= set(eligible):
+        raise ValueError("Evaluation contains a scene outside the shared eligible pool")
+    if payload["cfg"] == "cfg2":
+        if len(mapping.get("test", [])) != 120 or len(mapping.get("val", [])) != 50:
+            raise ValueError("cfg2 requires exactly 120 test and 50 validation scenes")
+    elif payload["cfg"] == "cfg3":
+        from collections import Counter
+        counts = Counter(x.split('/')[0] for x in mapping.get("test", []))
+        tasks = {entry["task_id"] for entry in data["scenes"]}
+        if set(counts) != tasks or any(n != 2 for n in counts.values()):
+            raise ValueError("cfg3 requires two evaluation scenes per task")
+    else:
+        raise ValueError(f"Unknown cfg in manifest: {path}")
+    for identity, pairs in payload["video_pairs"].items():
+        if len(pairs) != 2 or len({p["camera_id"] for p in pairs}) != 2:
+            raise ValueError(f"Expected two distinct paired cameras: {identity}")
+        task, name = identity.split("/")
+        for pair in pairs:
+            if pair["sample_id"] != f"rh20t::{task}::{name}::{pair['camera_id']}":
+                raise ValueError(f"Inconsistent video sample identity: {identity}")
+            for domain in ("human", "robot"):
+                source = Path(pair[f"{domain}_path"])
+                camera = source.name.removesuffix(f"_{domain}.mp4").removeprefix("cam_")
+                if str(source.parent) != identity or camera != pair["camera_id"]:
+                    raise ValueError(f"Inconsistent paired video path: {source}")
+    for identity in mapping.get("test", []) + mapping.get("val", []):
+        if identity not in payload["video_pairs"]:
+            raise ValueError(f"Scene lacks frozen video pairs: {identity}")
+    return payload
+
+
+def shared_scene_split(available: list[str], config: dict) -> dict:
+    if config.get("unit", "scene") != "scene":
+        raise ValueError("Shared scene split requires unit=scene")
+    payload = load_protocol(config["shared_manifest_path"])
+    test = payload["test"]
+    missing = set(test + payload["val"]) - set(available)
+    if missing:
+        raise ValueError(f"Shared scenes missing from dataset: {sorted(missing)[:5]}")
+    remaining = sorted(set(available) - set(test))
+    if config.get("use_fixed_val", True):
+        val = payload["val"]
+    else:
+        count = int(config.get("val_count", 50))
+        if count < 1 or count >= len(remaining):
+            raise ValueError("val_count must leave a nonempty training pool")
+        rng = np.random.default_rng(int(config.get("seed", 42)))
+        val = sorted(rng.choice(remaining, count, replace=False).tolist())
+    mapping = {"train": sorted(set(remaining) - set(val)), "val": list(val), "test": list(test)}
+    validate_split(mapping)
+    return mapping
+
+
+def _video_pairs(root: Path, hand_entries: dict, decode: bool) -> dict:
+    inventory = {}
+    paths = sorted(p for p in root.glob("task_*/scene_*") if p.is_dir())
+    for index, path in enumerate(paths):
+        identity = str(path.relative_to(root))
+        human = {p.name.removesuffix("_human.mp4"): p for p in path.glob("*_human.mp4")}
+        robot = {p.name.removesuffix("_robot.mp4"): p for p in path.glob("*_robot.mp4")}
+        cameras = sorted(human.keys() & robot.keys())
+        if len(cameras) < 2:
+            continue
+        # Prefer cameras that also have valid hand trajectories, then freeze the choice.
+        valid_hand = set(hand_entries.get(identity, {}).get("cameras", {}))
+        cameras.sort(key=lambda c: (c.removeprefix("cam_") not in valid_hand, c))
+        pairs = []
+        for camera in cameras[:2]:
+            item = {"camera_id": camera.removeprefix("cam_"),
+                    "sample_id": (f"rh20t::{path.parent.name}::{path.name}::"
+                                  f"{camera.removeprefix('cam_')}")}
+            for domain, files in (("human", human), ("robot", robot)):
+                file = files[camera]
+                if decode:
+                    from decord import VideoReader, cpu
+                    reader = VideoReader(str(file), ctx=cpu(0), num_threads=1)
+                    if len(reader) < 1:
+                        raise ValueError(f"Empty video: {file}")
+                    reader.get_batch(np.linspace(0, len(reader) - 1, 16, dtype=int)).asnumpy()
+                    item[f"{domain}_frames"] = len(reader)
+                item[f"{domain}_path"] = str(file.relative_to(root))
+                item[f"{domain}_sha256"] = file_hash(file)
+            pairs.append(item)
+        inventory[identity] = pairs
+        if index % 25 == 0:
+            print(f"{root.name}: freeze video pairs {index + 1}/{len(paths)}", flush=True)
+    return inventory
+
+
+def prepare_protocols(dataset_root: str | Path, source_dir: str | Path,
+                      data_dir: str | Path, output_dir: str | Path,
+                      seed: int = 42, decode: bool = True) -> dict:
+    dataset_root, source_dir = resolve_path(dataset_root), resolve_path(source_dir)
+    data_dir, output_dir = resolve_path(data_dir), resolve_path(output_dir)
+    result = {}
+    for cfg in ("cfg2", "cfg3"):
+        target = output_dir / f"{cfg}_split_manifest.json"
+        if target.exists():
+            old = json.loads(target.read_text())
+            if old.get("protocol") == PROTOCOL:
+                frozen = load_protocol(target, dataset_root / f"RH20T_{cfg}")
+                if frozen["seed"] != seed:
+                    raise ValueError(
+                        "Existing protocol has a different seed; use a new manifest directory"
+                    )
+                result[cfg] = str(target)
+                continue
+            # The old cfg2 file was a duplicate of the historical 43-scene manifest.
+            legacy = output_dir / "cfg2_fixed_test_scenes.json"
+            if cfg != "cfg2" or not legacy.exists() or old != json.loads(legacy.read_text()):
+                raise FileExistsError(f"Refusing to overwrite an unrelated manifest: {target}")
+        root = dataset_root / f"RH20T_{cfg}"
+        data = json.loads((source_dir / f"{cfg}_valid.json").read_text())
+        if data.get("human_source") != "hand_3d_base" or resolve_path(data["data_root"]) != root:
+            raise ValueError(f"Wrong trajectory inventory for {cfg}")
+        entries = {entry["scene_id"]: entry for entry in data["scenes"]}
+        for identity, entry in entries.items():
+            for name, key in (("human_hand_3d.npy", "human_sha256"),
+                              ("tcp_base.npy", "robot_sha256")):
+                if file_hash(root / identity / name) != entry[key]:
+                    raise ValueError(f"Trajectory source changed: {root / identity / name}")
+        pairs = _video_pairs(root, entries, decode)
+        eligible = sorted(entries.keys() & pairs.keys())
+        rng = np.random.default_rng(seed)
+        if cfg == "cfg2":
+            if len(eligible) <= 170:
+                raise ValueError("cfg2 needs more than 170 shared valid scenes")
+            shuffled = rng.permutation(eligible).tolist()
+            test, val = sorted(shuffled[:120]), sorted(shuffled[120:170])
+        else:
+            test, val = [], []
+            for task in sorted({x.split('/')[0] for x in eligible}):
+                scenes = [x for x in eligible if x.split('/')[0] == task]
+                if len(scenes) < 2:
+                    raise ValueError(f"Fewer than two shared valid scenes for cfg3 {task}")
+                test.extend(sorted(rng.choice(scenes, 2, replace=False).tolist()))
+        data_path = data_dir / f"{cfg}_data.json"
+        if data_path.exists() and json.loads(data_path.read_text()) != data:
+            raise FileExistsError(f"Frozen data inventory differs: {data_path}")
+        write_json(data_path, data)
+        payload = {"schema_version": 2, "protocol": PROTOCOL, "cfg": cfg, "seed": seed,
+                   "data_root": str(root), "data_manifest": str(data_path),
+                   "data_sha256": file_hash(data_path), "eligible_scenes": eligible,
+                   "inventory_sha256": object_hash(pairs),
+                   "video_validation": "uniform16" if decode else "hash_only",
+                   "val": val, "test": test, "video_pairs": pairs,
+                   "excluded_scenes": sorted(set(pairs) - set(eligible))}
+        write_json(target, payload)
+        load_protocol(target, root)
+        result[cfg] = str(target)
+        print(f"{cfg}: {len(test)} test, {len(val)} val, {len(eligible)} shared valid scenes",
+              flush=True)
+    return result

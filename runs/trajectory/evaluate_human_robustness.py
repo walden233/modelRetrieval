@@ -50,7 +50,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", required=True, help="Saved run params.json")
     parser.add_argument("--checkpoint", required=True)
-    parser.add_argument("--data-root", help="Optional cfg3 root; requires --all-as-test")
+    parser.add_argument("--data-root", help="Optional cfg3 root; requires an explicit matching split")
     parser.add_argument("--split", choices=("train", "val", "test"), default="test")
     parser.add_argument("--split-manifest", help="Defaults to the checkpoint run split")
     parser.add_argument("--all-as-test", action="store_true")
@@ -60,7 +60,7 @@ def main():
     args = parser.parse_args()
     if not np.isfinite(args.translation_m) or not np.isfinite(args.yaw_degrees):
         raise ValueError("Transform parameters must be finite")
-    if args.data_root and not args.all_as_test:
+    if args.data_root and not (args.all_as_test or args.split_manifest):
         raise ValueError("A different data root requires --all-as-test or an explicit matching split")
     if args.all_as_test and args.split_manifest:
         raise ValueError("--all-as-test cannot be combined with --split-manifest")
@@ -78,12 +78,18 @@ def main():
         if not manifest_path.is_file():
             raise FileNotFoundError(f"Split manifest not found: {manifest_path}")
         split_config = {"manifest_path": str(manifest_path)}
+    if config.get("protocol") == "retrain_v2":
+        from bise.common.evaluation import evaluation_inputs
+        if args.all_as_test:
+            raise ValueError("Retrain robustness evaluation requires a frozen split manifest")
+        evaluation_inputs(config, args.checkpoint, "trajectory", manifest_path, args.split)
     torch.set_num_threads(int(config.get("torch_num_threads", 4)))
     source = build_trajectory_dataset(config, args.checkpoint)
     subset = split_trajectory_dataset(source, split_config)[args.split]
     if subset is None or not len(subset):
         raise ValueError(f"No samples in split {args.split}")
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    from bise.common.device import experiment_device
+    device = experiment_device(config)
     model = build_trajectory_model(config, device)
     model.load_state_dict(torch.load(args.checkpoint, map_location=device, weights_only=True))
     loader = DataLoader(subset, batch_size=config["batch_size"], collate_fn=collate_trajectories)

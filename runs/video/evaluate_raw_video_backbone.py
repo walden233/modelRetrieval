@@ -39,8 +39,13 @@ def main():
     config = load_json_config(args.config)
     if args.data_root:
         config.setdefault("dataset", {})["root_dir"] = args.data_root
+    from bise.common.device import experiment_device
+    device = experiment_device(config)
     run_dir = ensure_directory(args.output_dir)
     final_test_dir = ensure_directory(Path(run_dir) / args.final_subdir)
+    if config.get("protocol") == "retrain_v2":
+        from bise.common.comparison import prepare_raw_split
+        prepare_raw_split(config, run_dir)
 
     processor, backbone_adapter = build_video_backbone(
         backbone_type=config["model"]["backbone_type"],
@@ -48,6 +53,18 @@ def main():
         trust_remote_code=config["model"].get("trust_remote_code", True),
     )
     model = RawBackboneRetrievalModel(backbone_adapter)
+    if config.get("protocol") == "retrain_v2":
+        from bise.common.evaluation import bind_protocols
+        from bise.common.fingerprints import write_json
+        if not (run_dir / "params.json").exists():
+            config["raw_backbone"] = True
+            write_json(run_dir / "params.json", config)
+        bind_protocols(run_dir, config)
+        frozen_backbone = run_dir / "backbone.pth"
+        if frozen_backbone.exists():
+            model.load_state_dict(torch.load(frozen_backbone, map_location="cpu", weights_only=True))
+        else:
+            torch.save(model.state_dict(), frozen_backbone)
 
     split_config, split_manifest_path = _resolve_split_config(
         config,
@@ -55,6 +72,11 @@ def main():
         args.split_manifest,
         all_as_test=args.all_as_test,
     )
+    if config.get("protocol") == "retrain_v2":
+        from bise.common.evaluation import evaluation_inputs
+        if split_manifest_path is None:
+            raise ValueError("Retrain raw evaluation requires a frozen split manifest")
+        evaluation_inputs(config, frozen_backbone, "video", split_manifest_path, args.split)
     dataset_source = build_video_dataset(config["dataset"], processor=processor, is_train=False)
     split_datasets = split_video_dataset(dataset_source, split_config)
     dataset = split_datasets.get(args.split)
@@ -68,7 +90,6 @@ def main():
         num_workers=config["training"].get("num_workers", 0),
         collate_fn=collate_video_pairs,
     )
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
     result = evaluate_video_retrieval(model, dataloader, device)
     cases = build_retrieval_cases(result, top_k=args.top_k)
@@ -80,7 +101,11 @@ def main():
         split_config,
         config["dataset"].get("root_dir"),
     )
-    if not args.skip_save_params:
+    if config.get("protocol") == "retrain_v2":
+        from bise.common.evaluation import stamp_evaluation
+        stamp_evaluation(final_test_dir, config, frozen_backbone,
+                         "video", split_manifest_path, args.split)
+    elif not args.skip_save_params:
         _save_raw_params(run_dir, config, args, split_manifest_path)
     print(json.dumps({"metrics": result["metrics"], "cases": cases[:5]}, indent=2, ensure_ascii=False))
 

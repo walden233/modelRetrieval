@@ -32,7 +32,12 @@ def parse_args():
 def main():
     args = parse_args()
     config = load_json_config(args.config)
+    from bise.common.device import experiment_device
+    device = experiment_device(config)
     split_config = _resolve_split_config(config, args.checkpoint, args.split_manifest)
+    if config.get("protocol") == "retrain_v2":
+        from bise.common.evaluation import evaluation_inputs
+        evaluation_inputs(config, args.checkpoint, "video", split_config["manifest_path"], args.split)
     processor, model = build_video_model(config["model"])
     eval_source = build_video_dataset(config["dataset"], processor=processor, is_train=False)
     split_datasets = split_video_dataset(eval_source, split_config)
@@ -47,7 +52,6 @@ def main():
         num_workers=config["training"].get("num_workers", 0),
         collate_fn=collate_video_pairs,
     )
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
     model.load_state_dict(torch.load(args.checkpoint, map_location=device))
     result = evaluate_video_retrieval(model, dataloader, device)
@@ -75,13 +79,8 @@ def main():
 
 
 def _resolve_split_config(config: dict, checkpoint: str, explicit_manifest: str | None):
-    split_config = dict(config.get("split") or {})
-    manifest_path = Path(explicit_manifest) if explicit_manifest else Path(checkpoint).resolve().parent / "split_manifest.json"
-    if explicit_manifest and not manifest_path.exists():
-        raise FileNotFoundError(f"Split manifest not found: {manifest_path}")
-    if manifest_path.exists():
-        split_config["manifest_path"] = str(manifest_path)
-    return split_config
+    from bise.common.evaluation import resolve_eval_split
+    return resolve_eval_split(config, checkpoint, explicit_manifest, False)[0]
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import torch
 
 from .paths import ensure_directory
+from .plots import record_plot
 
 
 def _json_default(value: Any) -> str:
@@ -55,6 +56,11 @@ def save_run_artifacts(
     with (output_dir / "curves.json").open("w", encoding="utf-8") as handle:
         json.dump(history, handle, indent=2, default=_json_default)
 
+    plot_training_curves(history, output_dir / "curves.png")
+
+
+def plot_training_curves(history: Dict[str, Any], output_path: Path) -> None:
+    """Render the recorded history without writing training or model artifacts."""
     plot_specs = [
         ("train_loss", "Train Loss", "Loss", None),
         ("val_mean_p_rank", "Validation Mean Percentage Rank", "Mean Percentage Rank", "orange"),
@@ -68,6 +74,7 @@ def save_run_artifacts(
     if not active_specs:
         return
 
+    record_plot(output_path, "run_curves", [output_path.with_suffix(".json")])
     num_plots = len(active_specs)
     num_cols = 2 if num_plots > 1 else 1
     num_rows = math.ceil(num_plots / num_cols)
@@ -91,5 +98,5 @@ def save_run_artifacts(
         ax.set_visible(False)
 
     fig.tight_layout()
-    fig.savefig(output_dir / "curves.png", dpi=300, bbox_inches="tight")
+    fig.savefig(output_path, dpi=300, bbox_inches="tight")
     plt.close(fig)

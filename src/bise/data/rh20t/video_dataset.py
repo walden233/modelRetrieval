@@ -24,6 +24,7 @@ class RH20TVideoDataset(Dataset):
         transform_config: Dict | None = None,
         max_pairs_per_scene: int | None = None,
         debug_max_samples: int | None = None,
+        pair_manifest_path: str | None = None,
     ):
         self.root_dir = root_dir
         self.processor = processor
@@ -34,7 +35,13 @@ class RH20TVideoDataset(Dataset):
         self.seed = seed
         self.transform_config = transform_config or {}
         self.max_pairs_per_scene = max_pairs_per_scene
-        self.samples = self._build_samples(scan_task_scenes(root_dir))
+        self._verified_files = {}
+        self._file_hashes = {}
+        self.manifest = None
+        if pair_manifest_path:
+            self.samples = self._frozen_samples(pair_manifest_path)
+        else:
+            self.samples = self._build_samples(scan_task_scenes(root_dir))
 
         if self.processor is None:
             raise ValueError("processor is required for video preprocessing")
@@ -53,6 +60,17 @@ class RH20TVideoDataset(Dataset):
 
     def __getitem__(self, idx: int) -> Dict:
         sample = self.samples[idx]
+        for path in (sample.human_video_path, sample.robot_video_path):
+            if path in self._file_hashes:
+                from bise.common.fingerprints import file_hash
+                stat = Path(path).stat()
+                stamp = (stat.st_size, stat.st_mtime_ns)
+                if path not in self._verified_files:
+                    if file_hash(path) != self._file_hashes[path]:
+                        raise ValueError(f"Video changed since manifest creation: {path}")
+                    self._verified_files[path] = stamp
+                elif self._verified_files[path] != stamp:
+                    raise ValueError(f"Video changed during experiment: {path}")
         sample_seed = self.seed + idx if self.deterministic else None
         human_frames = sample_video_frames(
             sample.human_video_path,
@@ -69,7 +87,7 @@ class RH20TVideoDataset(Dataset):
             stride=self.sampling_stride,
         )
         if human_frames is None or robot_frames is None:
-            return self.__getitem__((idx + 1) % len(self))
+            raise ValueError(f"Cannot decode paired video sample: {sample.sample_id}")
 
         inputs = self.processor([human_frames, robot_frames], return_tensors="pt")
         pixel_values = extract_pixel_values(inputs)
@@ -119,4 +137,32 @@ class RH20TVideoDataset(Dataset):
                             metadata={"scene_path": scene.scene_path, "scene_name": scene_name},
                         )
                     )
+        return samples
+
+    def _frozen_samples(self, manifest_path: str) -> List[VideoPairSample]:
+        from bise.common.fingerprints import file_hash
+        from .splits import load_protocol
+        payload = load_protocol(manifest_path, self.root_dir)
+        if self.max_pairs_per_scene not in (None, 2):
+            raise ValueError("Frozen video protocol requires exactly two pairs per scene")
+        samples = []
+        for identity, pairs in sorted(payload["video_pairs"].items()):
+            task, name = identity.split("/")
+            for pair in pairs:
+                paths = {domain: str(Path(self.root_dir) / pair[f"{domain}_path"])
+                         for domain in ("human", "robot")}
+                for domain, path in paths.items():
+                    if not Path(path).is_file():
+                        raise FileNotFoundError(f"Frozen video file missing: {path}")
+                    self._file_hashes[path] = pair[f"{domain}_sha256"]
+                samples.append(VideoPairSample(
+                    sample_id=pair["sample_id"], pair_id=pair["sample_id"], dataset_name="rh20t",
+                    task_id=task, scene_id=identity, camera_id=pair["camera_id"],
+                    human_video_path=paths["human"], robot_video_path=paths["robot"],
+                    metadata={"scene_path": str(Path(self.root_dir) / identity), "scene_name": name},
+                ))
+        self.manifest = {"protocol": payload["protocol"], "data_root": self.root_dir,
+                         "pair_manifest": str(manifest_path),
+                         "pair_manifest_sha256": file_hash(manifest_path),
+                         "video_pairs": payload["video_pairs"]}
         return samples

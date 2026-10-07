@@ -1,0 +1,95 @@
+{
+  "protocol": "retrain_v2",
+  "seed": 42,
+  "batch": "s42",
+  "output_root": "artifacts/runs/retrain",
+  "dataset_root": "dataset/RH20T_subset",
+  "source_dir": "artifacts/manifests/trajectory_hand_3d_v1",
+  "data_dir": "artifacts/manifests/retrain",
+  "manifest_dir": "artifacts/manifests/rh20t_shared_v1",
+  "eval_manifests": {
+    "cfg2": "artifacts/manifests/rh20t_shared_v1/cfg2_split_manifest.json",
+    "cfg3": "artifacts/manifests/rh20t_shared_v1/cfg3_split_manifest.json"
+  },
+  "trajectory": {
+    "T1": {
+      "config": "configs/retrain/trajectory/T1.json",
+      "label": "T1"
+    },
+    "T2": {
+      "config": "configs/retrain/trajectory/T2.json",
+      "label": "T2"
+    },
+    "T3": {
+      "config": "configs/retrain/trajectory/T3.json",
+      "label": "T3"
+    },
+    "T4": {
+      "config": "configs/retrain/trajectory/T4.json",
+      "label": "T4"
+    },
+    "T5": {
+      "config": "configs/retrain/trajectory/T5.json",
+      "label": "T5"
+    },
+    "N0": {
+      "config": "configs/retrain/trajectory/N0.json",
+      "label": "N0"
+    },
+    "N1": {
+      "config": "configs/retrain/trajectory/N1.json",
+      "label": "N1"
+    },
+    "N2": {
+      "config": "configs/retrain/trajectory/N2.json",
+      "label": "N2"
+    }
+  },
+  "video": {
+    "E1": {
+      "config": "configs/retrain/video/E1.json",
+      "label": "E1",
+      "raw": false
+    },
+    "E2": {
+      "config": "configs/retrain/video/E2.json",
+      "label": "E2",
+      "raw": false
+    },
+    "E3": {
+      "config": "configs/retrain/video/E3.json",
+      "label": "E3",
+      "raw": false
+    },
+    "E4": {
+      "config": "configs/retrain/video/E4.json",
+      "label": "E4",
+      "raw": false
+    },
+    "E5": {
+      "config": "configs/retrain/video/E5.json",
+      "label": "E5",
+      "raw": false
+    },
+    "E6s": {
+      "config": "configs/retrain/video/E6s.json",
+      "label": "E6s",
+      "raw": false
+    },
+    "E6d": {
+      "config": "configs/retrain/video/E6d.json",
+      "label": "E6d",
+      "raw": false
+    },
+    "RawJ": {
+      "config": "configs/retrain/video/RawJ.json",
+      "label": "RawJ",
+      "raw": true
+    },
+    "RawM": {
+      "config": "configs/retrain/video/RawM.json",
+      "label": "RawM",
+      "raw": true
+    }
+  }
+}

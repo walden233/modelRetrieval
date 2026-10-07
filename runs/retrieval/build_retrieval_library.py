@@ -86,6 +86,22 @@ class LibraryBuilder:
 
     def preflight(self) -> None:
         """Validate cheap inputs before running expensive video feature extraction."""
+        for modality in ("trajectory", "video"):
+            settings = self.config.get(modality, {})
+            if not settings.get("enabled", False):
+                continue
+            current = load_json_config(settings["config"])
+            if current.get("protocol") == "retrain_v2":
+                from bise.common.evaluation import evaluation_inputs
+                selection = self.config.get("scene_selection") or {}
+                if not selection.get("manifest_path"):
+                    raise ValueError("Retrain library requires frozen scene_selection")
+                if modality == "trajectory":
+                    current["data_root"] = self.config["data_root"]
+                else:
+                    current["dataset"]["root_dir"] = self.config["data_root"]
+                evaluation_inputs(current, settings["checkpoint"], modality,
+                                  selection["manifest_path"], selection.get("split", "test"))
         if self.config.get("trajectory", {}).get("enabled", False):
             self._trajectory_inputs = self._prepare_trajectory_inputs()
 

@@ -6,6 +6,8 @@ os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
 import matplotlib.pyplot as plt
 import numpy as np
 
+from bise.common.plots import record_heatmap
+
 
 def keep_first_camera_per_scene(matrix: np.ndarray, metadata: dict) -> tuple[np.ndarray, dict]:
     matrix = np.asarray(matrix)
@@ -36,6 +38,7 @@ def plot_similarity_heatmap(matrix: np.ndarray, output_path: Path, max_items: in
     matrix = np.asarray(matrix)
     if matrix.ndim != 2:
         raise ValueError(f"similarity_matrix must be 2-D, got shape={matrix.shape}")
+    record_heatmap(output_path, matrix, max_items, modality_label, sorted_by_task=False)
     row_indices = _sample_indices(matrix.shape[0], max_items)
     col_indices = _sample_indices(matrix.shape[1], max_items)
     matrix = matrix[np.ix_(row_indices, col_indices)]
@@ -69,6 +72,7 @@ def plot_sorted_similarity_heatmap(
             f"metadata={len(sort_keys)}, matrix={matrix.shape}"
         )
 
+    record_heatmap(output_path, matrix, max_items, modality_label, sorted_by_task=True)
     order = np.array(sorted(range(len(sort_keys)), key=lambda index: sort_keys[index]))
     sorted_matrix = matrix[np.ix_(order, order)]
     sorted_keys = [sort_keys[index] for index in order]

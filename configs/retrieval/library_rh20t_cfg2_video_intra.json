@@ -4,7 +4,7 @@
   "data_root": "dataset/RH20T_subset/RH20T_cfg2",
   "output_dir": "artifacts/retrieval/rh20t_cfg2_test_video_intra_v2",
   "scene_selection": {
-    "manifest_path": "artifacts/manifests/rh20t_shared_v1/cfg2_fixed_test_scenes2.json",
+    "manifest_path": "artifacts/manifests/rh20t_shared_v1/cfg2_fixed_test_scenes.json",
     "split": "test"
   },
   "sampling": {

@@ -52,9 +52,17 @@ def build_video_dataset(dataset_config: Dict, processor, is_train: bool):
     }
 
     if dataset_type == "rh20t":
+        root = resolve_path(dataset_config["root_dir"])
+        manifests = dataset_config.get("pair_manifests") or {}
+        pair_manifest = dataset_config.get("pair_manifest_path")
+        if manifests:
+            if root.name not in manifests:
+                raise ValueError(f"No video pair manifest configured for {root.name}")
+            pair_manifest = str(resolve_path(manifests[root.name]))
         return RH20TVideoDataset(
-            root_dir=str(resolve_path(dataset_config["root_dir"])),
+            root_dir=str(root),
             max_pairs_per_scene=dataset_config.get("max_pairs_per_scene"),
+            pair_manifest_path=pair_manifest,
             **common_kwargs,
         )
     if dataset_type == "whirl":
@@ -81,6 +89,12 @@ def split_video_dataset(dataset, split_config: Dict | None):
             split_name: _subset_from_sample_ids(dataset, sample_ids)
             for split_name, sample_ids in split_map.items()
         }
+
+    if split_config.get("shared_manifest_path"):
+        from bise.data.rh20t.splits import shared_scene_split
+        scene_ids = sorted({sample.scene_id for sample in dataset.samples})
+        mapping = shared_scene_split(scene_ids, split_config)
+        return {name: _subset_from_sample_ids(dataset, ids) for name, ids in mapping.items()}
 
     fixed_test_path = split_config.get("fixed_test_manifest_path")
     if fixed_test_path:
@@ -217,10 +231,8 @@ def _load_split_manifest(path: Path):
         raise FileNotFoundError(f"Split manifest not found: {path}")
 
     if path.suffix.lower() == ".json":
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        if isinstance(payload, dict):
-            return {name: list(values) for name, values in payload.items()}
-        raise ValueError("JSON split manifest must be an object with split keys.")
+        from bise.data.rh20t.splits import load_split_map
+        return load_split_map(path)
 
     if path.suffix.lower() in {".csv", ".tsv"}:
         delimiter = "\t" if path.suffix.lower() == ".tsv" else ","
@@ -238,10 +250,15 @@ def _load_split_manifest(path: Path):
 def _subset_from_sample_ids(dataset, sample_ids: Iterable[str]):
     # 根据 sample_id 映射回 dataset 中的实际索引。
     id_to_index = {sample.sample_id: index for index, sample in enumerate(dataset.samples)}
+    scene_indices = {}
+    for index, sample in enumerate(dataset.samples):
+        scene_indices.setdefault(sample.scene_id, []).append(index)
     indices: List[int] = []
     missing: List[str] = []
     for sample_id in sample_ids:
-        if sample_id not in id_to_index:
+        if sample_id in scene_indices:
+            indices.extend(scene_indices[sample_id])
+        elif sample_id not in id_to_index:
             missing.append(sample_id)
         else:
             indices.append(id_to_index[sample_id])

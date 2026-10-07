@@ -1,0 +1,60 @@
+{
+  "experiment_name": "N1",
+  "mode": "augment",
+  "data_root": "dataset/RH20T_subset/RH20T_cfg2",
+  "output_dir": "artifacts/runs/retrain",
+  "split": {
+    "shared_manifest_path": "artifacts/manifests/rh20t_shared_v1/cfg2_split_manifest.json",
+    "unit": "scene",
+    "use_fixed_val": true,
+    "val_count": 50
+  },
+  "batch_size": 8,
+  "num_epochs": 60,
+  "learning_rate": 0.0002,
+  "seed": 42,
+  "train_task_positives": true,
+  "evaluate_task_positives": false,
+  "use_6_keypoints": false,
+  "intra_loss_weight": 0.3,
+  "intra_task_positive_weight": 0.25,
+  "augmentation_noise_std": 0.005,
+  "augmentation_max_rotation_degrees": 10.0,
+  "model_params": {
+    "human_input_dim": 63,
+    "robot_input_dim": 9,
+    "d_model": 128,
+    "nhead": 8,
+    "num_layers": 5,
+    "dim_feedforward": 512,
+    "proj_dim": 128,
+    "dropout": 0.15,
+    "tcp_sample_factor": 1,
+    "robot_representation": "relative_rot6d",
+    "quaternion_order": "wxyz",
+    "temporal_features": true
+  },
+  "torch_num_threads": 4,
+  "data_manifests": {
+    "RH20T_cfg2": "artifacts/manifests/retrain/cfg2_data.json",
+    "RH20T_cfg3": "artifacts/manifests/retrain/cfg3_data.json"
+  },
+  "data_params": {
+    "human_source": "hand_3d_base",
+    "human_representation": "wrist_relative",
+    "max_human_frames": 256,
+    "max_robot_frames": 256,
+    "preserve_timing": true
+  },
+  "checkpoint_selection": {
+    "loss_weight": 0.0,
+    "mrr_weight": 1.0,
+    "ndcg_weight": 0.0
+  },
+  "protocol": "retrain_v2",
+  "eval_manifests": {
+    "cfg2": "artifacts/manifests/rh20t_shared_v1/cfg2_split_manifest.json",
+    "cfg3": "artifacts/manifests/rh20t_shared_v1/cfg3_split_manifest.json"
+  },
+  "device": "cuda"
+}

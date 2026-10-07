@@ -31,6 +31,8 @@ def parse_args():
     parser.add_argument("--output-dir", help="Optional output dir override.")
     parser.add_argument("--resume", help="Optional checkpoint path for resuming.")
     parser.add_argument("--seed", type=int, help="Override training and dynamic split seed.")
+    parser.add_argument("--run-dir", help="Exact new run directory (must not exist).")
+    parser.add_argument("--epochs", type=int, help="Override the training epoch budget.")
     return parser.parse_args()
 
 
@@ -40,10 +42,16 @@ def main():
     config = merge_overrides(config, {"output_dir": args.output_dir})
     if args.seed is not None:
         config["seed"] = args.seed
+    if args.epochs is not None:
+        if args.epochs < 1:
+            raise ValueError("--epochs must be positive")
+        config["training"]["num_epochs"] = args.epochs
     if args.csv_path:
         config.setdefault("dataset", {})["csv_path"] = args.csv_path
     if args.data_root:
         config.setdefault("dataset", {})["root_dir"] = args.data_root
+    from bise.common.device import experiment_device
+    device = experiment_device(config)
 
     seed = int(config.get("seed", 42))
     random.seed(seed)
@@ -52,21 +60,36 @@ def main():
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
-    # 拿到预训练模型和对应 processor。
-    processor, model = build_video_model(config["model"])
-
     run_name = f'{config["experiment_name"]}_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}'
-    run_dir = ensure_directory(Path(config["output_dir"]) / run_name)
+    run_dir = Path(args.run_dir) if args.run_dir else Path(config["output_dir"]) / run_name
+    run_dir.mkdir(parents=True, exist_ok=False)
+    processor, model = build_video_model(config["model"])
     
     train_dataset = build_video_dataset(config["dataset"], processor=processor, is_train=True)
     split_config = dict(config.get("split") or {})
-    if split_config.get("fixed_test_manifest_path") and "seed" not in split_config:
+    if (split_config.get("fixed_test_manifest_path") or split_config.get("shared_manifest_path")) and "seed" not in split_config:
         split_config["seed"] = seed
-    split_datasets = split_video_dataset(train_dataset, split_config)
+    if split_config.get("scene_counts") and not split_config.get("manifest_path"):
+        from bise.data.rh20t.task_split import split_task_dataset
+        split_datasets = split_task_dataset(train_dataset, split_config, "video")
+    else:
+        split_datasets = split_video_dataset(train_dataset, split_config)
     split_manifest = build_split_manifest(split_datasets)
     split_manifest_path = run_dir / "split_manifest.json"
     with split_manifest_path.open("w", encoding="utf-8") as handle:
         json.dump(split_manifest, handle, indent=2, ensure_ascii=False)
+    if config.get("protocol") == "retrain_v2":
+        from bise.common.fingerprints import write_json
+        from bise.data.rh20t.splits import validate_split
+        write_json(run_dir / "data_manifest.json", train_dataset.manifest)
+        write_json(run_dir / "split_info.json", {
+            "protocol": config["protocol"], "unit": split_config.get("unit", "scene"),
+            "counts": validate_split(split_manifest, split_config.get("unit", "scene")),
+            "use_fixed_val": (split_config.get("unit") != "task"
+                              and split_config.get("use_fixed_val", True)),
+            **({"scene_counts": split_config["scene_counts"]}
+               if split_config.get("scene_counts") else {}),
+        })
     print(json.dumps({
         "split_sample_counts": {name: len(sample_ids) for name, sample_ids in split_manifest.items()},
         "split_scene_counts": {
@@ -74,7 +97,8 @@ def main():
             for name, subset in split_datasets.items()
         },
         "split_seed": split_config.get("seed"),
-        "fixed_test": bool(split_config.get("fixed_test_manifest_path")),
+        "fixed_test": bool(split_config.get("fixed_test_manifest_path")
+                           or split_config.get("shared_manifest_path")),
     }, ensure_ascii=False), flush=True)
     config["split"] = split_config
     config["split"]["manifest_path"] = str(split_manifest_path)
@@ -99,7 +123,6 @@ def main():
             collate_fn=collate_video_pairs,
         )
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
     if args.resume:
         model.load_state_dict(torch.load(args.resume, map_location=device))
@@ -119,6 +142,12 @@ def main():
     )
     scaler = GradScaler(device.type, enabled=config["training"].get("amp", False) and device.type == "cuda")
     config.setdefault("checkpoint_selection", _default_checkpoint_selection())
+    if config.get("protocol") == "retrain_v2":
+        write_json(run_dir / "params.json", config)
+        from bise.common.evaluation import bind_protocols
+        bind_protocols(run_dir, config)
+        write_json(run_dir / "status.json", {"state": "training"})
+    print(f"RUN_DIR={run_dir.resolve()}", flush=True)
 
     history = {"train_loss": [], "train_loss_inter": [], "train_loss_intra": [], "val_mean_p_rank": [], "val_mrr": [], "val_ndcg": []}
     best_result = None
@@ -154,6 +183,11 @@ def main():
             best_score = current_score
             best_result = {"train": train_result, "validation": val_result["metrics"] if val_result is not None else {}}
             torch.save(model.state_dict(), run_dir / "best_model.pth")
+            if config.get("protocol") == "retrain_v2":
+                write_json(run_dir / "checkpoint_info.json", {
+                    "epoch": epoch + 1, "score": current_score,
+                    "selection": config["checkpoint_selection"], "validation_only": True,
+                })
             if val_result is not None:
                 _save_eval_artifacts(run_dir, "best_val", val_result)
 
@@ -167,7 +201,10 @@ def main():
                 ensure_ascii=False,
             )
         )
+    torch.save(model.state_dict(), run_dir / "last_model.pth")
     save_run_artifacts(run_dir, config, history, best_result)
+    if config.get("protocol") == "retrain_v2":
+        write_json(run_dir / "status.json", {"state": "complete", "epochs": len(history["train_loss"])})
 
 
 def _count_subset_scenes(source_dataset, subset) -> int:

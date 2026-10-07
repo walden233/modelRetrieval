@@ -38,6 +38,13 @@ def main():
     if args.data_root:
         config.setdefault("dataset", {})["root_dir"] = args.data_root
     split_config, split_manifest_path = _resolve_split_config(config, args.checkpoint, args.split_manifest, args.all_as_test)
+    if config.get("protocol") == "retrain_v2":
+        from bise.common.evaluation import evaluation_inputs
+        if split_manifest_path is None:
+            raise ValueError("Retrain evaluation requires an explicit or saved split manifest")
+        evaluation_inputs(config, args.checkpoint, "video", split_manifest_path, args.split)
+    from bise.common.device import experiment_device
+    device = experiment_device(config)
     processor, model = build_video_model(config["model"])
     eval_source = build_video_dataset(config["dataset"], processor=processor, is_train=False)
     split_datasets = split_video_dataset(eval_source, split_config)
@@ -52,33 +59,22 @@ def main():
         num_workers=config["training"].get("num_workers", 0),
         collate_fn=collate_video_pairs,
     )
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
     model.load_state_dict(torch.load(args.checkpoint, map_location=device))
     result = evaluate_video_retrieval(model, dataloader, device)
     cases = build_retrieval_cases(result, top_k=args.top_k)
     if args.output_dir:
         _save_evaluation_outputs(Path(args.output_dir), result, cases, split_manifest_path, split_config, config["dataset"].get("root_dir"))
+        if config.get("protocol") == "retrain_v2":
+            from bise.common.evaluation import stamp_evaluation
+            stamp_evaluation(Path(args.output_dir), config, args.checkpoint,
+                             "video", split_manifest_path, args.split)
     print(json.dumps({"metrics": result["metrics"], "cases": cases[:5]}, indent=2, ensure_ascii=False))
 
 
 def _resolve_split_config(config: dict, checkpoint: str, explicit_manifest: str | None, all_as_test: bool):
-    if all_as_test and explicit_manifest:
-        raise ValueError("--all-as-test cannot be combined with --split-manifest.")
-
-    split_config = dict(config.get("split") or {})
-    if all_as_test:
-        return {"all_as_test": True}, None
-    if split_config.get("all_as_test") or str(split_config.get("unit", "")).strip().lower() == "all_test":
-        return split_config, None
-
-    manifest_path = Path(explicit_manifest) if explicit_manifest else Path(checkpoint).resolve().parent / "split_manifest.json"
-    if explicit_manifest and not manifest_path.exists():
-        raise FileNotFoundError(f"Split manifest not found: {manifest_path}")
-    if manifest_path.exists():
-        split_config["manifest_path"] = str(manifest_path)
-        return split_config, manifest_path
-    return split_config, None
+    from bise.common.evaluation import resolve_eval_split
+    return resolve_eval_split(config, checkpoint, explicit_manifest, all_as_test)
 
 
 def _save_evaluation_outputs(

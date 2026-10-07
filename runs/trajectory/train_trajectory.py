@@ -50,7 +50,15 @@ def main():
             raise ValueError("--epochs must be positive")
         config["num_epochs"] = args.epochs
         if config.get("mode") == "two_stage":
-            config["finetune_epochs"] = args.epochs
+            if args.epochs < 2:
+                raise ValueError("A two-stage run needs at least two total epochs")
+            total = config["pretrain_epochs"] + config["finetune_epochs"]
+            pretrain = max(1, min(args.epochs - 1,
+                                 round(args.epochs * config["pretrain_epochs"] / total)))
+            config["pretrain_epochs"] = pretrain
+            config["finetune_epochs"] = args.epochs - pretrain
+    from bise.common.device import experiment_device
+    device = experiment_device(config)
     torch.set_num_threads(int(config.get("torch_num_threads", 4)))
     _set_seed(config.get("seed", 42))
 
@@ -61,17 +69,33 @@ def main():
     dataset = build_trajectory_dataset(config)
     (run_dir / "data_manifest.json").write_text(json.dumps(dataset.manifest, indent=2))
     split_config = dict(config.get("split") or {"unit": "scene", "seed": config.get("seed", 42), "ratios": {"train": 0.8, "val": 0.1, "test": 0.1}})
-    if split_config.get("fixed_test_manifest_path") and "seed" not in split_config:
+    if (split_config.get("fixed_test_manifest_path") or split_config.get("shared_manifest_path")) and "seed" not in split_config:
         split_config["seed"] = int(config.get("seed", 42))
-    split_datasets = split_trajectory_dataset(dataset, split_config)
+    if split_config.get("scene_counts") and not split_config.get("manifest_path"):
+        from bise.data.rh20t.task_split import split_task_dataset
+        split_datasets = split_task_dataset(dataset, split_config, "trajectory")
+    else:
+        split_datasets = split_trajectory_dataset(dataset, split_config)
     split_manifest = build_split_manifest(split_datasets)
     split_manifest_path = run_dir / "split_manifest.json"
     with split_manifest_path.open("w", encoding="utf-8") as handle:
         json.dump(split_manifest, handle, indent=2, ensure_ascii=False)
+    if config.get("protocol") == "retrain_v2":
+        from bise.common.fingerprints import write_json
+        from bise.data.rh20t.splits import validate_split
+        write_json(run_dir / "split_info.json", {
+            "protocol": config["protocol"], "unit": split_config.get("unit", "scene"),
+            "counts": validate_split(split_manifest, split_config.get("unit", "scene")),
+            "use_fixed_val": (split_config.get("unit") != "task"
+                              and split_config.get("use_fixed_val", True)),
+            **({"scene_counts": split_config["scene_counts"]}
+               if split_config.get("scene_counts") else {}),
+        })
     print(json.dumps({
         "split_counts": {name: len(scene_ids) for name, scene_ids in split_manifest.items()},
         "split_seed": split_config.get("seed"),
-        "fixed_test": bool(split_config.get("fixed_test_manifest_path")),
+        "fixed_test": bool(split_config.get("fixed_test_manifest_path")
+                           or split_config.get("shared_manifest_path")),
     }, ensure_ascii=False), flush=True)
     config["split"] = dict(split_config)
     config["split"]["manifest_path"] = str(split_manifest_path)
@@ -91,11 +115,15 @@ def main():
             collate_fn=collate_trajectories,
         )
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = build_trajectory_model(config, device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config["learning_rate"])
     config.setdefault("checkpoint_selection", _default_checkpoint_selection())
     (run_dir / "params.json").write_text(json.dumps(config, indent=2))
+    if config.get("protocol") == "retrain_v2":
+        from bise.common.evaluation import bind_protocols
+        bind_protocols(run_dir, config)
+        from bise.common.fingerprints import write_json
+        write_json(run_dir / "status.json", {"state": "training"})
     print(f"RUN_DIR={run_dir.resolve()}", flush=True)
 
     history = {"train_loss": [], "train_loss_inter": [], "train_loss_intra": [], "val_mean_p_rank": [], "val_mrr": [], "val_ndcg": []}
@@ -162,7 +190,8 @@ def main():
             best_result = result["metrics"] if result is not None else {}
             torch.save(model.state_dict(), run_dir / "best_model.pth")
             (run_dir / "checkpoint_info.json").write_text(json.dumps({
-                "epoch": epoch + 1, "score": current_score,
+                "epoch": epoch + 1 + (config["pretrain_epochs"] if mode == "two_stage" else 0),
+                "score": current_score,
                 "selection": config["checkpoint_selection"],
                 "validation_only": config["checkpoint_selection"].get("loss_weight", .1) == 0,
             }, indent=2))
@@ -170,7 +199,10 @@ def main():
                 _save_eval_artifacts(run_dir, "best_val", result)
 
         print(json.dumps({"epoch": epoch + 1, "train_loss": train_loss, "metrics": result["metrics"] if result is not None else None}, ensure_ascii=False))
+    torch.save(model.state_dict(), run_dir / "last_model.pth")
     save_run_artifacts(run_dir, config, history, best_result)
+    if config.get("protocol") == "retrain_v2":
+        write_json(run_dir / "status.json", {"state": "complete", "epochs": len(history["train_loss"])})
 
 
 def _set_seed(seed: int) -> None:

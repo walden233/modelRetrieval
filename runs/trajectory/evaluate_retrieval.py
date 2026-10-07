@@ -39,7 +39,13 @@ def main():
     if args.data_root:
         config["data_root"] = args.data_root
     split_config, split_manifest_path = _resolve_split_config(config, args.checkpoint, args.split_manifest, args.all_as_test)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if config.get("protocol") == "retrain_v2":
+        from bise.common.evaluation import evaluation_inputs
+        if split_manifest_path is None:
+            raise ValueError("Retrain evaluation requires an explicit or saved split manifest")
+        evaluation_inputs(config, args.checkpoint, "trajectory", split_manifest_path, args.split)
+    from bise.common.device import experiment_device
+    device = experiment_device(config)
 
     torch.set_num_threads(int(config.get("torch_num_threads", 4)))
     dataset_source = build_trajectory_dataset(config, args.checkpoint)
@@ -64,26 +70,19 @@ def main():
         _save_evaluation_outputs(Path(args.output_dir), result, cases, split_manifest_path, split_config, config["data_root"])
         from bise.modalities.trajectory.provenance import save_evaluation_provenance
         save_evaluation_provenance(Path(args.output_dir), config, args.checkpoint, dataset_source.manifest)
+        if config.get("protocol") == "retrain_v2":
+            from bise.common.evaluation import stamp_evaluation
+            stamp_evaluation(Path(args.output_dir), config, args.checkpoint,
+                             "trajectory", split_manifest_path, args.split)
     print(json.dumps({"metrics": result["metrics"], "cases": cases[:5]}, indent=2, ensure_ascii=False))
 
 
 def _resolve_split_config(config: dict, checkpoint: str, explicit_manifest: str | None, all_as_test: bool):
-    if all_as_test and explicit_manifest:
-        raise ValueError("--all-as-test cannot be combined with --split-manifest.")
-
-    split_config = dict(config.get("split") or {"unit": "scene", "seed": config.get("seed", 42), "ratios": {"train": 0.8, "val": 0.1, "test": 0.1}})
-    if all_as_test:
-        return {"all_as_test": True}, None
-    if split_config.get("all_as_test") or str(split_config.get("unit", "")).strip().lower() == "all_test":
-        return split_config, None
-
-    manifest_path = Path(explicit_manifest) if explicit_manifest else Path(checkpoint).resolve().parent / "split_manifest.json"
-    if explicit_manifest and not manifest_path.exists():
-        raise FileNotFoundError(f"Split manifest not found: {manifest_path}")
-    if manifest_path.exists():
-        split_config["manifest_path"] = str(manifest_path)
-        return split_config, manifest_path
-    return split_config, None
+    from bise.common.evaluation import resolve_eval_split
+    config = dict(config)
+    config.setdefault("split", {"unit": "scene", "seed": config.get("seed", 42),
+                                "ratios": {"train": 0.8, "val": 0.1, "test": 0.1}})
+    return resolve_eval_split(config, checkpoint, explicit_manifest, all_as_test)
 
 
 def _save_evaluation_outputs(

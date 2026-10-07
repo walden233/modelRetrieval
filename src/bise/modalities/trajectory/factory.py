@@ -20,6 +20,11 @@ def split_trajectory_dataset(dataset, split_config: Dict | None):
         split_map = _load_split_manifest(resolve_path(manifest_path))
         return {split_name: _subset_from_scene_ids(dataset, scene_ids) for split_name, scene_ids in split_map.items()}
 
+    if split_config.get("shared_manifest_path"):
+        from bise.data.rh20t.splits import shared_scene_split
+        mapping = shared_scene_split([scene_id_from_record(s) for s in dataset.scenes], split_config)
+        return {name: _subset_from_scene_ids(dataset, ids) for name, ids in mapping.items()}
+
     fixed_test_path = split_config.get("fixed_test_manifest_path")
     if fixed_test_path:
         return _split_with_fixed_test(dataset, split_config, resolve_path(fixed_test_path))
@@ -149,19 +154,8 @@ def _group_key(scene_record, unit: str) -> str:
 
 
 def _load_split_manifest(path: Path):
-    if not path.exists():
-        raise FileNotFoundError(f"Split manifest not found: {path}")
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        raise ValueError("Trajectory split manifest must be a JSON object with split keys.")
-    seen = set()
-    for split_name, scene_ids in payload.items():
-        if not isinstance(scene_ids, list) or any(not isinstance(s, str) for s in scene_ids):
-            raise ValueError(f"Invalid scene IDs in split {split_name}")
-        if len(set(scene_ids)) != len(scene_ids) or seen.intersection(scene_ids):
-            raise ValueError("Duplicate or overlapping scene IDs in split manifest")
-        seen.update(scene_ids)
-    return {split_name: list(scene_ids) for split_name, scene_ids in payload.items()}
+    from bise.data.rh20t.splits import load_split_map
+    return load_split_map(path)
 
 
 def _subset_from_scene_ids(dataset, scene_ids: Iterable[str]):
