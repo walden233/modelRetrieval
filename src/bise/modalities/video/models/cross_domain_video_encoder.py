@@ -56,7 +56,7 @@ class CrossDomainVideoEncoder(nn.Module):
         super().__init__()
         # encoder_mode 决定 human / robot 两个域共享多少参数。
         self.encoder_mode = str(encoder_mode).strip().lower()
-        if self.encoder_mode not in {"shared", "dual_head", "dual_encoder"}:
+        if self.encoder_mode not in {"shared", "robot_head", "dual_head", "dual_encoder"}:
             raise ValueError(f"Unsupported encoder_mode: {encoder_mode}")
 
         if self.encoder_mode == "dual_encoder":
@@ -74,6 +74,9 @@ class CrossDomainVideoEncoder(nn.Module):
         if self.encoder_mode == "shared":
             self.human_adapter = nn.Identity()
             self.robot_adapter = nn.Identity()
+        elif self.encoder_mode == "robot_head":
+            self.human_adapter = nn.Identity()
+            self.robot_adapter = ResidualDomainAdapter(hidden_size, adapter_bottleneck_dim)
         else:
             # dual_head / dual_encoder 都允许 human 和 robot 经过不同的 adapter。
             self.human_adapter = ResidualDomainAdapter(hidden_size, adapter_bottleneck_dim)
@@ -126,6 +129,8 @@ class CrossDomainVideoEncoder(nn.Module):
     ):
         # 统一处理“冻结 backbone / 只解冻最后几层 / 冻结 patch embed / 冻结 norm”等策略。
         backbones = self._backbone_modules()
+        if unfreeze_last_n_blocks < 0:
+            raise ValueError("unfreeze_last_n_blocks must be non-negative")
         if freeze_backbone or unfreeze_last_n_blocks > 0:
             for backbone in backbones:
                 for parameter in backbone.parameters():
@@ -135,6 +140,11 @@ class CrossDomainVideoEncoder(nn.Module):
             # 常见微调策略：只解冻最后若干个 Transformer block。
             for backbone in backbones:
                 blocks = backbone.get_transformer_blocks()
+                if len(blocks) < unfreeze_last_n_blocks:
+                    raise ValueError(
+                        f"Cannot unfreeze {unfreeze_last_n_blocks} blocks: "
+                        f"{type(backbone).__name__} exposes {len(blocks)} transformer blocks"
+                    )
                 for block in blocks[-unfreeze_last_n_blocks:]:
                     for parameter in block.parameters():
                         parameter.requires_grad = True

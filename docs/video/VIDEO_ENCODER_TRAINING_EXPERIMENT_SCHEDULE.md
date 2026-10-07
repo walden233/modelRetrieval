@@ -10,7 +10,7 @@
 
 - `RH20TVideoDataset` 已修正 scene 标签碰撞问题，`scene_id = task_id/scene_name`。
 - `VideoMAEAdapter` 已修正输入维度问题，兼容 `[B,T,C,H,W]` 与 `[B,C,T,H,W]`。
-- `runs/video/train_video.py` 可按配置训练并保存 `best_model.pth`、`last_model.pth`、`params.json`、`best_metrics.json`、`curves.json`、`curves.png`、`split_manifest.json`。
+- `runs/video/train_video.py` 可按配置训练并保存 `best_model.pth`、`params.json`、`best_metrics.json`、`curves.json`、`curves.png`、`split_manifest.json`；只保存最佳权重。
 - `curves.png` 由 `curves.json` 生成；未启用 intra loss 时，不绘制 `train_loss_inter` 和 `train_loss_intra`。
 - `runs/video/evaluate_video.py` 支持 `--split-manifest` 与 `--output-dir`，可保存 `metrics.json`、`cases.json`、`metadata.json`、`similarity_matrix.npy`、`human_embeddings.npy`、`robot_embeddings.npy`、`run_info.json`、`similarity_heatmap.png`、`task_scene_sorted_similarity_heatmap.png`。
 - `runs/video/export_video_embeddings.py` 支持 `--split-manifest`，可导出 embedding 与检索案例。

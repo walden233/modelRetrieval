@@ -176,3 +176,20 @@ def test_new_configs_isolate_legacy_names_and_control_ablations():
             "loss_weight": 0., "mrr_weight": 1., "ndcg_weight": 0.,
         }
         assert "retrain" in config["output_dir"]
+        if path.parent.name == "trajectory":
+            total = (config["pretrain_epochs"] + config["finetune_epochs"]
+                     if config["mode"] == "two_stage" else config["num_epochs"])
+            assert total == 70
+            assert config["learning_rate"] == 2e-4
+            assert config["lr_schedule"] == {
+                "name": "cosine", "hold_epochs": 10, "min_lr": 2e-5,
+            }
+        else:
+            assert config["training"]["batch_size"] == config["training"]["eval_batch_size"] == 4
+            assert config["model"]["encoder_mode"] == (
+                "robot_head" if path.stem == "E6s" else "dual_head"
+            )
+            assert config["model"]["freeze_backbone"] == (path.stem != "E6d")
+            assert config["model"]["unfreeze_last_n_blocks"] == (2 if path.stem == "E6d" else 0)
+    t3 = json.loads((root / "trajectory/T3.json").read_text())
+    assert t3["pretrain_epochs"] == 10 and t3["finetune_epochs"] == 60

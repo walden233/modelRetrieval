@@ -1,6 +1,7 @@
 import argparse
 import datetime
 import json
+import math
 import random
 import sys
 from pathlib import Path
@@ -16,6 +17,7 @@ from _bootstrap import bootstrap
 bootstrap()
 
 from bise.common import load_json_config, merge_overrides, save_run_artifacts
+from bise.common.paths import resolve_path
 from bise.data import collate_trajectories
 from bise.modalities.trajectory import (
     build_trajectory_retrieval_cases,
@@ -35,6 +37,7 @@ def parse_args():
     parser.add_argument("--output-dir", help="Optional output dir override.")
     parser.add_argument("--epochs", type=int, help="Override epochs for a closed-loop short run.")
     parser.add_argument("--run-dir", help="Exact new run directory (must not exist).")
+    parser.add_argument("--split-manifest", help="Existing split_manifest.json to reuse.")
     parser.add_argument("--seed", type=int, help="Override training and dynamic split seed.")
     return parser.parse_args()
 
@@ -65,6 +68,10 @@ def main():
     run_name = f'{config["experiment_name"]}_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}'
     run_dir = Path(args.run_dir) if args.run_dir else Path(config["output_dir"]) / run_name
     run_dir.mkdir(parents=True, exist_ok=False)
+    if args.split_manifest:
+        manifest = resolve_path(args.split_manifest)
+        (run_dir / "split_manifest.json").write_bytes(manifest.read_bytes())
+        config.setdefault("split", {})["manifest_path"] = str(run_dir / "split_manifest.json")
 
     dataset = build_trajectory_dataset(config)
     (run_dir / "data_manifest.json").write_text(json.dumps(dataset.manifest, indent=2))
@@ -117,6 +124,10 @@ def main():
 
     model = build_trajectory_model(config, device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config["learning_rate"])
+    mode = config.get("mode", "standard")
+    total_epochs = (config["pretrain_epochs"] + config["finetune_epochs"]
+                    if mode == "two_stage" else config["num_epochs"])
+    scheduler = _build_lr_scheduler(optimizer, config, total_epochs)
     config.setdefault("checkpoint_selection", _default_checkpoint_selection())
     (run_dir / "params.json").write_text(json.dumps(config, indent=2))
     if config.get("protocol") == "retrain_v2":
@@ -127,12 +138,13 @@ def main():
     print(f"RUN_DIR={run_dir.resolve()}", flush=True)
 
     history = {"train_loss": [], "train_loss_inter": [], "train_loss_intra": [], "val_mean_p_rank": [], "val_mrr": [], "val_ndcg": []}
+    history["learning_rate"] = []
     best_result = None
     best_score = float("-inf")
-    mode = config.get("mode", "standard")
 
     if mode == "two_stage":
         for epoch in range(config["pretrain_epochs"]):
+            history["learning_rate"].append(optimizer.param_groups[0]["lr"])
             intra_loss = pretrain_intra_modal_epoch(
                 model,
                 train_loader,
@@ -148,12 +160,16 @@ def main():
             history["val_mean_p_rank"].append(None)
             history["val_mrr"].append(None)
             history["val_ndcg"].append(None)
-            print(f"Pretrain Epoch {epoch + 1}/{config['pretrain_epochs']}: intra_loss={intra_loss:.4f}")
+            print(f"Pretrain Epoch {epoch + 1}/{config['pretrain_epochs']}: "
+                  f"intra_loss={intra_loss:.4f}, lr={history['learning_rate'][-1]:.6g}")
+            if scheduler is not None:
+                scheduler.step()
 
     finetune_epochs = config.get("finetune_epochs", config.get("num_epochs", 0))
     loop_epochs = finetune_epochs if mode == "two_stage" else config["num_epochs"]
 
     for epoch in range(loop_epochs):
+        history["learning_rate"].append(optimizer.param_groups[0]["lr"])
         if mode == "augment" or mode == "two_stage":
             train_loss, inter_loss, intra_loss = train_augmented_trajectory_epoch(
                 model,
@@ -198,11 +214,43 @@ def main():
             if result is not None:
                 _save_eval_artifacts(run_dir, "best_val", result)
 
-        print(json.dumps({"epoch": epoch + 1, "train_loss": train_loss, "metrics": result["metrics"] if result is not None else None}, ensure_ascii=False))
+        print(json.dumps({
+            "epoch": len(history["train_loss"]), "train_loss": train_loss,
+            "learning_rate": history["learning_rate"][-1],
+            "metrics": result["metrics"] if result is not None else None,
+        }, ensure_ascii=False))
+        if scheduler is not None:
+            scheduler.step()
     torch.save(model.state_dict(), run_dir / "last_model.pth")
     save_run_artifacts(run_dir, config, history, best_result)
     if config.get("protocol") == "retrain_v2":
         write_json(run_dir / "status.json", {"state": "complete", "epochs": len(history["train_loss"])})
+
+
+def _build_lr_scheduler(optimizer, config: dict, total_epochs: int):
+    schedule = config.get("lr_schedule")
+    if not schedule:
+        return None
+    if schedule["name"] != "cosine":
+        raise ValueError("Trajectory lr_schedule.name must be cosine")
+    initial_lr = float(config["learning_rate"])
+    min_lr = float(schedule["min_lr"])
+    hold_epochs = int(schedule["hold_epochs"])
+    if initial_lr <= 0 or not 0 <= min_lr <= initial_lr:
+        raise ValueError("Learning rates must satisfy 0 <= min_lr <= learning_rate > 0")
+    if total_epochs < 1 or hold_epochs < 1:
+        raise ValueError("Total and hold epochs must be positive")
+    decay_epochs = max(total_epochs - hold_epochs, 0)
+
+    def multiplier(epoch: int) -> float:
+        # Index zero is epoch one; the final training epoch uses min_lr.
+        if epoch < hold_epochs or decay_epochs == 0:
+            return 1.0
+        progress = min((epoch - hold_epochs + 1) / decay_epochs, 1.0)
+        cosine = 0.5 * (1 + math.cos(math.pi * progress))
+        return min_lr / initial_lr + (1 - min_lr / initial_lr) * cosine
+
+    return torch.optim.lr_scheduler.LambdaLR(optimizer, multiplier)
 
 
 def _set_seed(seed: int) -> None:

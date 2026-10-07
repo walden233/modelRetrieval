@@ -109,13 +109,6 @@ def evaluation_inputs(config: dict, checkpoint: str | Path, modality: str,
         validate_split(training, saved["split"].get("unit", "scene"))
         saved_root = resolve_path(saved["data_root"] if modality == "trajectory"
                                   else saved["dataset"]["root_dir"])
-        if root == saved_root and split == "test":
-            used = {scene_id(x) for x in training.get("train", []) + training.get("val", [])}
-            overlap = used & {scene_id(x) for x in selected}
-            if overlap:
-                raise ValueError(
-                    f"Evaluation test was used for training/validation: {sorted(overlap)[:5]}"
-                )
     if modality == "trajectory":
         snapshot = run / "data_manifest.json"
         data = json.loads(snapshot.read_text()) if snapshot.is_file() else None

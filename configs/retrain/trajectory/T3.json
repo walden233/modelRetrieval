@@ -11,8 +11,13 @@
   },
   "batch_size": 8,
   "pretrain_epochs": 10,
-  "finetune_epochs": 50,
+  "finetune_epochs": 60,
   "learning_rate": 0.0002,
+  "lr_schedule": {
+    "name": "cosine",
+    "hold_epochs": 10,
+    "min_lr": 2e-05
+  },
   "seed": 42,
   "train_task_positives": true,
   "evaluate_task_positives": false,

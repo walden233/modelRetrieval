@@ -114,7 +114,7 @@ def test_replacement_pipeline_archives_selected_runs_and_reuses_other_groups(tmp
                for step in json.loads((root / "pipeline.json").read_text())["steps"])
 
 
-def test_changed_unselected_config_is_not_allowed_by_replace(tmp_path):
+def test_existing_batch_accepts_updated_configs_and_registry(tmp_path):
     module = load_entry("retrain")
     config = json.loads((ROOT / "configs/retrain/run.json").read_text())
     config["trajectory"] = {key: config["trajectory"][key] for key in ("T1", "T4")}
@@ -125,10 +125,105 @@ def test_changed_unselected_config_is_not_allowed_by_replace(tmp_path):
     saved = json.loads(destination.read_text())
     saved["learning_rate"] *= 2
     write_json(destination, saved)
-    before = destination.read_bytes()
-    with pytest.raises(ValueError, match="Batch config changed"):
-        module.prepare_batch(config, root, ["trajectory"], 42, budgets, replace=["T4"])
-    assert destination.read_bytes() == before
+    run = root / "trajectory/T1"
+    write_json(run / "params.json", saved)
+    mapping = {"train": ["task_0001/scene_1"], "val": [], "test": ["task_0002/scene_1"]}
+    write_json(run / "split_manifest.json", mapping)
+    before = (run / "params.json").read_bytes()
+    config["trajectory"]["T1"]["label"] = "updated"
+    module.prepare_batch(config, root, ["trajectory"], 42, budgets)
+    updated = json.loads(destination.read_text())
+    assert updated["learning_rate"] == saved["learning_rate"] / 2
+    assert updated["split"]["manifest_path"] == str(run / "split_manifest.json")
+    registry = json.loads((root / "trajectory/runs.json").read_text())
+    assert registry["groups"]["T1"]["label"] == "updated"
+    assert (run / "params.json").read_bytes() == before
+
+
+@pytest.mark.parametrize("modality,key,skip,best,state,params", [
+    ("trajectory", "T1", True, False, "complete", True),
+    ("video", "E1", True, False, "complete", True),
+    ("trajectory", "T1", True, True, "training", True),
+    ("video", "E1", True, True, "training", True),
+    ("trajectory", "T1", True, True, "complete", False),
+    ("video", "E1", True, True, "complete", True),
+    ("trajectory", "T1", False, True, "complete", True),
+])
+def test_same_batch_retraining_reuses_saved_split(tmp_path, monkeypatch, modality, key,
+                                                skip, best, state, params):
+    module = load_entry("retrain")
+    config = json.loads((ROOT / "configs/retrain/run.json").read_text())
+    config["output_root"] = str(tmp_path / "retrain")
+    entry = config[modality][key]
+    source = json.loads((ROOT / entry["config"]).read_text())
+    source["device"] = "cpu"
+    source_path = tmp_path / "source.json"
+    write_json(source_path, source)
+    config["trajectory"] = {}
+    config["video"] = {}
+    config[modality][key] = {**entry, "config": str(source_path)}
+    root = tmp_path / "retrain/s42"
+    module.prepare_batch(config, root, [modality], 42,
+                         {"trajectory": None, "video": None})
+    run = root / modality / key
+    mapping = {"train": ["task_0001/scene_1"], "val": ["task_0002/scene_1"],
+               "test": ["task_0003/scene_1"]}
+    write_json(run / "split_manifest.json", mapping)
+    write_json(run / "status.json", {"state": state})
+    if params:
+        write_json(run / "params.json", source)
+    if best:
+        (run / "best_model.pth").write_bytes(b"old checkpoint")
+    write_json(run / "evaluations/cfg2/metrics.json", {"old": True})
+    write_json(root / modality / "charts/cfg2.json", {"old": True})
+    write_json(root / "plots.json", {
+        f"{modality}/{key}/curves.png": {"kind": "run_curves", "inputs": []},
+        f"{modality}/charts/cfg2.png": {"kind": "comparison", "inputs": []},
+    })
+    before = {path.relative_to(run): path.read_bytes() for path in run.rglob("*")
+              if path.is_file()}
+    if modality == "trajectory":
+        source["learning_rate"] *= 2
+    else:
+        source["optimization"]["learning_rate"] *= 2
+    write_json(source_path, source)
+    config_path = tmp_path / "run.json"
+    write_json(config_path, config)
+    commands = []
+
+    def train(command, log):
+        commands.append(command)
+        assert not run.exists()
+        preserved = Path(command[command.index("--split-manifest") + 1])
+        assert json.loads(preserved.read_text()) == mapping
+        current = json.loads(Path(command[command.index("--config") + 1]).read_text())
+        assert current["split"]["manifest_path"] == str(run / "split_manifest.json")
+        write_json(run / "params.json", current)
+        write_json(run / "split_manifest.json", mapping)
+        write_json(run / "status.json", {"state": "complete"})
+        (run / "best_model.pth").write_bytes(b"new checkpoint")
+
+    monkeypatch.setattr(module, "run_logged", train)
+    arguments = ["retrain", "--config", str(config_path), "--batch", "s42",
+                 "--stage", "train", "--modality", modality]
+    if skip:
+        arguments.append("--skip-existing")
+    monkeypatch.setattr(sys, "argv", arguments)
+    module.main()
+    if skip and best and state == "complete" and params:
+        assert commands == []
+        assert all((run / path).read_bytes() == value for path, value in before.items())
+        assert not (root.parent / "archive").exists()
+    else:
+        assert len(commands) == 1
+        backups = list((root.parent / "archive/s42").iterdir())
+        assert len(backups) == 1
+        archived = backups[0] / modality / key
+        assert all((archived / path).read_bytes() == value for path, value in before.items())
+        assert (run / "best_model.pth").read_bytes() == b"new checkpoint"
+        assert not (run / "evaluations").exists()
+        assert not (root / modality / "charts").exists()
+        assert json.loads((root / "plots.json").read_text()) == {}
 
 
 @pytest.mark.parametrize("arguments", [["--replace"],

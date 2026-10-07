@@ -36,16 +36,9 @@ def epoch_budget(config: dict, modality: str, budget: int | None) -> dict:
     return result
 
 
-def _normalized(config: dict) -> dict:
-    result = copy.deepcopy(config)
-    result.get("split", {}).pop("manifest_path", None)
-    return result
-
-
 def prepare_batch(config: dict, root: Path, modalities: list[str], seed: int,
                   budgets: dict, dry_run: bool = False,
-                  device: str | None = None,
-                  replace: list[str] | None = None) -> tuple[dict, dict]:
+                  device: str | None = None) -> tuple[dict, dict]:
     registries, runtime = {}, copy.deepcopy(config)
     for modality in modalities:
         groups = {}
@@ -56,12 +49,11 @@ def prepare_batch(config: dict, root: Path, modalities: list[str], seed: int,
             if device:
                 current["device"] = device
             current["split"].setdefault("seed", seed)
+            split_manifest = root / modality / key / "split_manifest.json"
+            if split_manifest.is_file():
+                current["split"]["manifest_path"] = str(split_manifest)
             destination = root / modality / "configs" / f"{key}.json"
             if not dry_run:
-                if destination.exists() and json.loads(destination.read_text()) != current:
-                    if not replace or key not in replace:
-                        raise ValueError(f"Batch config changed; choose a new --batch "
-                                         f"or --replace --only {key}: {destination}")
                 write_json(destination, current)
             groups[key] = {**entry, "config": str(destination),
                            "run_dir": str(root / modality / key)}
@@ -70,8 +62,6 @@ def prepare_batch(config: dict, root: Path, modalities: list[str], seed: int,
                     "modality": modality, "groups": groups}
         if not dry_run:
             path = root / modality / "runs.json"
-            if path.exists() and json.loads(path.read_text()) != registry:
-                raise ValueError(f"Batch registry differs; choose a new --batch: {path}")
             write_json(path, registry)
         registries[modality] = registry
     return registries, runtime
@@ -105,7 +95,7 @@ def archive_run(root: Path, modality: str, key: str, backup: Path) -> None:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default="configs/retrain/run.json")
-    parser.add_argument("--batch", help="Short new batch name, for example s42 or smoke")
+    parser.add_argument("--batch", help="Short batch name, for example s42 or smoke")
     parser.add_argument("--stage", default="all",
                         choices=("all", "prepare", "audit", "train", "eval", "charts", "robust"))
     parser.add_argument("--modality", nargs="+", choices=("trajectory", "video"),
@@ -118,7 +108,7 @@ def main():
     parser.add_argument("--device", choices=("cuda", "cpu"),
                         help="Explicit execution device override")
     parser.add_argument("--skip-existing", action="store_true",
-                        help="Reuse compatible completed training/evaluation")
+                        help="Reuse completed best models and validated evaluation")
     parser.add_argument("--replace", action="store_true",
                         help="Archive and retrain --only groups in this batch")
     parser.add_argument("--dry-run", action="store_true",
@@ -159,8 +149,7 @@ def main():
             print(f"Replace selected runs; archive under {root.parent / 'archive' / batch}")
         return
     budgets = {"trajectory": args.traj_epochs, "video": args.video_epochs}
-    registries, runtime = prepare_batch(config, root, modalities, seed, budgets, device=args.device,
-                                       replace=args.only if args.replace else None)
+    registries, runtime = prepare_batch(config, root, modalities, seed, budgets, device=args.device)
     backup = (root.parent / "archive" / batch
               / datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f"))
     pipeline_path = root / "pipeline.json"
@@ -194,30 +183,27 @@ def main():
                         if entry.get("raw") or (args.only and key not in args.only):
                             continue
                         run = resolve_path(entry["run_dir"])
-                        if args.replace:
-                            archive_run(root, modality, key, backup)
-                            record["archive"] = str(backup)
-                            write_json(pipeline_path, history)
+                        split_manifest = run / "split_manifest.json"
                         if run.exists():
                             status_path = run / "status.json"
                             complete = (status_path.is_file()
                                         and json.loads(status_path.read_text()).get("state")
                                         == "complete")
                             if (args.skip_existing and complete
-                                    and (run / "best_model.pth").is_file()):
-                                saved = json.loads((run / "params.json").read_text())
-                                current = json.loads(resolve_path(entry["config"]).read_text())
-                                if _normalized(saved) != _normalized(current):
-                                    raise ValueError(f"Completed run config differs: {run}")
+                                    and (run / "best_model.pth").is_file()
+                                    and (run / "params.json").is_file()):
                                 print(f"Reuse completed training {modality}/{key}", flush=True)
                                 continue
-                            raise FileExistsError(
-                                f"Run exists: {run}; use --skip-existing for a completed run "
-                                "or a new --batch"
-                            )
+                            archive_run(root, modality, key, backup)
+                            split_manifest = backup / modality / key / "split_manifest.json"
+                            record["archive"] = str(backup)
+                            write_json(pipeline_path, history)
                         script = f"runs/{modality}/train_{modality}.py"
-                        run_logged([sys.executable, script, "--config", entry["config"],
-                                    "--run-dir", run],
+                        command = [sys.executable, script, "--config", entry["config"],
+                                   "--run-dir", run]
+                        if split_manifest.is_file():
+                            command.extend(["--split-manifest", split_manifest])
+                        run_logged(command,
                                    root / modality / "logs" / f"{key}_train.log")
             elif stage in ("eval", "charts"):
                 from compare import compare

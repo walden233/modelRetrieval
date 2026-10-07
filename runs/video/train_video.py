@@ -19,6 +19,7 @@ from _bootstrap import bootstrap
 bootstrap()
 
 from bise.common import ensure_directory, load_json_config, merge_overrides, save_run_artifacts
+from bise.common.paths import resolve_path
 from bise.modalities.video import build_retrieval_cases, collate_video_pairs, evaluate_video_retrieval, train_video_epoch
 from bise.modalities.video.factory import build_split_manifest, build_video_dataset, build_video_model, split_video_dataset
 
@@ -32,6 +33,7 @@ def parse_args():
     parser.add_argument("--resume", help="Optional checkpoint path for resuming.")
     parser.add_argument("--seed", type=int, help="Override training and dynamic split seed.")
     parser.add_argument("--run-dir", help="Exact new run directory (must not exist).")
+    parser.add_argument("--split-manifest", help="Existing split_manifest.json to reuse.")
     parser.add_argument("--epochs", type=int, help="Override the training epoch budget.")
     return parser.parse_args()
 
@@ -63,8 +65,13 @@ def main():
     run_name = f'{config["experiment_name"]}_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}'
     run_dir = Path(args.run_dir) if args.run_dir else Path(config["output_dir"]) / run_name
     run_dir.mkdir(parents=True, exist_ok=False)
+    if args.split_manifest:
+        manifest = resolve_path(args.split_manifest)
+        (run_dir / "split_manifest.json").write_bytes(manifest.read_bytes())
+        config.setdefault("split", {})["manifest_path"] = str(run_dir / "split_manifest.json")
     processor, model = build_video_model(config["model"])
-    
+    (run_dir / "trainable.json").write_text(json.dumps(_trainable_info(model, config), indent=2))
+
     train_dataset = build_video_dataset(config["dataset"], processor=processor, is_train=True)
     split_config = dict(config.get("split") or {})
     if (split_config.get("fixed_test_manifest_path") or split_config.get("shared_manifest_path")) and "seed" not in split_config:
@@ -201,10 +208,38 @@ def main():
                 ensure_ascii=False,
             )
         )
-    torch.save(model.state_dict(), run_dir / "last_model.pth")
     save_run_artifacts(run_dir, config, history, best_result)
     if config.get("protocol") == "retrain_v2":
         write_json(run_dir / "status.json", {"state": "complete", "epochs": len(history["train_loss"])})
+
+
+def _trainable_info(model, config: dict) -> dict:
+    def counts(module):
+        return {
+            "total": sum(parameter.numel() for parameter in module.parameters()),
+            "trainable": sum(parameter.numel() for parameter in module.parameters()
+                             if parameter.requires_grad),
+        }
+
+    backbones = ([("shared", model.shared_backbone)] if model.shared_backbone is not None
+                 else [("human", model.human_backbone), ("robot", model.robot_backbone)])
+    return {
+        "encoder_mode": model.encoder_mode,
+        "batch_size": config["training"]["batch_size"],
+        "unfreeze_last_n_blocks": config["model"].get("unfreeze_last_n_blocks", 0),
+        "parameters": counts(model),
+        "heads": {name: counts(module) for name, module in (
+            ("human", model.human_adapter), ("robot", model.robot_adapter),
+            ("projector", model.projector),
+        )},
+        "backbones": [{
+            "name": name, "parameters": counts(backbone),
+            "trainable_blocks": [
+                index + 1 for index, block in enumerate(backbone.get_transformer_blocks())
+                if any(parameter.requires_grad for parameter in block.parameters())
+            ] if hasattr(backbone, "get_transformer_blocks") else [],
+        } for name, backbone in backbones],
+    }
 
 
 def _count_subset_scenes(source_dataset, subset) -> int:

@@ -181,10 +181,10 @@ def test_cfg2_uses_run_manifest_and_cfg3_uses_matching_domain(tmp_path):
 
 def test_two_stage_epoch_budget_and_dry_run_without_files(tmp_path):
     module = load_entry("retrain")
-    config = {"mode": "two_stage", "pretrain_epochs": 10, "finetune_epochs": 50}
+    config = {"mode": "two_stage", "pretrain_epochs": 10, "finetune_epochs": 60}
     result = module.epoch_budget(config, "trajectory", 2)
     assert result["pretrain_epochs"] == result["finetune_epochs"] == 1
-    assert module.epoch_budget(config, "trajectory", 60) == config
+    assert module.epoch_budget(config, "trajectory", 70) == config
     with pytest.raises(ValueError, match="at least two"):
         module.epoch_budget(config, "trajectory", 1)
     run_config = json.loads((ROOT / "configs/retrain/run.json").read_text())

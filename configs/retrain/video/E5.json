@@ -27,8 +27,8 @@
     "feature_dim": 128,
     "dropout": 0.1,
     "temperature": 0.07,
-    "freeze_backbone": false,
-    "unfreeze_last_n_blocks": 2
+    "freeze_backbone": true,
+    "unfreeze_last_n_blocks": 0
   },
   "loss": {
     "name": "info_nce",
@@ -44,8 +44,8 @@
     "grad_clip_norm": 1.0
   },
   "training": {
-    "batch_size": 2,
-    "eval_batch_size": 2,
+    "batch_size": 4,
+    "eval_batch_size": 4,
     "num_epochs": 5,
     "num_workers": 0,
     "amp": true,

@@ -3,8 +3,12 @@
 新实验配置统一放在 `configs/retrain/`，产物放在
 `artifacts/runs/retrain/<batch>/{trajectory,video}/<group>/`。旧配置和 run 保留。
 
-正式训练默认：轨迹 60 epoch（T3 为 10+50）、视频 5 epoch、seed 42。
+正式训练默认：轨迹 70 epoch（T3 为 10+60）、视频 5 epoch、seed 42。
 checkpoint 仅依据 validation human→robot task MRR 选择。
+轨迹初始学习率 2e-4，前 10 轮保持不变，第 11–70 轮按余弦曲线降至 2e-5。
+T3 两个阶段共用同一调度，不在微调开始时重置；每轮实际学习率记录在
+`curves.json:learning_rate` 和训练日志中。短跑预算不超过 10 轮时保持初始学习率。
+视频训练只保存 `best_model.pth`；轨迹仍保存最佳与最后一轮的权重。
 
 ## 协议与命名
 
@@ -12,29 +16,32 @@ checkpoint 仅依据 validation human→robot task MRR 选择。
 |---|---|
 | `E1` / `E2` | V-JEPA dual-head / VideoMAE dual-head |
 | `E3` / `E4` / `E5` | V-JEPA task 隔离 / 模态内损失 / InfoNCE |
-| `E6s` / `E6d` | V-JEPA shared / dual-encoder；dual-head 复用 E1 |
+| `E6s` / `E6d` | V-JEPA 冻结 + 机器人单适配头 / 最后两层微调 + 双适配头 |
 | `RawJ` / `RawM` | 原始 V-JEPA / VideoMAE，仅评估，不训练投影头 |
 
 新轨迹组统一使用 `human_hand_3d.npy`、真实时间与缺测标记、
-机器人 `relative_rot6d`，batch size 8。视频 batch size 统一为 2。
+机器人 `relative_rot6d`，batch size 8。视频训练和评估 batch size 统一为 4。
+E1–E5 均冻结骨干并训练双适配头；E6s 冻结骨干，人类侧不加适配头；
+E6d 共用一套骨干，解冻最后两个 Transformer block 并训练双适配头。
+三种设置都训练共享投影层，实际可训练参数和 block 编号保存到 `trainable.json`。
 `N0/N1/N2` 只改变人手坐标表示，所有组保持同模态的有效相机集合一致。
 
 轨迹组的具体区别：
 
 | 组 | 人手点数 / 输入维度 | 人手表示 | 训练与损失 | 正式预算 | cfg2 划分 |
 |---|---|---|---|---|---|
-| T1 | 6 / 18 | 基座 XYZ | 跨域对比 | 60 | 共享 scene |
-| T2 | 6 / 18 | 基座 XYZ | 跨域 + 域内增强一致性 | 60 | 共享 scene |
-| T3 | 6 / 18 | 基座 XYZ | 域内预训练，再跨域 + 域内联合微调 | 10 + 50 | 共享 scene |
-| T4 | 6 / 18 | 基座 XYZ | 跨域对比 | 60 | task 隔离，目标 test 120 / val 50 |
-| T5 | 21 / 63 | 基座 XYZ | 跨域对比 | 60 | 共享 scene |
-| N0 | 21 / 63 | 基座 XYZ | 跨域 + 域内增强一致性 | 60 | 共享 scene |
-| N1 | 21 / 63 | 首有效腕点相对坐标 | 跨域 + 域内增强一致性 | 60 | 共享 scene |
-| N2 | 21 / 63 | 首有效掌部相对坐标系 | 跨域 + 域内增强一致性 | 60 | 共享 scene |
+| T1 | 6 / 18 | 基座 XYZ | 跨域对比 | 70 | 共享 scene |
+| T2 | 6 / 18 | 基座 XYZ | 跨域 + 域内增强一致性 | 70 | 共享 scene |
+| T3 | 6 / 18 | 基座 XYZ | 域内预训练，再跨域 + 域内联合微调 | 10 + 60 | 共享 scene |
+| T4 | 6 / 18 | 基座 XYZ | 跨域对比 | 70 | task 隔离，目标 test 120 / val 50 |
+| T5 | 21 / 63 | 基座 XYZ | 跨域对比 | 70 | 共享 scene |
+| N0 | 21 / 63 | 基座 XYZ | 跨域 + 域内增强一致性 | 70 | 共享 scene |
+| N1 | 21 / 63 | 首有效腕点相对坐标 | 跨域 + 域内增强一致性 | 70 | 共享 scene |
+| N2 | 21 / 63 | 首有效掌部相对坐标系 | 跨域 + 域内增强一致性 | 70 | 共享 scene |
 
 八组统一按 task 定义训练正样本，评估同时报告 task / scene 两层指标。
 联合训练的域内权重为 0.3，域内 task 正样本权重为 0.25；增强噪声标准差
-0.005 m、最大旋转 10°。统一模型宽度 128、5 层、投影维度 128、学习率 2e-4，
+0.005 m、最大旋转 10°。统一模型宽度 128、5 层、投影维度 128、初始学习率 2e-4，
 双侧最多 256 帧。cfg3 对八组使用同一评估集合。
 
 共享协议固定在：
@@ -93,53 +100,77 @@ JSON/CSV 同时记录各自的清单路径、测试 scene/task 数、查询和�
 conda activate torch2
 
 # 只显示计划，不创建文件或加载模型。
-python runs/retrain.py --dry-run
+python runs/retrain.py --batch s42b --dry-run
 
 # 生成/校验清单 → 审计源文件和划分 → 全部训练 → 独立评估 → 比较图。
-python runs/retrain.py --batch s42
+python runs/retrain.py --batch s42b
 
-# 已完成的训练和有效评估可以复用。
-python runs/retrain.py --batch s42 --skip-existing
+# 已完成的训练和有效评估可以复用；缺少最佳模型或未完成的 run 会重训。
+python runs/retrain.py --batch s42b --skip-existing
 
 # 只跑某一模态。
-python runs/retrain.py --batch s42 --modality trajectory
+python runs/retrain.py --batch s42b --modality trajectory
 
 # 更换训练 seed；共享 test 与默认固定 val 不变。
 python runs/retrain.py --seed 43 --batch s43
 ```
 
 也可用 `bash scripts/retrain.sh ...`，通过 `PYTHON_BIN` 指定 Python。
-更改训练预算、输入或配置时默认使用新批次名，如 `s42b`；若要替换已有组，使用下面的
-`--replace --only` 入口归档旧结果后重训。
+配置修改后可直接在原 batch 重跑，不检查批次配置或注册表是否变化。
+批次 `configs/` 每次更新到源配置；已有 run 的 `params.json` 保留真实训练设置，
+只有实际重训时才更新，独立评估继续读取该文件。
+
 `--skip-existing` 是流水线复用，不是恢复中断训练的 optimizer 状态。
-不完整训练目录不会自动删除或重用，重跑使用新批次或显式替换。
+训练阶段的判断规则：
+
+- 不加 `--skip-existing`：从头训练所有所选组，已有 run 先归档。
+- 加 `--skip-existing`：同时存在 `best_model.pth`、`params.json`，且
+  `status.json:state=complete` 时跳过训练；其它情况从头重训，不比较配置差异。
+- 重训时沿用原 run 的 `split_manifest.json`，保持 train/val/test 及顺序。
+  只有没有该清单时，才按当前配置生成划分；`last_model.pth` 不参与判断。
+- 旧 run、过期比较图及对应日志归档，原评估缓存随旧 run 一起移走。
+
+例如，在 `s42` 使用新配置重训全部轨迹并评估绘图：
+
+```bash
+python runs/retrain.py --batch s42 --modality trajectory
+
+# 仅补训缺少最佳模型或未完成的 run，并复用其它已完成训练。
+python runs/retrain.py --batch s42 --skip-existing
+```
+
+在 `--skip-existing` 模式下，修改配置本身不会触发重训。可删除目标 run 的
+`best_model.pth` 后再跑，或用不带 `--skip-existing` 的 `--only` 命令指定重训组。
 
 ## 替换 task 划分实验
 
-下面命令仅替换 `s42/trajectory/T4` 和 `s42/video/E3`，正式预算仍是 60 / 5 epoch。
+下面命令仅替换 `s42b/trajectory/T4` 和 `s42b/video/E3`，正式预算是 70 / 5 epoch。
 当前有效 scene 总数为轨迹 428、视频 434；保留 test 120 / val 50 后，train 分别为
-258 / 264。训练前按 task 隔离生成新的划分，评估读取每个新 run 的清单。
+258 / 264。重训沿用已有划分；没有清单时按 task 隔离生成目标划分。
+评估读取每个新 run 的清单。需要重新划分时，先删除所选 run 的
+`split_manifest.json`，然后执行替换命令。
 
 ```bash
 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
-python runs/retrain.py --batch s42 --only T4 E3 --replace
+python runs/retrain.py --batch s42b --only T4 E3 --replace
 
 # 先查看计划；不移动文件或加载模型。
-python runs/retrain.py --batch s42 --only T4 E3 --replace --dry-run
+python runs/retrain.py --batch s42b --only T4 E3 --replace --dry-run
 
 # 分开执行：只替换并训练这两组，再独立评估和汇总绘图。
 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
-python runs/retrain.py --batch s42 --stage train --only T4 E3 --replace
+python runs/retrain.py --batch s42b --stage train --only T4 E3 --replace
 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
-python runs/retrain.py --batch s42 --stage eval --only T4 E3
+python runs/retrain.py --batch s42b --stage eval --only T4 E3
 ```
 
 默认完整入口依次校验协议、审计、替换训练、评估 cfg2/cfg3，并与其它 run 的有效评估
 合并更新主图。旧 run、对应日志及过期的汇总图/数据移到
-`artifacts/runs/retrain/archive/s42/<时间>/<modality>/`，其它组的 checkpoint、评估和
+`artifacts/runs/retrain/archive/<batch>/<时间>/<modality>/`，其它组的 checkpoint、评估和
 数据划分保留。绘图清单同步移除过期条目，完成训练/评估后记录新依赖。
 旧 T4/E3 的 80%/10%/10% 划分仅保存在归档结果中。
-`--replace` 必须搭配 `--only` 和 `--stage all/train`，每次执行都会从头训练所选组；
+`--replace` 是兼容保留的显式替换入口，必须搭配 `--only` 和 `--stage all/train`，
+每次执行都会从头训练所选组，也沿用已有划分；
 `--skip-existing` 与替换互斥。
 
 ## 各阶段入口
@@ -152,26 +183,26 @@ python runs/prepare_splits.py
 python runs/audit_splits.py --files --output artifacts/runs/retrain/audit.json
 
 # 只训练；也可选择部分组。两阶段 --traj-epochs 指总预算。
-python runs/retrain.py --batch s42 --stage train
-python runs/retrain.py --batch s42 --stage train --modality trajectory --only T2 N1
+python runs/retrain.py --batch s42b --stage train
+python runs/retrain.py --batch s42b --stage train --modality trajectory --only T2 N1
 
 # 只评估和绘图；两个模态都默认 cfg2+cfg3。
-python runs/retrain.py --batch s42 --stage eval
+python runs/retrain.py --batch s42b --stage eval
 
 # 使用已训练的 checkpoint，复用有效评估；清单变化的结果会重新评估。
-HF_HUB_OFFLINE=1 python runs/retrain.py --batch s42 --stage eval --skip-existing
+HF_HUB_OFFLINE=1 python runs/retrain.py --batch s42b --stage eval --skip-existing
 
 # 校验评估结果，重新汇总比较数据并导出主图。
-python runs/retrain.py --batch s42 --stage charts
+python runs/retrain.py --batch s42b --stage charts
 
 # 先记录依赖，再从已有数据重绘此批次全部图片，无需模型或原始数据集。
-python runs/redraw.py --batch s42
+python runs/redraw.py --batch s42b
 
 # 只补齐/更新图表依赖清单，不重绘。
-python runs/redraw.py --batch s42 --index-only
+python runs/redraw.py --batch s42b --index-only
 
 # N0–N2 的独立人手变换稳健性评估，使用相同冻结查询/候选。
-python runs/retrain.py --batch s42 --stage robust --modality trajectory
+python runs/retrain.py --batch s42b --stage robust --modality trajectory
 ```
 
 完整流水线默认评估全部 trajectory 与 video 组，包含原始 backbone；
@@ -182,29 +213,29 @@ python runs/retrain.py --batch s42 --stage robust --modality trajectory
 ```bash
 # 单 run cfg2：使用本 run 保存的模型配置与实际训练划分。
 python runs/trajectory/evaluate_retrieval.py \
-  --config artifacts/runs/retrain/s42/trajectory/T2/params.json \
-  --checkpoint artifacts/runs/retrain/s42/trajectory/T2/best_model.pth \
-  --split-manifest artifacts/runs/retrain/s42/trajectory/T2/split_manifest.json \
-  --output-dir artifacts/runs/retrain/s42/trajectory/T2/evaluations/cfg2
+  --config artifacts/runs/retrain/s42b/trajectory/T2/params.json \
+  --checkpoint artifacts/runs/retrain/s42b/trajectory/T2/best_model.pth \
+  --split-manifest artifacts/runs/retrain/s42b/trajectory/T2/split_manifest.json \
+  --output-dir artifacts/runs/retrain/s42b/trajectory/T2/evaluations/cfg2
 
 # 单 run cfg3：必须同时换 data-root 和 manifest，不用 --all-as-test。
 python runs/trajectory/evaluate_retrieval.py \
-  --config artifacts/runs/retrain/s42/trajectory/T2/params.json \
-  --checkpoint artifacts/runs/retrain/s42/trajectory/T2/best_model.pth \
+  --config artifacts/runs/retrain/s42b/trajectory/T2/params.json \
+  --checkpoint artifacts/runs/retrain/s42b/trajectory/T2/best_model.pth \
   --data-root dataset/RH20T_subset/RH20T_cfg3 \
   --split-manifest artifacts/manifests/rh20t_shared_v1/cfg3_split_manifest.json \
-  --output-dir artifacts/runs/retrain/s42/trajectory/T2/evaluations/cfg3
+  --output-dir artifacts/runs/retrain/s42b/trajectory/T2/evaluations/cfg3
 
 # 只重算 T2/N1；其它组读取已有有效结果，重新输出 cfg2/cfg3 两张比较图。
 python runs/compare.py \
-  --runs artifacts/runs/retrain/s42/trajectory/runs.json \
+  --runs artifacts/runs/retrain/s42b/trajectory/runs.json \
   --only T2 N1 --cfg cfg2 cfg3
 
 # 视频相同，默认同时更新 cfg2/cfg3。
-python runs/compare.py --runs artifacts/runs/retrain/s42/video/runs.json --only E4
+python runs/compare.py --runs artifacts/runs/retrain/s42b/video/runs.json --only E4
 
 # 只导出比较图和原始数据。
-python runs/compare.py --runs artifacts/runs/retrain/s42/trajectory/runs.json --charts-only
+python runs/compare.py --runs artifacts/runs/retrain/s42b/trajectory/runs.json --charts-only
 ```
 
 所有组的 cfg2 单 run 命令都用自身 `split_manifest.json`；省略该参数时会自动读取。
@@ -212,6 +243,7 @@ python runs/compare.py --runs artifacts/runs/retrain/s42/trajectory/runs.json --
 视频 cfg3 单 run 同样同时传入 cfg3 `--data-root` 与 `--split-manifest`。
 单组训练仍可直接调用现有 `train_trajectory.py` / `train_video.py`，
 使用 `configs/retrain/<modality>/<group>.json` 和 `--run-dir` 指定全新目录。
+两个训练入口也支持 `--split-manifest <已有清单>`，可直接复用指定划分。
 
 增量更新前需要先建立所有组在新协议下的评估结果。未选组若缺失或过期，合并报错，
 不会偷偷重算未选组，也不会混入旧数据。缓存校验包括 checkpoint、协议、数据库存、
@@ -223,7 +255,7 @@ cfg2 允许不同 run 使用不同 test 集合；cfg3 仍校验各组查询/候�
 ## 产物
 
 ```text
-artifacts/runs/retrain/s42/
+artifacts/runs/retrain/s42b/
   pipeline.json
   audit.json
   plots.json                  # 图片路径 → 数据文件依赖和绘图参数
@@ -240,7 +272,9 @@ artifacts/runs/retrain/s42/
       protocols.json
       checkpoint_info.json
       status.json
-      best_model.pth / last_model.pth
+      best_model.pth
+      last_model.pth            # 仅轨迹
+      trainable.json            # 仅视频：实际可训练参数和 block
       curves.json / curves.png
       evaluations/cfg2/ ...
       evaluations/cfg3/ ...

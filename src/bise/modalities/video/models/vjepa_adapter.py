@@ -19,6 +19,8 @@ class VJEPAAdapter(nn.Module):
 
     def get_transformer_blocks(self):
         # 统一暴露 Transformer blocks，便于做 partial finetune。
+        if hasattr(self.backbone, "encoder") and hasattr(self.backbone.encoder, "layer"):
+            return list(self.backbone.encoder.layer)
         if hasattr(self.backbone, "blocks"):
             return list(self.backbone.blocks)
         if hasattr(self.backbone, "vision_model") and hasattr(self.backbone.vision_model, "blocks"):
@@ -27,6 +29,8 @@ class VJEPAAdapter(nn.Module):
 
     def patch_embedding_modules(self):
         modules = []
+        if hasattr(self.backbone, "encoder") and hasattr(self.backbone.encoder, "embeddings"):
+            modules.append(self.backbone.encoder.embeddings)
         if hasattr(self.backbone, "patch_embed"):
             modules.append(self.backbone.patch_embed)
         if hasattr(self.backbone, "vision_model") and hasattr(self.backbone.vision_model, "patch_embed"):

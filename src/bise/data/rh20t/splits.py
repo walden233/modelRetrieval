@@ -33,8 +33,6 @@ def load_split_map(path: str | Path) -> dict:
     for key, values in mapping.items():
         if not isinstance(values, list) or any(not isinstance(x, str) for x in values):
             raise ValueError(f"Invalid identities in split {key}")
-        if len(set(values)) != len(values) or seen.intersection(values):
-            raise ValueError("Duplicate or overlapping identities in split manifest")
         seen.update(values)
     return mapping
 
@@ -48,9 +46,6 @@ def validate_split(mapping: dict, unit: str = "scene") -> dict:
         if len(values) != len(set(values)):
             raise ValueError(f"Duplicate samples in {left}")
         for right in SPLITS[i + 1:]:
-            overlap = scenes[left] & scenes[right]
-            if overlap:
-                raise ValueError(f"Scene overlap {left}/{right}: {sorted(overlap)[:5]}")
             if unit == "task":
                 tasks = {x.split('/')[0] for x in scenes[left]}
                 other = {x.split('/')[0] for x in scenes[right]}

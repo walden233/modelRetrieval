@@ -82,7 +82,13 @@ def test_video_training_evaluation_and_frozen_raw_comparison(tmp_path, monkeypat
         train.main()
         assert json.loads((run / "status.json").read_text())["state"] == "complete"
         assert json.loads((run / "checkpoint_info.json").read_text())["validation_only"]
-        assert (run / "last_model.pth").is_file()
+        assert (run / "best_model.pth").is_file()
+        assert not (run / "last_model.pth").exists()
+        trainable = json.loads((run / "trainable.json").read_text())
+        assert trainable["encoder_mode"] == "dual_head"
+        assert trainable["backbones"][0]["parameters"]["trainable"] == 0
+        assert trainable["heads"]["human"]["trainable"] > 0
+        assert trainable["heads"]["robot"]["trainable"] > 0
 
         evaluate = entry("evaluate_video")
         output = run / "evaluations/cfg2"
@@ -110,6 +116,8 @@ def test_video_training_evaluation_and_frozen_raw_comparison(tmp_path, monkeypat
         monkeypatch.setattr(sys, "argv", ["train_video", "--config", str(task_source),
                                          "--run-dir", str(task_run)])
         train.main()
+        assert (task_run / "best_model.pth").is_file()
+        assert not (task_run / "last_model.pth").exists()
         task_info = json.loads((task_run / "split_info.json").read_text())
         assert task_info["scene_counts"] == {"test": 120, "val": 50}
         # The fixture has four scenes per task, so 48 is the closest valid validation size.
@@ -121,6 +129,28 @@ def test_video_training_evaluation_and_frozen_raw_comparison(tmp_path, monkeypat
             "--output-dir", str(task_run / "evaluations/cfg2"),
         ])
         evaluate.main()
+
+        single_config = deepcopy(config)
+        single_config["experiment_name"] = "E6s"
+        single_config["model"]["encoder_mode"] = "robot_head"
+        single_config["split"] = {"unit": "scene", "seed": 43,
+                                  "ratios": {"train": .8, "val": .1, "test": .1}}
+        single_source = tmp_path / "E6s.json"
+        write_json(single_source, single_config)
+        single_run = tmp_path / "video/E6s"
+        monkeypatch.setattr(sys, "argv", ["train_video", "--config", str(single_source),
+                                         "--run-dir", str(single_run), "--split-manifest",
+                                         str(run / "split_manifest.json")])
+        train.main()
+        assert json.loads((single_run / "split_manifest.json").read_text()) == json.loads(
+            (run / "split_manifest.json").read_text()
+        )
+        assert (single_run / "best_model.pth").is_file()
+        assert not (single_run / "last_model.pth").exists()
+        single_info = json.loads((single_run / "trainable.json").read_text())
+        assert single_info["heads"]["human"]["trainable"] == 0
+        assert single_info["heads"]["robot"]["trainable"] > 0
+        assert single_info["backbones"][0]["parameters"]["trainable"] == 0
 
         raw = entry("evaluate_raw_video_backbone")
         monkeypatch.setattr(raw, "build_video_backbone",
