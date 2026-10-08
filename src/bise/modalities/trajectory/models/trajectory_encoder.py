@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 
 from ..geometry import robot_pose_features, validate_rigid_transform
+from ..grasp import MotionShapeProjection, human_grasp_features, robot_grasp_features
 
 
 class PositionalEncoding(nn.Module):
@@ -85,13 +86,30 @@ class CrossModalTrajectoryModel(nn.Module):
         quaternion_order: str = "wxyz",
         temporal_features: bool = False,
         tcp_to_reference=None,
+        shared_transformer: bool = False,
+        dual_adapters: bool = False,
+        grasp_geometry: bool = False,
+        human_keypoint_indices: list[int] | None = None,
     ):
         super().__init__()
         if quaternion_order not in {"wxyz", "xyzw"}:
             raise ValueError("quaternion_order must be explicit wxyz or xyzw")
-        expected_dim = {"raw7": 7, "rot6d": 9, "relative_rot6d": 9}.get(robot_representation)
+        expected_dim = (15 if grasp_geometry else
+                        {"raw7": 7, "rot6d": 9, "relative_rot6d": 9}.get(robot_representation))
         if robot_input_dim != expected_dim:
             raise ValueError("robot_input_dim does not match robot_representation")
+        if grasp_geometry and (human_input_dim != 72 or robot_representation != "relative_rot6d"):
+            raise ValueError("Grasp geometry requires human_input_dim=72 and relative_rot6d")
+        if grasp_geometry and tcp_to_reference is not None:
+            raise ValueError("Grasp inputs are already calibrated; do not apply a second tool transform")
+        self.grasp_geometry = grasp_geometry
+        self.human_keypoint_indices = human_keypoint_indices
+        if human_keypoint_indices is not None:
+            if (grasp_geometry or not human_keypoint_indices
+                    or len(set(human_keypoint_indices)) != len(human_keypoint_indices)
+                    or any(i < 0 or i >= 21 for i in human_keypoint_indices)
+                    or human_input_dim != 3 * len(human_keypoint_indices)):
+                raise ValueError("Invalid human keypoint selection or input dimension")
         self.robot_representation = robot_representation
         self.quaternion_order = quaternion_order
         self.register_buffer("tcp_to_reference", validate_rigid_transform(tcp_to_reference)
@@ -116,6 +134,20 @@ class CrossModalTrajectoryModel(nn.Module):
             dropout=dropout,
             temporal_features=temporal_features,
         )
+        if grasp_geometry:
+            self.human_encoder.input_proj = MotionShapeProjection(63, d_model)
+            self.robot_encoder.input_proj = MotionShapeProjection(6, d_model)
+        if shared_transformer:
+            for name in ("transformer_encoder", "pos_encoder", "cls_token",
+                         "time_proj", "missing_token"):
+                setattr(self.robot_encoder, name, getattr(self.human_encoder, name))
+        self.dual_adapters = dual_adapters
+        if dual_adapters:
+            def adapter():
+                return nn.Sequential(nn.Linear(d_model, max(1, d_model // 2)), nn.ReLU(),
+                                     nn.Linear(max(1, d_model // 2), d_model))
+            self.human_adapter = adapter()
+            self.robot_adapter = adapter()
         self.projection_head = nn.Sequential(
             nn.Linear(d_model, d_model),
             nn.ReLU(),
@@ -131,16 +163,28 @@ class CrossModalTrajectoryModel(nn.Module):
 
     def forward_human(self, human_poses: torch.Tensor, human_mask: torch.Tensor,
                       context: torch.Tensor | None = None) -> torch.Tensor:
-        human_poses_flat = human_poses.view(human_poses.size(0), human_poses.size(1), -1)
+        if self.human_keypoint_indices is not None:
+            if human_poses.shape[-2] != 21:
+                raise ValueError("Keypoint selection requires the common 21-point source")
+            human_poses = human_poses[..., self.human_keypoint_indices, :]
+        human_poses_flat = (human_grasp_features(human_poses, human_mask, context)
+                            if self.grasp_geometry else
+                            human_poses.reshape(human_poses.size(0), human_poses.size(1), -1))
         human_features = self.human_encoder(human_poses_flat, human_mask, context=context)
+        if self.dual_adapters:
+            human_features = human_features + self.human_adapter(human_features)
         return self.safe_l2norm(self.projection_head(human_features))
 
     def forward_robot(self, tcp_bases: torch.Tensor, tcp_mask: torch.Tensor,
                       context: torch.Tensor | None = None) -> torch.Tensor:
-        features = robot_pose_features(tcp_bases, tcp_mask, self.robot_representation,
-                                       self.quaternion_order, self.tcp_to_reference)
+        features = (robot_grasp_features(tcp_bases, tcp_mask, self.quaternion_order)
+                    if self.grasp_geometry else
+                    robot_pose_features(tcp_bases, tcp_mask, self.robot_representation,
+                                        self.quaternion_order, self.tcp_to_reference))
         robot_features = self.robot_encoder(features, tcp_mask,
                                             sample_factor=self.tcp_sample_factor, context=context)
+        if self.dual_adapters:
+            robot_features = robot_features + self.robot_adapter(robot_features)
         return self.safe_l2norm(self.projection_head(robot_features))
 
     def forward(

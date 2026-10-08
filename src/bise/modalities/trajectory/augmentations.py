@@ -94,7 +94,7 @@ def augment_robot_tcp_rotation(
     device = tcp_batch.device
     dtype = tcp_batch.dtype
     positions = tcp_batch[..., :3]
-    quaternions = tcp_batch[..., 3:]
+    quaternions = tcp_batch[..., 3:7]
     if quaternion_order == "wxyz":
         quaternions = quaternions[..., [1, 2, 3, 0]]
     elif quaternion_order != "xyzw":
@@ -126,4 +126,4 @@ def augment_robot_tcp_rotation(
 
     if quaternion_order == "wxyz":
         new_quaternions = new_quaternions[..., [3, 0, 1, 2]]
-    return torch.cat([rotated_positions, new_quaternions], dim=-1)
+    return torch.cat([rotated_positions, new_quaternions, tcp_batch[..., 7:]], dim=-1)

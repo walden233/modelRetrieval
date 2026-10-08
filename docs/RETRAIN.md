@@ -3,6 +3,11 @@
 新实验配置统一放在 `configs/retrain/`，产物放在
 `artifacts/runs/retrain/<batch>/{trajectory,video}/<group>/`。旧配置和 run 保留。
 
+本文实验矩阵对应原 retrain 模板；s43 轨迹模板及新 batch 入口见
+[s43 轨迹实验](trajectory/S43.md#新数据存储结构的入口)。
+数据集内的夹爪参数、反馈与几何缓存格式及来源集中记录在
+[当前子集存储与夹爪来源](RH20T_SPLIT_AND_MANIFESTS.md#当前子集存储与夹爪来源)。
+
 正式训练默认：轨迹 70 epoch（T3 为 10+60）、视频 5 epoch、seed 42。
 checkpoint 仅依据 validation human→robot task MRR 选择。
 轨迹初始学习率 2e-4，前 10 轮保持不变，第 11–70 轮按余弦曲线降至 2e-5。

@@ -1,4 +1,4 @@
-"""Index and redraw every retrain plot from saved JSON/NPY, without evaluation."""
+"""Redraw retrain plots, rebuilding missing chart data from saved run results."""
 
 import argparse
 

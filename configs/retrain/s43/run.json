@@ -1,0 +1,43 @@
+{
+  "protocol": "retrain_v2",
+  "seed": 43,
+  "batch": "s43",
+  "output_root": "artifacts/runs/retrain",
+  "dataset_root": "dataset/RH20T_subset",
+  "manifest_dir": "artifacts/manifests/retrain",
+  "trajectory": {
+    "T1": {
+      "config": "configs/retrain/s43/trajectory/T1.json",
+      "label": "T1"
+    },
+    "T2": {
+      "config": "configs/retrain/s43/trajectory/T2.json",
+      "label": "T2"
+    },
+    "T3": {
+      "config": "configs/retrain/s43/trajectory/T3.json",
+      "label": "T3"
+    },
+    "T4": {
+      "config": "configs/retrain/s43/trajectory/T4.json",
+      "label": "T4"
+    },
+    "T5": {
+      "config": "configs/retrain/s43/trajectory/T5.json",
+      "label": "T5"
+    },
+    "N1": {
+      "config": "configs/retrain/s43/trajectory/N1.json",
+      "label": "N1"
+    },
+    "N2": {
+      "config": "configs/retrain/s43/trajectory/N2.json",
+      "label": "N2"
+    },
+    "N3": {
+      "config": "configs/retrain/s43/trajectory/N3.json",
+      "label": "N3"
+    }
+  },
+  "video": {}
+}

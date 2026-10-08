@@ -4,12 +4,7 @@
   "batch": "s42",
   "output_root": "artifacts/runs/retrain",
   "dataset_root": "dataset/RH20T_subset",
-  "source_dir": "artifacts/manifests/trajectory_hand_3d_v1",
   "manifest_dir": "artifacts/manifests/retrain",
-  "eval_manifests": {
-    "cfg2": "artifacts/manifests/retrain/s42/cfg2/metadata.json",
-    "cfg3": "artifacts/manifests/retrain/s42/cfg3/metadata.json"
-  },
   "trajectory": {
     "T1": {
       "config": "configs/retrain/trajectory/T1.json",

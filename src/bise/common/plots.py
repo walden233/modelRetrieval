@@ -109,6 +109,68 @@ def record_heatmap(path: Path, matrix: np.ndarray, max_items: int, label: str,
     })
 
 
+def _restore_charts(directory: Path) -> None:
+    """Rebuild missing aggregate data from saved runs, without evaluating models."""
+    from bise.common.comparison import _write_comparison
+    from bise.data.rh20t.splits import load_split_map, validate_split
+
+    registry_path = directory / "runs.json"
+    if not registry_path.is_file():
+        return
+    charts = directory / "charts"
+    if all((charts / f"{name}.json").is_file() for name in ("curves", "cfg2", "cfg3")):
+        return
+    registry = json.loads(registry_path.read_text())
+    if not (charts / "curves.json").is_file():
+        series = {}
+        for key, entry in registry["groups"].items():
+            source = resolve_path(entry["run_dir"]) / "curves.json"
+            if not entry.get("raw") and source.is_file():
+                series[key] = json.loads(source.read_text())
+        if series:
+            write_json(charts / "curves.json", series)
+
+    for cfg in ("cfg2", "cfg3"):
+        if (charts / f"{cfg}.json").is_file():
+            continue
+        experiments, missing = [], []
+        for key, entry in registry["groups"].items():
+            run = resolve_path(entry["run_dir"])
+            evaluation = run / "evaluations" / cfg
+            if not all((evaluation / name).is_file() for name in ("metrics.json", "run_info.json")):
+                missing.append(key)
+                continue
+            saved = json.loads((evaluation / "run_info.json").read_text())
+            info = saved.get("evaluation", saved)
+            params = run / "params.json"
+            config = json.loads(params.read_text()) if params.is_file() else {}
+            metadata_path = evaluation / "metadata.json"
+            metadata = json.loads(metadata_path.read_text()) if metadata_path.is_file() else {}
+            scenes = metadata.get("human_scene_ids", metadata.get("scene_ids", []))
+            identities = info.get("identities", scenes)
+            split = run / "split_manifest.json"
+            unit = config.get("split", {}).get("unit", "scene")
+            counts = (validate_split(load_split_map(split), unit)
+                      if split.is_file() and not entry.get("raw") else {})
+            manifest = str(split) if cfg == "cfg2" else config.get("eval_manifests", {}).get(cfg)
+            partition = "task" if cfg == "cfg2" and unit == "task" else "shared"
+            tasks = info.get("tasks", len({scene.split('/')[0] for scene in scenes}))
+            experiments.append({"group": key, "label": entry.get("label", key),
+                                "run_dir": str(run), "partition": partition,
+                                "queries": len(identities), "candidates": len(identities),
+                                "test_scenes": info.get("scenes", len(set(scenes))),
+                                "test_tasks": tasks,
+                                "split_manifest": manifest, "split_counts": counts,
+                                "sampling": info.get("sampling", {}),
+                                "checkpoint_selection": config.get("checkpoint_selection"),
+                                "metrics": json.loads((evaluation / "metrics.json").read_text()),
+                                "evaluation": info})
+        if experiments:
+            print(f"Rebuild {directory.name} {cfg}: {len(experiments)} saved runs"
+                  + (f"; missing evaluations: {', '.join(missing)}" if missing else ""), flush=True)
+            _write_comparison(registry, cfg, experiments, charts)
+
+
 def index_plots(root: str | Path) -> dict:
     """Index existing data, including figures whose PNG has been deleted."""
     from bise.modalities.video.figures import keep_first_camera_per_scene
@@ -127,6 +189,7 @@ def index_plots(root: str | Path) -> dict:
 
     for modality in ("trajectory", "video"):
         directory = root / modality
+        _restore_charts(directory)
         for source in sorted(directory.glob("*/curves.json")):
             if source.parent.name == "charts":
                 series = json.loads(source.read_text())

@@ -73,6 +73,9 @@ def main():
         (run_dir / "split_manifest.json").write_bytes(manifest.read_bytes())
         config.setdefault("split", {})["manifest_path"] = str(run_dir / "split_manifest.json")
 
+    if config["model_params"].get("grasp_geometry"):
+        from bise.data.rh20t.grasp_geometry import bind_geometry
+        bind_geometry(config)
     dataset = build_trajectory_dataset(config)
     (run_dir / "data_manifest.json").write_text(json.dumps(dataset.manifest, indent=2))
     split_config = dict(config.get("split") or {"unit": "scene", "seed": config.get("seed", 42), "ratios": {"train": 0.8, "val": 0.1, "test": 0.1}})

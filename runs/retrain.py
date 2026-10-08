@@ -60,6 +60,12 @@ def prepare_batch(config: dict, root: Path, modalities: list[str], seed: int,
                     f"RH20T_{cfg}": str(manifest_dir / cfg / "data_manifest.json")
                     for cfg in ("cfg2", "cfg3")
                 }
+                if current["model_params"].get("grasp_geometry"):
+                    current["data_params"]["geometry_manifests"] = {
+                        f"RH20T_{cfg}": str(resolve_path(config["dataset_root"])
+                                           / f"RH20T_{cfg}" / "geometry.json")
+                        for cfg in ("cfg2", "cfg3")
+                    }
             else:
                 current["dataset"]["pair_manifests"] = {
                     f"RH20T_{cfg}": path for cfg, path in runtime["eval_manifests"].items()
@@ -182,14 +188,28 @@ def main():
         try:
             if stage == "prepare":
                 from bise.data.rh20t.splits import prepare_protocols
-                prepare_protocols(config["dataset_root"], config["source_dir"],
+                prepare_protocols(config["dataset_root"], config.get("source_dir"),
                                   runtime["manifest_dir"], config["seed"])
+                if "trajectory" in modalities:
+                    selected = [entry for key, entry in registries["trajectory"]["groups"].items()
+                                if not args.only or key in args.only]
+                    for entry in selected:
+                        current = json.loads(Path(entry["config"]).read_text())
+                        if current["model_params"].get("grasp_geometry"):
+                            from bise.data.rh20t.grasp_geometry import validate_dataset_geometry
+                            validate_dataset_geometry(current)
+                            break
             elif stage == "audit":
                 from audit_splits import audit
                 audit_config = {**runtime}
                 for modality in ("trajectory", "video"):
                     if modality not in modalities:
                         audit_config[modality] = {}
+                    elif args.only:
+                        audit_config[modality] = {
+                            key: entry for key, entry in runtime[modality].items()
+                            if key in args.only
+                        }
                 report = audit(audit_config, files=True)
                 write_json(root / "audit.json", report)
             elif stage == "train":

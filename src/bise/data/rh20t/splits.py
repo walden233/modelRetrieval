@@ -230,10 +230,11 @@ def _video_pairs(root: Path, hand_entries: dict, decode: bool, hashes: bool = Tr
     return inventory
 
 
-def prepare_protocols(dataset_root: str | Path, source_dir: str | Path,
+def prepare_protocols(dataset_root: str | Path, source_dir: str | Path | None,
                       output_dir: str | Path,
                       seed: int = 42, decode: bool = True) -> dict:
-    dataset_root, source_dir = resolve_path(dataset_root), resolve_path(source_dir)
+    dataset_root = resolve_path(dataset_root)
+    source_dir = resolve_path(source_dir) if source_dir is not None else None
     output_dir = resolve_path(output_dir)
     result = {}
     for cfg in ("cfg2", "cfg3"):
@@ -246,7 +247,14 @@ def prepare_protocols(dataset_root: str | Path, source_dir: str | Path,
             result[cfg] = str(target)
             continue
         root = dataset_root / f"RH20T_{cfg}"
-        data = json.loads((source_dir / f"{cfg}_valid.json").read_text())
+        data_path = directory / "data_manifest.json"
+        if data_path.exists():
+            data = json.loads(data_path.read_text())
+        elif source_dir is not None:
+            data = json.loads((source_dir / f"{cfg}_valid.json").read_text())
+        else:
+            from .hand_3d_trajectory_dataset import build_hand_3d_trajectory_manifest
+            data = build_hand_3d_trajectory_manifest(str(root))
         if data.get("human_source") != "hand_3d_base" or resolve_path(data["data_root"]) != root:
             raise ValueError(f"Wrong trajectory inventory for {cfg}")
         entries = {entry["scene_id"]: entry for entry in data["scenes"]}
@@ -255,6 +263,8 @@ def prepare_protocols(dataset_root: str | Path, source_dir: str | Path,
                               ("tcp_base.npy", "robot_sha256")):
                 if file_hash(root / identity / name) != entry[key]:
                     raise ValueError(f"Trajectory source changed: {root / identity / name}")
+        if not data_path.exists():
+            write_json(data_path, data)
         pairs = _video_pairs(root, entries, decode)
         eligible = sorted(entries.keys() & pairs.keys())
         rng = np.random.default_rng(seed)
@@ -270,10 +280,6 @@ def prepare_protocols(dataset_root: str | Path, source_dir: str | Path,
                 if len(scenes) < 2:
                     raise ValueError(f"Fewer than two shared valid scenes for cfg3 {task}")
                 test.extend(sorted(rng.choice(scenes, 2, replace=False).tolist()))
-        data_path = directory / "data_manifest.json"
-        if data_path.exists() and json.loads(data_path.read_text()) != data:
-            raise FileExistsError(f"Frozen data inventory differs: {data_path}")
-        write_json(data_path, data)
         mapping = {"train": sorted(set(eligible) - set(test + val)) if cfg == "cfg2" else [],
                    "val": val, "test": test}
         trajectory_path = directory / "split_manifest_trajectory.json"

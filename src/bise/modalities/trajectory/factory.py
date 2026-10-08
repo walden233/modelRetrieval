@@ -190,6 +190,13 @@ def build_trajectory_dataset(config: dict, checkpoint: str | None = None):
 
     params = dict(config.get("data_params") or {})
     human_source = params.pop("human_source", "human_pose")
+    geometry_paths = params.pop("geometry_manifests", None)
+    if config["model_params"].get("grasp_geometry"):
+        from bise.data.rh20t.grasp_geometry import geometry_manifest
+        if (human_source != "hand_3d_base" or config.get("use_6_keypoints")
+                or not geometry_paths):
+            raise ValueError("Grasp geometry needs full 21-point hands and prepared manifests")
+        params["geometry_manifest_path"] = str(geometry_manifest(config))
     if human_source not in {"human_pose", "hand_3d_base"}:
         raise ValueError(f"Unknown trajectory human source: {human_source}")
     manifests = config.get("data_manifests") or {}

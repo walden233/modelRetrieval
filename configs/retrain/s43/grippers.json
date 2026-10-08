@@ -1,0 +1,29 @@
+{
+  "raw_roots": {
+    "cfg2": "/mnt/d/RH20T_cfg2",
+    "cfg3": "/mnt/d/RH20T_cfg3"
+  },
+  "max_gap_ms": 250,
+  "profiles": {
+    "cfg2": {
+      "gripper": "Dahuan AG-95",
+      "width_scale_to_m": 0.001,
+      "max_width_m": 0.095,
+      "reference": "aligned_tcp_proxy",
+      "tcp_to_grasp": [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]],
+      "source": "Preserve RH20T aligned TCP as the operation reference; jaw points are virtual.",
+      "reference_source": "https://github.com/rh20t/rh20t_api/blob/main/rh20t_api/online.py",
+      "width_source": "RH20T official dahuan_gripper_preprocessor uses 95 mm; verified selected raw feedback spans 0..95 mm: https://github.com/rh20t/rh20t_api/blob/main/rh20t_api/configurations.py"
+    },
+    "cfg3": {
+      "gripper": "WSG-50",
+      "width_scale_to_m": 0.001,
+      "max_width_m": 0.11,
+      "reference": "aligned_tcp_proxy",
+      "tcp_to_grasp": [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]],
+      "source": "Preserve RH20T aligned TCP as the operation reference; jaw points are virtual.",
+      "reference_source": "https://github.com/rh20t/rh20t_api/blob/main/rh20t_api/online.py",
+      "width_source": "WSG 50-110 manufacturer full stroke 110 mm; selected raw feedback reaches 110 mm: https://weiss-robotics.com/servo-electric/wsg-series/product/wsg-serie/"
+    }
+  }
+}

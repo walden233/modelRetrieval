@@ -135,7 +135,8 @@ class RH20THand3DTrajectoryDataset(Dataset):
     def __init__(self, root_dir: str, use_6_keypoints: bool = False,
                  manifest_path: str | None = None, preserve_timing: bool = True,
                  max_human_frames: int | None = None, max_robot_frames: int | None = None,
-                 human_representation: str = "base_xyz"):
+                 human_representation: str = "base_xyz",
+                 geometry_manifest_path: str | None = None):
         if not preserve_timing:
             raise ValueError("hand_3d_base requires preserve_timing=True")
         if max_human_frames is not None and max_human_frames < 4:
@@ -159,6 +160,22 @@ class RH20THand3DTrajectoryDataset(Dataset):
         if Path(self.manifest["data_root"]).resolve() != Path(root_dir).resolve():
             raise ValueError("Trajectory manifest belongs to a different data root")
         self.entries = {entry["scene_id"]: entry for entry in self.manifest["scenes"]}
+        self.geometry = (json.loads(Path(geometry_manifest_path).read_text())
+                         if geometry_manifest_path else None)
+        self.dataset_geometry = self.geometry is not None and "scenes" not in self.geometry
+        if self.geometry is not None:
+            if self.dataset_geometry:
+                from .grasp_geometry import validate_profile
+                if (use_6_keypoints or not self.geometry.get("profiles")
+                        or Path(geometry_manifest_path).resolve()
+                        != (Path(root_dir) / "geometry.json").resolve()):
+                    raise ValueError("Grasp geometry needs dataset parameters and full 21-point hands")
+                for profile in self.geometry["profiles"].values():
+                    validate_profile(profile)
+            elif (self.geometry.get("schema_version") != 1 or use_6_keypoints
+                    or Path(self.geometry["data_root"]).resolve() != Path(root_dir).resolve()
+                    or set(self.geometry["scenes"]) != set(self.entries)):
+                raise ValueError("Grasp geometry must match the full 21-point trajectory inventory")
         if len(self.entries) != len(self.manifest["scenes"]):
             raise ValueError("Duplicate scene identity in trajectory manifest")
         task_names = sorted({entry["task_id"] for entry in self.manifest["scenes"]})
@@ -190,6 +207,15 @@ class RH20THand3DTrajectoryDataset(Dataset):
         entry = self.entries[scene_id]
         human, _ = load_trajectory_file(scene.human_pose_path, entry["human_sha256"])
         robot, _ = load_trajectory_file(scene.tcp_base_path, entry["robot_sha256"])
+        grasp = None
+        if self.geometry is not None:
+            if self.dataset_geometry:
+                grasp, _ = load_trajectory_file(Path(scene.scene_path) / "geometry.npy")
+            else:
+                prepared = self.geometry["scenes"][scene_id]
+                if prepared["robot_sha256"] != entry["robot_sha256"]:
+                    raise ValueError(f"Grasp geometry belongs to a different TCP sequence: {scene_id}")
+                grasp, _ = load_trajectory_file(prepared["path"], prepared["sha256"])
         result = {key: [] for key in ("human_poses", "tcp_bases", "camera_ids", "human_times",
                                      "robot_times", "human_observed", "human_frame_indices")}
         for camera_id, camera_entry in sorted(entry["cameras"].items()):
@@ -216,6 +242,11 @@ class RH20THand3DTrajectoryDataset(Dataset):
                 poses = poses[:, KEYPOINT_INDICES, :]
             robot_frames = robot[camera_id]
             tcp = np.asarray([frame["tcp"] for frame in robot_frames], dtype=np.float32)
+            if grasp is not None:
+                tcp = np.asarray(grasp[camera_id], dtype=np.float32)
+                if (tcp.shape != (len(robot_frames), 8) or not np.isfinite(tcp).all()
+                        or (tcp[:, 7] < 0).any() or (tcp[:, 7] > 1).any()):
+                    raise ValueError(f"Invalid calibrated grasp sequence: {scene_id}/{camera_id}")
             robot_times = np.asarray([frame["timestamp"] for frame in robot_frames], dtype=np.float64)
             robot_times = (robot_times - robot_times[0]) / 1000.0
             robot_selected = _sample_indices(robot_times, self.max_robot_frames, by_time=True)

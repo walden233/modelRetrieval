@@ -143,6 +143,51 @@ def test_new_batches_create_separate_metadata_and_aligned_splits(tmp_path):
     assert load_protocol(first["cfg2"])["test"] != load_protocol(second["cfg2"])["test"]
 
 
+def test_new_batch_freezes_one_inventory_without_source_directory(tmp_path, monkeypatch):
+    from bise.data.rh20t import hand_3d_trajectory_dataset
+    inventories = {}
+    for cfg, count in (("cfg2", 180), ("cfg3", 2)):
+        _, payload, _ = frozen_protocol(tmp_path, cfg, count, with_files=True)
+        data = json.loads(Path(payload["data_manifest"]).read_text())
+        for entry in data["scenes"]:
+            for filename, key in (("human_hand_3d.npy", "human_sha256"),
+                                  ("tcp_base.npy", "robot_sha256")):
+                file = Path(data["data_root"]) / entry["scene_id"] / filename
+                file.write_bytes(b"fixture trajectory")
+                entry[key] = file_hash(file)
+        inventories[f"RH20T_{cfg}"] = data
+    monkeypatch.setattr(hand_3d_trajectory_dataset, "build_hand_3d_trajectory_manifest",
+                        lambda root: inventories[Path(root).name])
+    output = tmp_path / "manifests/new"
+    result = prepare_protocols(tmp_path, None, output, seed=43, decode=False)
+    expected = {f"{cfg}/{name}.json" for cfg in ("cfg2", "cfg3") for name in (
+        "metadata", "data_manifest", "split_manifest_trajectory", "split_manifest_video")}
+    assert {str(path.relative_to(output)) for path in output.rglob("*.json")} == expected
+    assert not (output / "source").exists()
+    before = {path: path.read_bytes() for path in output.rglob("*.json")}
+
+    def unexpected_rescan(root):
+        raise AssertionError(f"Frozen inventory must be reused: {root}")
+    monkeypatch.setattr(hand_3d_trajectory_dataset, "build_hand_3d_trajectory_manifest",
+                        unexpected_rescan)
+    # Recover a partial preparation from the one authoritative inventory.
+    (output / "cfg3/metadata.json").unlink()
+    assert prepare_protocols(tmp_path, None, output, seed=43, decode=False) == result
+    assert all(path.read_bytes() == value for path, value in before.items())
+    assert len(load_protocol(result["cfg2"])["test"]) == 120
+    assert len(load_protocol(result["cfg3"])["test"]) == 2
+
+
+def test_independent_audit_derives_manifests_from_batch(tmp_path):
+    for cfg, count in (("cfg2", 180), ("cfg3", 2)):
+        batch_protocol(tmp_path, cfg, count)
+    module = load_entry("audit_splits")
+    report = module.audit({"manifest_dir": str(tmp_path / "manifests"), "batch": "s42",
+                           "trajectory": {}, "video": {}})
+    assert report["protocols"]["cfg2"]["test"] == 120
+    assert report["protocols"]["cfg3"]["test"] == 2
+
+
 def test_runtime_paths_follow_batch_and_preserve_task_configs(tmp_path):
     module = load_entry("retrain")
     config = json.loads((ROOT / "configs/retrain/run.json").read_text())

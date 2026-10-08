@@ -23,6 +23,7 @@ def validate_checkpoint_config(config: dict, checkpoint: str) -> None:
     if not path.exists():
         return
     saved = json.loads(path.read_text())
-    for key in ("model_params", "data_params", "use_6_keypoints", "reference_frames"):
+    for key in ("model_params", "data_params", "use_6_keypoints", "reference_frames",
+                "geometry_hashes"):
         if saved.get(key) != config.get(key):
             raise ValueError(f"Evaluation {key} differs from checkpoint training config: {path}")

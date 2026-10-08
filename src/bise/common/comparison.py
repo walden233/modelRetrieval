@@ -19,6 +19,32 @@ from bise.data.rh20t.splits import (
 METRICS = ("R@1", "R@5", "R@10", "MRR", "NDCG@10")
 
 
+def _write_comparison(registry: dict, cfg: str, experiments: list, output: Path) -> None:
+    rows = []
+    for experiment in experiments:
+        for direction, levels in experiment["metrics"].items():
+            for level, metrics in levels.items():
+                for metric, value in metrics.items():
+                    rows.append({"cfg": cfg, "group": experiment["group"],
+                                 "partition": experiment["partition"], "direction": direction,
+                                 "level": level, "metric": metric, "value": value,
+                                 "queries": experiment["queries"],
+                                 "candidates": experiment["candidates"],
+                                 "test_scenes": experiment["test_scenes"],
+                                 "test_tasks": experiment["test_tasks"],
+                                 "split_manifest": experiment["split_manifest"],
+                                 "run_dir": experiment["run_dir"]})
+    output.mkdir(parents=True, exist_ok=True)
+    write_json(output / f"{cfg}.json", {"protocol": PROTOCOL, "cfg": cfg,
+                                       "modality": registry["modality"],
+                                       "batch": registry.get("batch"),
+                                       "experiments": experiments, "rows": rows})
+    with (output / f"{cfg}.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 def load_runs(path: str | Path) -> dict:
     registry = json.loads(resolve_path(path).read_text())
     if (registry.get("protocol") != PROTOCOL
@@ -132,28 +158,7 @@ def export_comparison(registry: dict, cfgs: list[str], output: Path) -> dict:
     output.mkdir(parents=True, exist_ok=True)
     summary = {}
     for cfg, experiments in gathered.items():
-        rows = []
-        for experiment in experiments:
-            for direction, levels in experiment["metrics"].items():
-                for level, metrics in levels.items():
-                    for metric, value in metrics.items():
-                        rows.append({"cfg": cfg, "group": experiment["group"],
-                                     "partition": experiment["partition"], "direction": direction,
-                                     "level": level, "metric": metric, "value": value,
-                                     "queries": experiment["queries"],
-                                     "candidates": experiment["candidates"],
-                                     "test_scenes": experiment["test_scenes"],
-                                     "test_tasks": experiment["test_tasks"],
-                                     "split_manifest": experiment["split_manifest"],
-                                     "run_dir": experiment["run_dir"]})
-        write_json(output / f"{cfg}.json", {"protocol": PROTOCOL, "cfg": cfg,
-                                           "modality": registry["modality"],
-                                           "batch": registry.get("batch"),
-                                           "experiments": experiments, "rows": rows})
-        with (output / f"{cfg}.csv").open("w", newline="", encoding="utf-8") as handle:
-            writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
-            writer.writeheader()
-            writer.writerows(rows)
+        _write_comparison(registry, cfg, experiments, output)
         test_label = "per-run test" if cfg == "cfg2" else "shared test"
         _plot(experiments, output / f"{cfg}.png",
               f"{registry['modality']} {registry.get('batch', 'retrain')} {cfg} / "

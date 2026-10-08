@@ -59,6 +59,9 @@ def evaluator_hash(modality: str) -> str:
     paths += sorted((root / f"src/bise/modalities/{modality}/models").glob("*.py"))
     if modality == "trajectory":
         paths += [root / "src/bise/data/rh20t/human_representation.py",
+                  root / "src/bise/data/rh20t/grasp_geometry.py",
+                  root / "src/bise/modalities/trajectory/grasp.py",
+                  root / "src/bise/modalities/trajectory/geometry.py",
                   root / "src/bise/data/rh20t/collate.py",
                   root / "runs/trajectory/evaluate_retrieval.py"]
     else:
@@ -97,7 +100,8 @@ def evaluation_inputs(config: dict, checkpoint: str | Path, modality: str,
         raise ValueError(f"Empty evaluation split: {manifest_path}:{split}")
     validate_split(mapping)
     saved = json.loads((run / "params.json").read_text())
-    for key in (("model_params", "data_params", "use_6_keypoints", "reference_frames")
+    for key in (("model_params", "data_params", "use_6_keypoints", "reference_frames",
+                 "geometry_hashes")
                 if modality == "trajectory" else ("model", "dataset")):
         current, original = config.get(key), saved.get(key)
         if key == "dataset":
@@ -144,6 +148,10 @@ def evaluation_inputs(config: dict, checkpoint: str | Path, modality: str,
     keys = (("max_human_frames", "max_robot_frames", "preserve_timing") if modality == "trajectory"
             else ("num_frames", "sampling_strategy", "sampling_stride", "eval_augmentations"))
     sampling = {key: source.get(key) for key in keys}
+    geometry = {}
+    if modality == "trajectory" and config["model_params"].get("grasp_geometry"):
+        from bise.data.rh20t.grasp_geometry import geometry_digest
+        geometry["geometry_sha256"] = geometry_digest(config, selected)
     return {"cfg": cfg, "split": split, "modality": modality, "protocol": PROTOCOL,
             "checkpoint_sha256": file_hash(checkpoint), "config_sha256": object_hash(config),
             "protocol_sha256": protocol_hash(protocol_path),
@@ -152,7 +160,7 @@ def evaluation_inputs(config: dict, checkpoint: str | Path, modality: str,
             "identities": identities,
             "scenes": len({x[0] for x in identities}),
             "tasks": len({x[0].split('/')[0] for x in identities}),
-            "data_manifest": data}
+            "data_manifest": data, **geometry}
 
 
 def metadata_identities(metadata: dict, modality: str, domain: str) -> list:

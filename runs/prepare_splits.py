@@ -19,8 +19,9 @@ def main():
     batch = args.batch or config["batch"]
     if Path(batch).name != batch or batch in (".", ".."):
         parser.error("--batch must be a single directory name")
-    result = prepare_protocols(config["dataset_root"], config["source_dir"],
-                               Path(config["manifest_dir"]) / batch, config["seed"])
+    output = Path(config["manifest_dir"]) / batch
+    result = prepare_protocols(config["dataset_root"], config.get("source_dir"),
+                               output, config["seed"])
     print(json.dumps(result, indent=2))
 
 

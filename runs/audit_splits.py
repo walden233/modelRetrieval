@@ -15,7 +15,11 @@ from bise.data.rh20t.splits import load_protocol, load_split_map, validate_split
 
 def audit(config: dict, files: bool = False, runs: str | None = None) -> dict:
     report = {"protocols": {}, "groups": {}}
-    for cfg, path in config["eval_manifests"].items():
+    manifests = config.get("eval_manifests")
+    if manifests is None:
+        directory = resolve_path(config["manifest_dir"]) / config["batch"]
+        manifests = {cfg: directory / cfg / "metadata.json" for cfg in ("cfg2", "cfg3")}
+    for cfg, path in manifests.items():
         payload = load_protocol(path, video_hashes=files)
         root = resolve_path(payload["data_root"])
         data = json.loads(resolve_path(payload["data_manifest"]).read_text())
@@ -55,6 +59,9 @@ def audit(config: dict, files: bool = False, runs: str | None = None) -> dict:
             split.setdefault("seed", current["seed"])
             if modality == "trajectory":
                 source = build_trajectory_dataset(current)
+                if files and current["model_params"].get("grasp_geometry"):
+                    for index in range(len(source)):
+                        source[index]
                 subsets = (split_task_dataset(source, split, modality)
                            if split.get("scene_counts") and not split.get("manifest_path")
                            else split_trajectory_dataset(source, split))

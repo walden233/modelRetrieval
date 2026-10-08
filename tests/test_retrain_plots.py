@@ -1,4 +1,5 @@
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -196,3 +197,97 @@ def test_index_cli_and_curves_preserve_epoch_numbers(tmp_path, monkeypatch):
     series = json.loads((directory / "curves.json").read_text())
     plot_curves(series, {"T4": "T4 label"}, directory / "curves.png", "trajectory / s42")
     assert points == [([1, 3], [1., .3]), ([2, 3], [.2, .4])]
+
+
+@pytest.mark.parametrize("modality,group", [("trajectory", "T4"), ("video", "E3")])
+@pytest.mark.parametrize("missing", ["directory", "cfg2", "cfg3"])
+def test_redraw_rebuilds_missing_chart_data_from_saved_runs(tmp_path, monkeypatch,
+                                                           modality, group, missing):
+    root, _, _ = plot_batch(tmp_path)
+    directory = root / modality
+    run = directory / group
+    write_json(run / "params.json", {"split": {"unit": "task"}})
+    for cfg in ("cfg2", "cfg3"):
+        source = run / "evaluations" / cfg / "metrics.json"
+        metrics = json.loads(source.read_text())
+        for values in metrics["human_to_robot"].values():
+            values["MPR-all"] = 42.0
+        write_json(source, metrics)
+    before = {path: file_hash(path) for path in run.rglob("*") if path.is_file()}
+    charts = directory / "charts"
+    if missing == "directory":
+        shutil.rmtree(charts)
+    else:
+        (charts / f"{missing}.json").unlink()
+        (charts / f"{missing}.png").write_bytes(b"old image without aggregate JSON")
+
+    from bise.common import comparison
+    def evaluate(*args, **kwargs):
+        raise AssertionError("Redraw must use saved results without evaluating models")
+    monkeypatch.setattr(comparison, "validate_evaluation", evaluate)
+    def savefig(figure, path, **kwargs):
+        manifest = json.loads((root / "plots.json").read_text())
+        assert path.relative_to(root).as_posix() in manifest
+        assert len(manifest) == 16
+        path.write_bytes(b"redrawn image")
+    monkeypatch.setattr(matplotlib.figure.Figure, "savefig", savefig)
+
+    payload = redraw_plots(root)
+    cfgs = ("cfg2", "cfg3") if missing == "directory" else (missing,)
+    for cfg in cfgs:
+        restored = json.loads((charts / f"{cfg}.json").read_text())
+        assert [experiment["group"] for experiment in restored["experiments"]] == [group]
+        assert restored["experiments"][0]["test_scenes"] == 2
+        assert restored["experiments"][0]["partition"] == ("task" if cfg == "cfg2" else "shared")
+        mpr = [row["value"] for row in restored["rows"] if row["metric"] == "MPR-all"]
+        assert mpr == [42., 42.]
+        assert (charts / f"{cfg}.csv").is_file() and (charts / f"{cfg}.png").is_file()
+        assert payload[f"{modality}/charts/{cfg}.png"]["inputs"] == [
+            f"{modality}/charts/{cfg}.json"]
+    assert (charts / "curves.png").is_file()
+    assert all(file_hash(path) == digest for path, digest in before.items())
+    assert "sha256" not in (root / "plots.json").read_text()
+
+
+def test_redraw_prefers_existing_comparison_json_over_changed_run_metrics(tmp_path, monkeypatch):
+    root, _, _ = plot_batch(tmp_path)
+    chart = root / "trajectory/charts/cfg2.json"
+    original = chart.read_bytes()
+    metrics_path = root / "trajectory/T4/evaluations/cfg2/metrics.json"
+    metrics = json.loads(metrics_path.read_text())
+    metrics["human_to_robot"]["task"]["R@1"] = .9
+    write_json(metrics_path, metrics)
+    (root / "trajectory/charts/cfg3.json").unlink()
+    plotted = {}
+    from bise.common import comparison
+    def plot(experiments, path, title):
+        plotted[path.relative_to(root).as_posix()] = experiments
+        path.write_bytes(b"restored image")
+    monkeypatch.setattr(comparison, "_plot", plot)
+    monkeypatch.setattr(matplotlib.figure.Figure, "savefig",
+                        lambda figure, path, **kwargs: path.write_bytes(b"restored image"))
+    redraw_plots(root)
+    assert chart.read_bytes() == original
+    task_metrics = plotted["trajectory/charts/cfg2.png"][0]["metrics"]["human_to_robot"]["task"]
+    assert task_metrics["R@1"] == .5
+    assert json.loads(metrics_path.read_text())["human_to_robot"]["task"]["R@1"] == .9
+
+
+def test_rebuild_uses_available_evaluations_and_preserves_registry_order(tmp_path, monkeypatch,
+                                                                      capsys):
+    root, _, _ = plot_batch(tmp_path)
+    directory = root / "trajectory"
+    registry = json.loads((directory / "runs.json").read_text())
+    copied = directory / "T2"
+    shutil.copytree(directory / "T4", copied)
+    write_json(copied / "params.json", {"split": {"unit": "scene"}})
+    registry["groups"]["T2"] = {"run_dir": str(copied), "label": "T2 label"}
+    registry["groups"]["N3"] = {"run_dir": str(directory / "N3"), "label": "N3"}
+    write_json(directory / "runs.json", registry)
+    (directory / "charts/cfg2.json").unlink()
+    monkeypatch.setattr(matplotlib.figure.Figure, "savefig",
+                        lambda figure, path, **kwargs: path.write_bytes(b"restored image"))
+    redraw_plots(root)
+    data = json.loads((directory / "charts/cfg2.json").read_text())
+    assert [experiment["group"] for experiment in data["experiments"]] == ["T4", "T2"]
+    assert "missing evaluations: N3" in capsys.readouterr().out
