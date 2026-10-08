@@ -44,19 +44,28 @@ E6d 共用一套骨干，解冻最后两个 Transformer block 并训练双适配
 0.005 m、最大旋转 10°。统一模型宽度 128、5 层、投影维度 128、初始学习率 2e-4，
 双侧最多 256 帧。cfg3 对八组使用同一评估集合。
 
-共享协议固定在：
+共享协议按大 batch 存在 `artifacts/manifests/retrain/<batch>/<cfg>/`，
+同一 batch 内共享，两个 cfg 都采用以下格式：
 
-- `artifacts/manifests/rh20t_shared_v1/cfg2_split_manifest.json`：随机固定 120 test / 50 val；
-- `artifacts/manifests/rh20t_shared_v1/cfg3_split_manifest.json`：每个本地 task 随机固定两个 scene；
-- `artifacts/manifests/retrain/cfg2_data.json`、`cfg3_data.json`：新数据库存快照。
+```text
+metadata.json                  # schema_version=3，数据根目录、快照指纹、两份划分路径
+data_manifest.json             # 原轨迹数据库存格式
+split_manifest_trajectory.json # train/val/test：task_xxxx/scene_x
+split_manifest_video.json      # train/val/test：rh20t::task_xxxx::scene_x::camera
+```
 
-协议为 `retrain_v2`。首次生成只允许替换与旧 `cfg2_fixed_test_scenes.json`
-完全相同的历史重复文件；其它未知文件不会被覆盖。已有新协议再次执行只校验并复用，
-不能原地修改 seed 或数据库存。历史 43-scene 文件与旧 run 保留。
+两份划分只有 `train/val/test` 三个列表，格式与各 run 的 `split_manifest.json` 相同。
+视频按轨迹的 scene 顺序逐一展开，每个 scene 两条固定相机样本；读取时校验两份文件
+的集合、划分和顺序一致。cfg2 随机固定 120 test / 50 val，其余共同有效 scene 训练；
+cfg3 每个本地 task 固定两个评估 scene，train/val 为空。
+`--batch` 同时选择 run 与清单目录；准备阶段优先校验并复用已有批次文件。
+已有 batch 不原地修改 seed 或数据快照，不同 batch 使用独立文件。
+协议仍为 `retrain_v2`，旧 schema_version=2 的清单和旧 run 继续可读。
 
 固定抽样 seed 为 42，与训练 seed 分开。cfg2 从 428 个共同有效 scene 抽样；
-cfg3 的 64 个 task 共 128 个评估 scene。每个视频 scene 显式冻结两个 camera、
-人机文件路径与 SHA-256，生成时检查均匀 16 帧解码。源文件变化或读取失败直接报错。
+cfg3 的 64 个 task 共 128 个评估 scene。视频划分文件显式冻结两个 camera，
+人机路径按 sample ID 解析。生成新批次时检查均匀 16 帧解码；视频文件指纹继续记录
+在 run 的数据快照中，训练期间文件变化或读取失败直接报错。
 
 普通实验配置默认 `split.use_fixed_val=true`。设为 `false` 时，从排除 test 的可用
 scene 中按训练 seed 随机选择 `split.val_count` 个验证 scene（默认 50）；原固定 val
@@ -75,7 +84,7 @@ T4/E3 保留 task 隔离，seed 42，不使用共享 cfg2 test/val。
 |---|---:|---:|---:|
 | 普通轨迹组 | 258 | 50 | 120 |
 | T4（新目标） | 258 | 50 | 120 |
-| 普通视频组 | 264 | 50 | 120 |
+| 普通视频组（新 batch 共享清单） | 258 | 50 | 120 |
 | E3（新目标） | 264 | 50 | 120 |
 
 视频每 scene 两对，普通 cfg2 test 为 240 查询 / 240 候选。
@@ -84,7 +93,8 @@ cfg3 task 编号是该子集内部标签，不表示已建立 cfg2↔cfg3 任务
 
 cfg2 独立评估统一读取每个 run 的 `split_manifest.json:test`，保留实际训练划分。
 RawJ/RawM 没有训练阶段，首次评估会按它们的配置生成并保存同格式的 cfg2 划分。
-cfg3 使用 `cfg3_split_manifest.json:test`；不能将 cfg2 的训练划分用于 cfg3 数据。
+cfg3 使用该 batch 的 `cfg3/split_manifest_<modality>.json:test`；
+不能将 cfg2 的训练划分用于 cfg3 数据。已有 run 的参数和划分仍按原记录复用。
 两个模态默认都评估 cfg2、cfg3，每个数据域各输出一张包含全部组的主比较图。
 T4/E3 也放进 cfg2 主图，以星号标注 task 划分；图中显示各组测试 scene 数，
 JSON/CSV 同时记录各自的清单路径、测试 scene/task 数、查询和候选数。
@@ -177,7 +187,7 @@ python runs/retrain.py --batch s42b --stage eval --only T4 E3
 
 ```bash
 # 只准备共享清单和数据库存快照。
-python runs/prepare_splits.py
+python runs/prepare_splits.py --batch s42b
 
 # 只审计；--files 校验所有冻结源文件。
 python runs/audit_splits.py --files --output artifacts/runs/retrain/audit.json

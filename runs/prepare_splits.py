@@ -13,10 +13,14 @@ from bise.data.rh20t.splits import prepare_protocols
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default="configs/retrain/run.json")
+    parser.add_argument("--batch", help="Batch whose frozen manifests will be prepared")
     args = parser.parse_args()
     config = json.loads(Path(args.config).read_text())
+    batch = args.batch or config["batch"]
+    if Path(batch).name != batch or batch in (".", ".."):
+        parser.error("--batch must be a single directory name")
     result = prepare_protocols(config["dataset_root"], config["source_dir"],
-                               config["data_dir"], config["manifest_dir"], config["seed"])
+                               Path(config["manifest_dir"]) / batch, config["seed"])
     print(json.dumps(result, indent=2))
 
 

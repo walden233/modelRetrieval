@@ -142,7 +142,7 @@ class RH20TVideoDataset(Dataset):
     def _frozen_samples(self, manifest_path: str) -> List[VideoPairSample]:
         from bise.common.fingerprints import file_hash
         from .splits import load_protocol
-        payload = load_protocol(manifest_path, self.root_dir)
+        payload = load_protocol(manifest_path, self.root_dir, video_hashes=True)
         if self.max_pairs_per_scene not in (None, 2):
             raise ValueError("Frozen video protocol requires exactly two pairs per scene")
         samples = []

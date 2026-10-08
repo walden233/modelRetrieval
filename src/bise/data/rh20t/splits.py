@@ -54,12 +54,64 @@ def validate_split(mapping: dict, unit: str = "scene") -> dict:
     return counts
 
 
-def load_protocol(path: str | Path, data_root: str | Path | None = None) -> dict:
+def protocol_metadata_path(path: str | Path) -> Path:
     path = resolve_path(path)
+    if path.name in ("split_manifest_trajectory.json", "split_manifest_video.json"):
+        return path.parent / "metadata.json"
+    return path
+
+
+def protocol_hash(path: str | Path) -> str:
+    path = protocol_metadata_path(path)
+    metadata = json.loads(path.read_text())
+    if metadata.get("schema_version") == 3:
+        return object_hash({"metadata": file_hash(path), "splits": {
+            modality: file_hash(resolve_path(source))
+            for modality, source in metadata["split_manifests"].items()
+        }})
+    return file_hash(path)
+
+
+def _batch_protocol(metadata: dict) -> dict:
+    trajectory = load_split_map(metadata["split_manifests"]["trajectory"])
+    video = load_split_map(metadata["split_manifests"]["video"])
+    validate_split(trajectory)
+    validate_split(video)
+    data = json.loads(resolve_path(metadata["data_manifest"]).read_text())
+    entries = {entry["scene_id"]: entry for entry in data["scenes"]}
+    pairs = _video_pairs(resolve_path(metadata["data_root"]), entries, False, hashes=False)
+    for name in SPLITS:
+        scenes, samples = trajectory.get(name, []), video.get(name, [])
+        if len(samples) != 2 * len(scenes):
+            raise ValueError(f"Batch {name} requires two video pairs per trajectory scene")
+        for index, identity in enumerate(scenes):
+            selected = samples[2 * index:2 * index + 2]
+            if any(scene_id(sample) != identity for sample in selected):
+                raise ValueError(f"Batch trajectory/video {name} scene order differs")
+            scene_pairs = []
+            for sample in selected:
+                parts = sample.split("::")
+                if len(parts) != 4 or parts[0] != "rh20t":
+                    raise ValueError(f"Invalid frozen video sample: {sample}")
+                camera = parts[3]
+                scene_pairs.append({"sample_id": sample, "camera_id": camera,
+                                    **{f"{domain}_path": f"{identity}/cam_{camera}_{domain}.mp4"
+                                       for domain in ("human", "robot")}})
+            pairs[identity] = scene_pairs
+    return {**metadata, **trajectory, "video_pairs": pairs,
+            "eligible_scenes": sorted(entries.keys() & pairs.keys()),
+            "inventory_sha256": object_hash(pairs)}
+
+
+def load_protocol(path: str | Path, data_root: str | Path | None = None,
+                  video_hashes: bool = False) -> dict:
+    path = protocol_metadata_path(path)
     payload = json.loads(path.read_text())
-    if payload.get("protocol") != PROTOCOL or payload.get("schema_version") != 2:
+    if payload.get("protocol") != PROTOCOL or payload.get("schema_version") not in (2, 3):
         raise ValueError(f"Expected {PROTOCOL} manifest: {path}")
-    mapping = load_split_map(path)
+    if payload["schema_version"] == 3:
+        payload = _batch_protocol(payload)
+    mapping = {key: payload[key] for key in SPLITS if key in payload}
     validate_split(mapping)
     if data_root is not None and resolve_path(data_root) != resolve_path(payload["data_root"]):
         raise ValueError(f"Manifest belongs to a different data root: {path}")
@@ -103,6 +155,16 @@ def load_protocol(path: str | Path, data_root: str | Path | None = None) -> dict
     for identity in mapping.get("test", []) + mapping.get("val", []):
         if identity not in payload["video_pairs"]:
             raise ValueError(f"Scene lacks frozen video pairs: {identity}")
+    if video_hashes:
+        root = resolve_path(payload["data_root"])
+        for pairs in payload["video_pairs"].values():
+            for pair in pairs:
+                for domain in ("human", "robot"):
+                    key = f"{domain}_sha256"
+                    if key not in pair:
+                        pair[key] = file_hash(root / pair[f"{domain}_path"])
+        if payload["schema_version"] == 3:
+            payload["inventory_sha256"] = object_hash(payload["video_pairs"])
     return payload
 
 
@@ -111,10 +173,11 @@ def shared_scene_split(available: list[str], config: dict) -> dict:
         raise ValueError("Shared scene split requires unit=scene")
     payload = load_protocol(config["shared_manifest_path"])
     test = payload["test"]
-    missing = set(test + payload["val"]) - set(available)
+    frozen = payload.get("train", []) + payload["val"] + test
+    missing = set(frozen) - set(available)
     if missing:
         raise ValueError(f"Shared scenes missing from dataset: {sorted(missing)[:5]}")
-    remaining = sorted(set(available) - set(test))
+    remaining = sorted(set(frozen if payload["schema_version"] == 3 else available) - set(test))
     if config.get("use_fixed_val", True):
         val = payload["val"]
     else:
@@ -123,12 +186,14 @@ def shared_scene_split(available: list[str], config: dict) -> dict:
             raise ValueError("val_count must leave a nonempty training pool")
         rng = np.random.default_rng(int(config.get("seed", 42)))
         val = sorted(rng.choice(remaining, count, replace=False).tolist())
-    mapping = {"train": sorted(set(remaining) - set(val)), "val": list(val), "test": list(test)}
+    train = (payload["train"] if payload["schema_version"] == 3
+             and config.get("use_fixed_val", True) else sorted(set(remaining) - set(val)))
+    mapping = {"train": list(train), "val": list(val), "test": list(test)}
     validate_split(mapping)
     return mapping
 
 
-def _video_pairs(root: Path, hand_entries: dict, decode: bool) -> dict:
+def _video_pairs(root: Path, hand_entries: dict, decode: bool, hashes: bool = True) -> dict:
     inventory = {}
     paths = sorted(p for p in root.glob("task_*/scene_*") if p.is_dir())
     for index, path in enumerate(paths):
@@ -156,36 +221,30 @@ def _video_pairs(root: Path, hand_entries: dict, decode: bool) -> dict:
                     reader.get_batch(np.linspace(0, len(reader) - 1, 16, dtype=int)).asnumpy()
                     item[f"{domain}_frames"] = len(reader)
                 item[f"{domain}_path"] = str(file.relative_to(root))
-                item[f"{domain}_sha256"] = file_hash(file)
+                if hashes:
+                    item[f"{domain}_sha256"] = file_hash(file)
             pairs.append(item)
         inventory[identity] = pairs
-        if index % 25 == 0:
+        if (decode or hashes) and index % 25 == 0:
             print(f"{root.name}: freeze video pairs {index + 1}/{len(paths)}", flush=True)
     return inventory
 
 
 def prepare_protocols(dataset_root: str | Path, source_dir: str | Path,
-                      data_dir: str | Path, output_dir: str | Path,
+                      output_dir: str | Path,
                       seed: int = 42, decode: bool = True) -> dict:
     dataset_root, source_dir = resolve_path(dataset_root), resolve_path(source_dir)
-    data_dir, output_dir = resolve_path(data_dir), resolve_path(output_dir)
+    output_dir = resolve_path(output_dir)
     result = {}
     for cfg in ("cfg2", "cfg3"):
-        target = output_dir / f"{cfg}_split_manifest.json"
+        directory = output_dir / cfg
+        target = directory / "metadata.json"
         if target.exists():
-            old = json.loads(target.read_text())
-            if old.get("protocol") == PROTOCOL:
-                frozen = load_protocol(target, dataset_root / f"RH20T_{cfg}")
-                if frozen["seed"] != seed:
-                    raise ValueError(
-                        "Existing protocol has a different seed; use a new manifest directory"
-                    )
-                result[cfg] = str(target)
-                continue
-            # The old cfg2 file was a duplicate of the historical 43-scene manifest.
-            legacy = output_dir / "cfg2_fixed_test_scenes.json"
-            if cfg != "cfg2" or not legacy.exists() or old != json.loads(legacy.read_text()):
-                raise FileExistsError(f"Refusing to overwrite an unrelated manifest: {target}")
+            frozen = load_protocol(target, dataset_root / f"RH20T_{cfg}")
+            if frozen["seed"] != seed:
+                raise ValueError("Existing batch protocol has a different seed; use a new batch")
+            result[cfg] = str(target)
+            continue
         root = dataset_root / f"RH20T_{cfg}"
         data = json.loads((source_dir / f"{cfg}_valid.json").read_text())
         if data.get("human_source") != "hand_3d_base" or resolve_path(data["data_root"]) != root:
@@ -211,17 +270,27 @@ def prepare_protocols(dataset_root: str | Path, source_dir: str | Path,
                 if len(scenes) < 2:
                     raise ValueError(f"Fewer than two shared valid scenes for cfg3 {task}")
                 test.extend(sorted(rng.choice(scenes, 2, replace=False).tolist()))
-        data_path = data_dir / f"{cfg}_data.json"
+        data_path = directory / "data_manifest.json"
         if data_path.exists() and json.loads(data_path.read_text()) != data:
             raise FileExistsError(f"Frozen data inventory differs: {data_path}")
         write_json(data_path, data)
-        payload = {"schema_version": 2, "protocol": PROTOCOL, "cfg": cfg, "seed": seed,
+        mapping = {"train": sorted(set(eligible) - set(test + val)) if cfg == "cfg2" else [],
+                   "val": val, "test": test}
+        trajectory_path = directory / "split_manifest_trajectory.json"
+        video_path = directory / "split_manifest_video.json"
+        video_mapping = {name: [pair["sample_id"] for identity in scenes
+                                for pair in pairs[identity]] for name, scenes in mapping.items()}
+        for path, split in ((trajectory_path, mapping), (video_path, video_mapping)):
+            if path.exists() and load_split_map(path) != split:
+                raise FileExistsError(f"Frozen batch split differs: {path}")
+            write_json(path, split)
+        payload = {"schema_version": 3, "protocol": PROTOCOL, "cfg": cfg, "seed": seed,
                    "data_root": str(root), "data_manifest": str(data_path),
-                   "data_sha256": file_hash(data_path), "eligible_scenes": eligible,
-                   "inventory_sha256": object_hash(pairs),
-                   "video_validation": "uniform16" if decode else "hash_only",
-                   "val": val, "test": test, "video_pairs": pairs,
-                   "excluded_scenes": sorted(set(pairs) - set(eligible))}
+                   "data_sha256": file_hash(data_path),
+                   "split_manifests": {"trajectory": str(trajectory_path),
+                                       "video": str(video_path)}}
+        if cfg == "cfg3":
+            payload["scenes_per_task"] = 2
         write_json(target, payload)
         load_protocol(target, root)
         result[cfg] = str(target)

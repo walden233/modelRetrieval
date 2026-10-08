@@ -4,7 +4,7 @@
   "data_root": "dataset/RH20T_subset/RH20T_cfg2",
   "output_dir": "artifacts/retrieval/retrain/s42/cfg2",
   "scene_selection": {
-    "manifest_path": "artifacts/manifests/rh20t_shared_v1/cfg2_split_manifest.json",
+    "manifest_path": "artifacts/manifests/retrain/s42/cfg2/split_manifest_trajectory.json",
     "split": "test"
   },
   "sampling": {

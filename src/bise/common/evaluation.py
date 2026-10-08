@@ -7,7 +7,9 @@ import numpy as np
 
 from bise.common.fingerprints import file_hash, object_hash, write_json
 from bise.common.paths import project_root, resolve_path
-from bise.data.rh20t.splits import PROTOCOL, load_protocol, load_split_map, scene_id, validate_split
+from bise.data.rh20t.splits import (
+    PROTOCOL, load_protocol, load_split_map, protocol_hash, scene_id, validate_split,
+)
 
 
 ARTIFACTS = ("metrics.json", "metadata.json", "cases.json", "similarity_matrix.npy",
@@ -37,7 +39,7 @@ def resolve_eval_split(config: dict, checkpoint: str, explicit: str | None,
 def bind_protocols(run: Path, config: dict) -> None:
     if config.get("protocol") != PROTOCOL:
         return
-    sources = {cfg: {"path": str(resolve_path(path)), "sha256": file_hash(resolve_path(path))}
+    sources = {cfg: {"path": str(resolve_path(path)), "sha256": protocol_hash(path)}
                for cfg, path in config["eval_manifests"].items()}
     path = run / "protocols.json"
     if path.exists() and json.loads(path.read_text()) != sources:
@@ -85,9 +87,9 @@ def evaluation_inputs(config: dict, checkpoint: str | Path, modality: str,
                         else config["dataset"]["root_dir"])
     cfg = root.name.removeprefix("RH20T_")
     protocol_path = resolve_path(config["eval_manifests"][cfg])
-    payload = load_protocol(protocol_path, root)
+    payload = load_protocol(protocol_path, root, video_hashes=modality == "video")
     bindings = json.loads((run / "protocols.json").read_text())
-    if bindings[cfg]["sha256"] != file_hash(protocol_path):
+    if bindings[cfg]["sha256"] != protocol_hash(protocol_path):
         raise ValueError(f"Frozen evaluation protocol changed since training: {protocol_path}")
     mapping = load_split_map(manifest_path)
     selected = mapping.get(split, [])
@@ -144,7 +146,7 @@ def evaluation_inputs(config: dict, checkpoint: str | Path, modality: str,
     sampling = {key: source.get(key) for key in keys}
     return {"cfg": cfg, "split": split, "modality": modality, "protocol": PROTOCOL,
             "checkpoint_sha256": file_hash(checkpoint), "config_sha256": object_hash(config),
-            "protocol_sha256": file_hash(protocol_path),
+            "protocol_sha256": protocol_hash(protocol_path),
             "split_sha256": object_hash(mapping), "data_sha256": object_hash(data),
             "evaluator_sha256": evaluator_hash(modality), "sampling": sampling,
             "identities": identities,

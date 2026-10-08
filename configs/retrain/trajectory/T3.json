@@ -4,7 +4,7 @@
   "data_root": "dataset/RH20T_subset/RH20T_cfg2",
   "output_dir": "artifacts/runs/retrain",
   "split": {
-    "shared_manifest_path": "artifacts/manifests/rh20t_shared_v1/cfg2_split_manifest.json",
+    "shared_manifest_path": "artifacts/manifests/retrain/s42/cfg2/split_manifest_trajectory.json",
     "unit": "scene",
     "use_fixed_val": true,
     "val_count": 50
@@ -42,12 +42,12 @@
   },
   "protocol": "retrain_v2",
   "eval_manifests": {
-    "cfg2": "artifacts/manifests/rh20t_shared_v1/cfg2_split_manifest.json",
-    "cfg3": "artifacts/manifests/rh20t_shared_v1/cfg3_split_manifest.json"
+    "cfg2": "artifacts/manifests/retrain/s42/cfg2/split_manifest_trajectory.json",
+    "cfg3": "artifacts/manifests/retrain/s42/cfg3/split_manifest_trajectory.json"
   },
   "data_manifests": {
-    "RH20T_cfg2": "artifacts/manifests/retrain/cfg2_data.json",
-    "RH20T_cfg3": "artifacts/manifests/retrain/cfg3_data.json"
+    "RH20T_cfg2": "artifacts/manifests/retrain/s42/cfg2/data_manifest.json",
+    "RH20T_cfg3": "artifacts/manifests/retrain/s42/cfg3/data_manifest.json"
   },
   "data_params": {
     "human_source": "hand_3d_base",

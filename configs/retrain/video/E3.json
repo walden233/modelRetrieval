@@ -8,8 +8,8 @@
     "sampling_strategy": "uniform",
     "max_pairs_per_scene": 2,
     "pair_manifests": {
-      "RH20T_cfg2": "artifacts/manifests/rh20t_shared_v1/cfg2_split_manifest.json",
-      "RH20T_cfg3": "artifacts/manifests/rh20t_shared_v1/cfg3_split_manifest.json"
+      "RH20T_cfg2": "artifacts/manifests/retrain/s42/cfg2/metadata.json",
+      "RH20T_cfg3": "artifacts/manifests/retrain/s42/cfg3/metadata.json"
     },
     "seed": 42
   },
@@ -55,8 +55,8 @@
   "protocol": "retrain_v2",
   "seed": 42,
   "eval_manifests": {
-    "cfg2": "artifacts/manifests/rh20t_shared_v1/cfg2_split_manifest.json",
-    "cfg3": "artifacts/manifests/rh20t_shared_v1/cfg3_split_manifest.json"
+    "cfg2": "artifacts/manifests/retrain/s42/cfg2/split_manifest_video.json",
+    "cfg3": "artifacts/manifests/retrain/s42/cfg3/split_manifest_video.json"
   },
   "checkpoint_selection": {
     "loss_weight": 0.0,

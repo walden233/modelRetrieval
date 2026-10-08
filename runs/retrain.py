@@ -40,12 +40,32 @@ def prepare_batch(config: dict, root: Path, modalities: list[str], seed: int,
                   budgets: dict, dry_run: bool = False,
                   device: str | None = None) -> tuple[dict, dict]:
     registries, runtime = {}, copy.deepcopy(config)
+    manifest_dir = resolve_path(config["manifest_dir"]) / root.name
+    runtime["manifest_dir"] = str(manifest_dir)
+    runtime["eval_manifests"] = {
+        cfg: str(manifest_dir / cfg / "metadata.json") for cfg in ("cfg2", "cfg3")
+    }
     for modality in modalities:
         groups = {}
         for key, entry in config[modality].items():
             source = resolve_path(entry["config"])
             current = epoch_budget(json.loads(source.read_text()), modality, budgets[modality])
             current["seed"] = seed
+            current["eval_manifests"] = {
+                cfg: str(manifest_dir / cfg / f"split_manifest_{modality}.json")
+                for cfg in ("cfg2", "cfg3")
+            }
+            if modality == "trajectory":
+                current["data_manifests"] = {
+                    f"RH20T_{cfg}": str(manifest_dir / cfg / "data_manifest.json")
+                    for cfg in ("cfg2", "cfg3")
+                }
+            else:
+                current["dataset"]["pair_manifests"] = {
+                    f"RH20T_{cfg}": path for cfg, path in runtime["eval_manifests"].items()
+                }
+            if current["split"].get("shared_manifest_path"):
+                current["split"]["shared_manifest_path"] = current["eval_manifests"]["cfg2"]
             if device:
                 current["device"] = device
             current["split"].setdefault("seed", seed)
@@ -162,8 +182,8 @@ def main():
         try:
             if stage == "prepare":
                 from bise.data.rh20t.splits import prepare_protocols
-                prepare_protocols(config["dataset_root"], config["source_dir"], config["data_dir"],
-                                  config["manifest_dir"], config["seed"])
+                prepare_protocols(config["dataset_root"], config["source_dir"],
+                                  runtime["manifest_dir"], config["seed"])
             elif stage == "audit":
                 from audit_splits import audit
                 audit_config = {**runtime}

@@ -16,7 +16,7 @@ from bise.data.rh20t.splits import load_protocol, load_split_map, validate_split
 def audit(config: dict, files: bool = False, runs: str | None = None) -> dict:
     report = {"protocols": {}, "groups": {}}
     for cfg, path in config["eval_manifests"].items():
-        payload = load_protocol(path)
+        payload = load_protocol(path, video_hashes=files)
         root = resolve_path(payload["data_root"])
         data = json.loads(resolve_path(payload["data_manifest"]).read_text())
         if files:

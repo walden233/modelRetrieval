@@ -34,7 +34,7 @@
     "include_robot": true
   },
   "scene_selection": {
-    "manifest_path": "artifacts/manifests/rh20t_shared_v1/cfg3_split_manifest.json",
+    "manifest_path": "artifacts/manifests/retrain/s42/cfg3/split_manifest_trajectory.json",
     "split": "test"
   }
 }
