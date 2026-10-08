@@ -50,3 +50,6 @@ def test_evaluate_video_retrieval_reports_bidirectional_metrics():
     assert "robot_to_human" in result["metrics"]
     assert "task" in result["metrics"]["human_to_robot"]
     assert result["similarity_matrix"].shape == (2, 2)
+    for direction in ("human_to_robot", "robot_to_human"):
+        for level in ("task", "scene"):
+            assert result["metrics"][direction][level]["MPR-all"] == 75.0

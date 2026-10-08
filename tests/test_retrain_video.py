@@ -206,5 +206,13 @@ def test_video_training_evaluation_and_frozen_raw_comparison(tmp_path, monkeypat
         cfg3_data = json.loads((charts / "cfg3.json").read_text())
         assert [item["queries"] for item in cfg3_data["experiments"]] == [4, 4, 4]
         assert (charts / "cfg3.png").is_file() and (charts / "cfg3.csv").is_file()
+        for comparison in (data, cfg3_data):
+            for experiment in comparison["experiments"]:
+                for direction in ("human_to_robot", "robot_to_human"):
+                    for level in ("task", "scene"):
+                        value = experiment["metrics"][direction][level]["MPR-all"]
+                        assert 0 < value <= 100
+            assert len([row for row in comparison["rows"]
+                        if row["metric"] == "MPR-all"]) == 12
     finally:
         torch.set_num_threads(threads)

@@ -113,7 +113,7 @@ def export_comparison(registry: dict, cfgs: list[str], output: Path) -> dict:
                 for level in ("task", "scene"):
                     if any(not np.isfinite(value) for value in metrics[direction][level].values()):
                         raise ValueError(f"Non-finite metrics: {directory}")
-                    for metric in METRICS:
+                    for metric in (*METRICS, "MPR-all"):
                         if metric not in metrics[direction][level]:
                             raise ValueError(f"Missing {metric}: {directory}")
             counts = {} if entry.get("raw") else validate_split(

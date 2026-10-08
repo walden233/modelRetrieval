@@ -1,3 +1,4 @@
+import csv
 import importlib.util
 import json
 import subprocess
@@ -37,7 +38,8 @@ def evaluation_fixture(run, config, protocol, score=.2):
         metadata[f"{domain}_scene_ids"] = [x[0] for x in identities]
         metadata[f"{domain}_camera_ids"] = [x[1] for x in identities]
     metrics = {direction: {level: {"R@1": score, "R@5": .3, "R@10": .4,
-                                  "MRR": .25, "NDCG@10": .2, "Mean Percentage Rank": .5}
+                                  "MRR": .25, "NDCG@10": .2, "Mean Percentage Rank": .5,
+                                  "MPR-all": 50.0}
                            for level in ("task", "scene")}
                for direction in ("human_to_robot", "robot_to_human")}
     write_json(output / "metadata.json", metadata)
@@ -113,6 +115,8 @@ def test_cache_rejects_wrong_order_and_modified_metrics(tmp_path):
 
 
 def test_only_selected_run_is_evaluated_and_all_runs_are_merged(tmp_path, monkeypatch):
+    from matplotlib.axes import Axes
+
     runs, registry, protocol = batch_fixture(tmp_path)
     module = load_entry("compare")
     commands = []
@@ -126,14 +130,26 @@ def test_only_selected_run_is_evaluated_and_all_runs_are_merged(tmp_path, monkey
         assert manifest == run / "split_manifest.json"
         evaluation_fixture(run, json.loads((run / "params.json").read_text()), manifest, score=.6)
     monkeypatch.setattr(module, "run_logged", evaluate)
+    plotted_metrics = []
+    original_bar = Axes.bar
+    def bar(axis, *args, **kwargs):
+        plotted_metrics.append(kwargs.get("label"))
+        return original_bar(axis, *args, **kwargs)
+    monkeypatch.setattr(Axes, "bar", bar)
     module.compare(runs, only=["T1"], cfgs=["cfg2"])
     assert len(commands) == 1
     assert untouched.read_bytes() == before
     result = json.loads((runs.parent / "charts/cfg2.json").read_text())
     assert {x["group"] for x in result["experiments"]} == {"T1", "N1"}
     assert result["experiments"][0]["metrics"]["human_to_robot"]["task"]["R@1"] == .6
+    mpr_rows = [row for row in result["rows"] if row["metric"] == "MPR-all"]
+    assert len(mpr_rows) == 8
+    assert all(row["value"] == 50.0 for row in mpr_rows)
+    assert plotted_metrics == ["R@1", "R@5", "R@10", "MRR", "NDCG@10"] * 2
     assert (runs.parent / "charts/cfg2.png").is_file()
-    assert (runs.parent / "charts/cfg2.csv").is_file()
+    with (runs.parent / "charts/cfg2.csv").open(newline="") as handle:
+        csv_mpr_rows = [row for row in csv.DictReader(handle) if row["metric"] == "MPR-all"]
+    assert len(csv_mpr_rows) == 8
 
 
 def test_task_heldout_results_join_main_chart_and_remove_old_chart(tmp_path, monkeypatch):

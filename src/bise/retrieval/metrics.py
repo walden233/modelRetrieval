@@ -69,6 +69,11 @@ def calculate_label_retrieval_metrics(
     k_values=(1, 5, 10),
     ndcg_k: int = 10,
 ):
+    """Report label retrieval metrics, including query-averaged MPR-all in percent.
+
+    MPR-all averages all positive 1-based ranks divided by gallery size within
+    each query, then averages across queries with positives. Lower is better.
+    """
     similarity_matrix = np.asarray(similarity_matrix)
     query_labels = np.asarray(query_labels)
     gallery_labels = np.asarray(gallery_labels)
@@ -81,6 +86,7 @@ def calculate_label_retrieval_metrics(
         raise ValueError("The number of gallery labels must match the number of gallery columns.")
 
     valid_ranks = []
+    all_positive_percentages = []
     ndcg_scores = []
     recalls = {k: 0 for k in k_values}
     valid_queries = 0
@@ -98,6 +104,10 @@ def calculate_label_retrieval_metrics(
         ranked_positive_flags = positive_mask[ranked_indices]
         first_positive_rank = int(np.argmax(ranked_positive_flags)) + 1
         valid_ranks.append(first_positive_rank)
+        positive_ranks = np.flatnonzero(ranked_positive_flags) + 1
+        all_positive_percentages.append(
+            100.0 * float(np.mean(positive_ranks)) / len(gallery_labels)
+        )
 
         for k in k_values:
             topk_flags = ranked_positive_flags[: min(k, len(ranked_positive_flags))]
@@ -119,6 +129,7 @@ def calculate_label_retrieval_metrics(
             "Mean Rank": float("nan"),
             "MRR": float("nan"),
             "Mean Percentage Rank": float("nan"),
+            "MPR-all": float("nan"),
             "NDCG@10": float("nan"),
             "valid_queries": 0,
         }
@@ -130,6 +141,7 @@ def calculate_label_retrieval_metrics(
     metrics["Mean Rank"] = float(np.mean(ranks))
     metrics["MRR"] = float(np.mean(1.0 / ranks))
     metrics["Mean Percentage Rank"] = float(np.mean(ranks / len(gallery_labels)))
+    metrics["MPR-all"] = float(np.mean(all_positive_percentages))
     metrics[f"NDCG@{ndcg_k}"] = float(np.mean(ndcg_scores)) if ndcg_scores else float("nan")
     metrics["valid_queries"] = int(valid_queries)
     return metrics

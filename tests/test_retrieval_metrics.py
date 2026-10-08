@@ -2,10 +2,13 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from bise.retrieval.metrics import calculate_ndcg, calculate_retrieval_metrics_grouped
+from bise.retrieval.metrics import (
+    calculate_label_retrieval_metrics, calculate_ndcg, calculate_retrieval_metrics_grouped,
+)
 
 
 def test_grouped_metrics_include_ndcg():
@@ -24,3 +27,44 @@ def test_grouped_metrics_include_ndcg():
 
 def test_ndcg_returns_zero_for_empty_input():
     assert calculate_ndcg([]) == 0.0
+
+
+def test_mpr_all_uses_every_positive_rank_in_percent():
+    scores = -np.arange(100)[None, :]
+    gallery_labels = np.zeros(100, dtype=int)
+    gallery_labels[[1, 9, 17]] = 1
+
+    metrics = calculate_label_retrieval_metrics(scores, [1], gallery_labels)
+
+    assert metrics["MPR-all"] == pytest.approx(10.0)
+    assert metrics["Mean Percentage Rank"] == pytest.approx(.02)
+    assert metrics["MRR"] == pytest.approx(.5)
+
+
+def test_mpr_all_weights_queries_equally_and_skips_missing_positives():
+    scores = np.tile([4., 3., 2., 1.], (3, 1))
+    metrics = calculate_label_retrieval_metrics(scores, ["a", "b", "missing"],
+                                                ["a", "b", "b", "b"])
+
+    # Query a has rank 1 (25%); query b has ranks 2/3/4 (75%).
+    assert metrics["MPR-all"] == pytest.approx(50.0)
+    assert metrics["valid_queries"] == 2
+
+
+def test_mpr_all_matches_best_rank_for_one_positive():
+    metrics = calculate_label_retrieval_metrics([[.1, .9, .5]], ["a"], ["a", "b", "c"])
+
+    assert metrics["MPR-all"] == pytest.approx(100.0)
+    assert metrics["MPR-all"] == pytest.approx(100.0 * metrics["Mean Percentage Rank"])
+
+
+@pytest.mark.parametrize("scores, query_labels, gallery_labels", [
+    (np.zeros((1, 0)), ["a"], []),
+    (np.zeros((0, 1)), [], ["a"]),
+    (np.zeros((1, 1)), ["a"], ["b"]),
+])
+def test_mpr_all_is_nan_without_valid_queries(scores, query_labels, gallery_labels):
+    metrics = calculate_label_retrieval_metrics(scores, query_labels, gallery_labels)
+
+    assert np.isnan(metrics["MPR-all"])
+    assert metrics["valid_queries"] == 0

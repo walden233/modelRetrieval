@@ -289,6 +289,18 @@ artifacts/runs/retrain/s42b/
 
 每个评估目录保存 `metrics.json`、`metadata.json`、`cases.json`、
 `similarity_matrix.npy`、两侧 embedding、热图、数据库存与 `run_info.json`。
+两种模态的 task / scene、两个检索方向都报告 `MPR-all`，只保存到评估指标、
+比较 JSON/CSV 和汇总数据；柱状图仍只显示 `R@1/5/10`、`MRR`、`NDCG@10`。
+`MPR-all` 对每个有正样本的查询计算所有正样本的平均排名除以候选数，
+再对这些查询等权平均并乘以 100。排名从 1 开始，单位是百分比，越低越好；
+例如 10 表示正样本平均位于候选库前 10%。无正样本的查询不参与平均。
+已有 `Mean Percentage Rank` 仍只统计首个正样本，取值为 0–1，含义不变。
+旧评估需要重新运行评估阶段才能加入新指标，无需重训：
+
+```bash
+python runs/retrain.py --batch s42 --stage eval --skip-existing
+```
+
 原始 backbone 在 `RawJ/RawM/backbone.pth` 冻结权重，后续评估复用该版本。
 cfg2 主图中的 T4/E3 使用不同测试集合，图中标记并保留样本规模。
 重新导出主图会清除旧的 `cfg2_task.png`，不再生成单独的 task 图。
