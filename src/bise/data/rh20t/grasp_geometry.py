@@ -215,7 +215,8 @@ def prepare_grasp_geometry(config, manifest_dir):
 
 
 def bind_geometry(config):
-    if not config["model_params"].get("grasp_geometry"):
+    if not (config["model_params"].get("grasp_geometry")
+            or config["model_params"].get("use_gripper")):
         return
     manifests = config["data_params"]["geometry_manifests"]
     config["geometry_hashes"] = {root: file_hash(resolve_path(path))

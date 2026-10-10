@@ -40,6 +40,11 @@
     }
   },
   "video": {
+    "E0": {
+      "config": "configs/retrain/video/E0.json",
+      "label": "E0",
+      "raw": false
+    },
     "E1": {
       "config": "configs/retrain/video/E1.json",
       "label": "E1",

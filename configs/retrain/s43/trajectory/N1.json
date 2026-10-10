@@ -26,8 +26,8 @@
   "augmentation_noise_std": 0.005,
   "augmentation_max_rotation_degrees": 10.0,
   "model_params": {
-    "human_input_dim": 63,
-    "robot_input_dim": 9,
+    "human_input_dim": 33,
+    "robot_input_dim": 10,
     "d_model": 128,
     "nhead": 8,
     "num_layers": 5,
@@ -40,7 +40,21 @@
     "temporal_features": true,
     "shared_transformer": true,
     "dual_adapters": true,
-    "grasp_geometry": false
+    "grasp_geometry": false,
+    "use_gripper": true,
+    "human_keypoint_indices": [
+      0,
+      2,
+      4,
+      5,
+      8,
+      9,
+      12,
+      13,
+      16,
+      17,
+      20
+    ]
   },
   "protocol": "retrain_v2",
   "eval_manifests": {
@@ -56,7 +70,11 @@
     "human_representation": "palm_relative",
     "max_human_frames": 256,
     "max_robot_frames": 256,
-    "preserve_timing": true
+    "preserve_timing": true,
+    "geometry_manifests": {
+      "RH20T_cfg2": "dataset/RH20T_subset/RH20T_cfg2/geometry.json",
+      "RH20T_cfg3": "dataset/RH20T_subset/RH20T_cfg3/geometry.json"
+    }
   },
   "checkpoint_selection": {
     "loss_weight": 0.0,

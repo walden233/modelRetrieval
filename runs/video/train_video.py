@@ -33,6 +33,8 @@ def parse_args():
     parser.add_argument("--resume", help="Optional checkpoint path for resuming.")
     parser.add_argument("--seed", type=int, help="Override training and dynamic split seed.")
     parser.add_argument("--run-dir", help="Exact new run directory (must not exist).")
+    parser.add_argument("--prepared", action="store_true",
+                        help="Train an existing run whose metadata is prepared by the pipeline.")
     parser.add_argument("--split-manifest", help="Existing split_manifest.json to reuse.")
     parser.add_argument("--epochs", type=int, help="Override the training epoch budget.")
     return parser.parse_args()
@@ -64,7 +66,10 @@ def main():
 
     run_name = f'{config["experiment_name"]}_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}'
     run_dir = Path(args.run_dir) if args.run_dir else Path(config["output_dir"]) / run_name
-    run_dir.mkdir(parents=True, exist_ok=False)
+    if args.prepared:
+        from bise.common.training import validate_prepared_run
+        validate_prepared_run(run_dir)
+    run_dir.mkdir(parents=True, exist_ok=args.prepared)
     if args.split_manifest:
         manifest = resolve_path(args.split_manifest)
         (run_dir / "split_manifest.json").write_bytes(manifest.read_bytes())

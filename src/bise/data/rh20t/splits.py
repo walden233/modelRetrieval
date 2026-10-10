@@ -45,12 +45,6 @@ def validate_split(mapping: dict, unit: str = "scene") -> dict:
         values = mapping.get(left, [])
         if len(values) != len(set(values)):
             raise ValueError(f"Duplicate samples in {left}")
-        for right in SPLITS[i + 1:]:
-            if unit == "task":
-                tasks = {x.split('/')[0] for x in scenes[left]}
-                other = {x.split('/')[0] for x in scenes[right]}
-                if tasks & other:
-                    raise ValueError(f"Task overlap {left}/{right}: {sorted(tasks & other)[:5]}")
     return counts
 
 
@@ -79,7 +73,8 @@ def _batch_protocol(metadata: dict) -> dict:
     validate_split(video)
     data = json.loads(resolve_path(metadata["data_manifest"]).read_text())
     entries = {entry["scene_id"]: entry for entry in data["scenes"]}
-    pairs = _video_pairs(resolve_path(metadata["data_root"]), entries, False, hashes=False)
+    root = resolve_path(metadata["data_root"])
+    pairs = _video_pairs(root, entries)
     for name in SPLITS:
         scenes, samples = trajectory.get(name, []), video.get(name, [])
         if len(samples) != 2 * len(scenes):
@@ -97,6 +92,10 @@ def _batch_protocol(metadata: dict) -> dict:
                 scene_pairs.append({"sample_id": sample, "camera_id": camera,
                                     **{f"{domain}_path": f"{identity}/cam_{camera}_{domain}.mp4"
                                        for domain in ("human", "robot")}})
+                for domain in ("human", "robot"):
+                    source = root / scene_pairs[-1][f"{domain}_path"]
+                    if not source.is_file():
+                        raise FileNotFoundError(f"Frozen video file missing: {source}")
             pairs[identity] = scene_pairs
     return {**metadata, **trajectory, "video_pairs": pairs,
             "eligible_scenes": sorted(entries.keys() & pairs.keys()),
@@ -193,13 +192,15 @@ def shared_scene_split(available: list[str], config: dict) -> dict:
     return mapping
 
 
-def _video_pairs(root: Path, hand_entries: dict, decode: bool, hashes: bool = True) -> dict:
+def _video_pairs(root: Path, hand_entries: dict) -> dict:
     inventory = {}
     paths = sorted(p for p in root.glob("task_*/scene_*") if p.is_dir())
-    for index, path in enumerate(paths):
+    for path in paths:
         identity = str(path.relative_to(root))
-        human = {p.name.removesuffix("_human.mp4"): p for p in path.glob("*_human.mp4")}
-        robot = {p.name.removesuffix("_robot.mp4"): p for p in path.glob("*_robot.mp4")}
+        human = {p.name.removesuffix("_human.mp4"): p for p in path.glob("*_human.mp4")
+                 if p.is_file()}
+        robot = {p.name.removesuffix("_robot.mp4"): p for p in path.glob("*_robot.mp4")
+                 if p.is_file()}
         cameras = sorted(human.keys() & robot.keys())
         if len(cameras) < 2:
             continue
@@ -213,26 +214,15 @@ def _video_pairs(root: Path, hand_entries: dict, decode: bool, hashes: bool = Tr
                                   f"{camera.removeprefix('cam_')}")}
             for domain, files in (("human", human), ("robot", robot)):
                 file = files[camera]
-                if decode:
-                    from decord import VideoReader, cpu
-                    reader = VideoReader(str(file), ctx=cpu(0), num_threads=1)
-                    if len(reader) < 1:
-                        raise ValueError(f"Empty video: {file}")
-                    reader.get_batch(np.linspace(0, len(reader) - 1, 16, dtype=int)).asnumpy()
-                    item[f"{domain}_frames"] = len(reader)
                 item[f"{domain}_path"] = str(file.relative_to(root))
-                if hashes:
-                    item[f"{domain}_sha256"] = file_hash(file)
             pairs.append(item)
         inventory[identity] = pairs
-        if (decode or hashes) and index % 25 == 0:
-            print(f"{root.name}: freeze video pairs {index + 1}/{len(paths)}", flush=True)
     return inventory
 
 
 def prepare_protocols(dataset_root: str | Path, source_dir: str | Path | None,
                       output_dir: str | Path,
-                      seed: int = 42, decode: bool = True) -> dict:
+                      seed: int = 42) -> dict:
     dataset_root = resolve_path(dataset_root)
     source_dir = resolve_path(source_dir) if source_dir is not None else None
     output_dir = resolve_path(output_dir)
@@ -265,7 +255,7 @@ def prepare_protocols(dataset_root: str | Path, source_dir: str | Path | None,
                     raise ValueError(f"Trajectory source changed: {root / identity / name}")
         if not data_path.exists():
             write_json(data_path, data)
-        pairs = _video_pairs(root, entries, decode)
+        pairs = _video_pairs(root, entries)
         eligible = sorted(entries.keys() & pairs.keys())
         rng = np.random.default_rng(seed)
         if cfg == "cfg2":

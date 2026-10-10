@@ -26,7 +26,7 @@
   "augmentation_noise_std": 0.005,
   "augmentation_max_rotation_degrees": 10.0,
   "model_params": {
-    "human_input_dim": 72,
+    "human_input_dim": 42,
     "robot_input_dim": 15,
     "d_model": 128,
     "nhead": 8,
@@ -40,7 +40,21 @@
     "temporal_features": true,
     "shared_transformer": true,
     "dual_adapters": true,
-    "grasp_geometry": true
+    "grasp_geometry": true,
+    "use_gripper": true,
+    "human_keypoint_indices": [
+      0,
+      2,
+      4,
+      5,
+      8,
+      9,
+      12,
+      13,
+      16,
+      17,
+      20
+    ]
   },
   "protocol": "retrain_v2",
   "eval_manifests": {

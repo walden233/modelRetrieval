@@ -7,6 +7,7 @@ from copy import deepcopy
 from pathlib import Path
 
 import torch
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -60,7 +61,7 @@ def test_video_training_evaluation_and_frozen_raw_comparison(tmp_path, monkeypat
     monkeypatch.setattr(video_dataset, "sample_video_frames", local_frames)
     monkeypatch.setattr(factory, "build_video_backbone",
                         lambda **kwargs: (local_processor, LocalBackbone()))
-    config = json.loads((ROOT / "configs/retrain/video/E4.json").read_text())
+    config = json.loads((ROOT / "configs/retrain/video/E1.json").read_text())
     config["device"] = "cpu"
     config["dataset"].update(root_dir=payload["data_root"], num_frames=2,
                              pair_manifests={"RH20T_cfg2": str(protocol),
@@ -70,16 +71,36 @@ def test_video_training_evaluation_and_frozen_raw_comparison(tmp_path, monkeypat
                               num_epochs=1, num_workers=0, amp=False)
     config["split"]["shared_manifest_path"] = str(protocol)
     config["eval_manifests"] = {"cfg2": str(protocol), "cfg3": str(cfg3)}
-    source = tmp_path / "E4.json"
+    source = tmp_path / "E1.json"
     write_json(source, config)
-    run = tmp_path / "video/E4"
+    run = tmp_path / "video/E1"
     threads = torch.get_num_threads()
     torch.set_num_threads(2)
     try:
         train = entry("train_video")
-        monkeypatch.setattr(sys, "argv", ["train_video", "--config", str(source),
-                                         "--run-dir", str(run)])
+        from bise.common.training import prepare_training_run, validate_prepared_run
+        def unexpected_loading(*args, **kwargs):
+            raise AssertionError("Metadata preparation must not load models or decode videos")
+        with monkeypatch.context() as preparation:
+            preparation.setattr(factory, "build_video_model", unexpected_loading)
+            preparation.setattr(video_dataset, "sample_video_frames", unexpected_loading)
+            from bise.common import fingerprints
+            from bise.data.rh20t import splits
+            original_hash = fingerprints.file_hash
+            def metadata_hash(path):
+                assert Path(path).suffix != ".mp4", "Preparation must not read video contents"
+                return original_hash(path)
+            preparation.setattr(fingerprints, "file_hash", metadata_hash)
+            preparation.setattr(splits, "file_hash", metadata_hash)
+            prepare_training_run(config, "video", run)
+        validate_prepared_run(run)
+        prepared_split = (run / "split_manifest.json").read_bytes()
+        monkeypatch.setattr(sys, "argv", ["train_video", "--config", str(run / "params.json"),
+                                         "--run-dir", str(run), "--prepared"])
         train.main()
+        assert (run / "split_manifest.json").read_bytes() == prepared_split
+        with pytest.raises(ValueError, match="untrained prepared"):
+            validate_prepared_run(run)
         assert json.loads((run / "status.json").read_text())["state"] == "complete"
         assert json.loads((run / "checkpoint_info.json").read_text())["validation_only"]
         assert (run / "best_model.pth").is_file()
@@ -174,7 +195,7 @@ def test_video_training_evaluation_and_frozen_raw_comparison(tmp_path, monkeypat
         assert file_hash(raw_run / "evaluations/cfg2/human_embeddings.npy") == embedding_hash
 
         registry = {"protocol": "retrain_v2", "modality": "video", "batch": "local", "groups": {
-            "E4": {"run_dir": str(run)},
+            "E1": {"run_dir": str(run)},
             "E3": {"run_dir": str(task_run)},
             "RawJ": {"run_dir": str(raw_run), "raw": True},
         }}
@@ -191,12 +212,16 @@ def test_video_training_evaluation_and_frozen_raw_comparison(tmp_path, monkeypat
                 evaluate.main()
         monkeypatch.setattr(compare, "run_logged", dispatch)
         compare.compare(runs_path, skip_existing=True)
-        # Default video comparison now evaluates cfg3 for every group, reusing cfg2.
-        assert len(commands) == 3
-        assert all(str(command[command.index("--data-root") + 1])
-                   == cfg3_payload["data_root"] for command in commands)
-        assert all(Path(command[command.index("--split-manifest") + 1]) == cfg3
-                   for command in commands)
+        # Re-evaluate both domains for every selected group, including saved cfg2 results.
+        assert len(commands) == 6
+        for command in commands:
+            root = str(command[command.index("--data-root") + 1])
+            manifest = Path(command[command.index("--split-manifest") + 1])
+            if root == cfg3_payload["data_root"]:
+                assert manifest == cfg3
+            else:
+                assert root == payload["data_root"]
+                assert manifest in {p / "split_manifest.json" for p in (run, task_run, raw_run)}
         charts = tmp_path / "video/charts"
         data = json.loads((charts / "cfg2.json").read_text())
         assert [item["queries"] for item in data["experiments"]] == [240, 240, 240]

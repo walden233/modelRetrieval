@@ -37,7 +37,8 @@ def build_video_model(model_config: Dict) -> tuple[object, CrossDomainVideoEncod
     return processor, model
 
 
-def build_video_dataset(dataset_config: Dict, processor, is_train: bool):
+def build_video_dataset(dataset_config: Dict, processor, is_train: bool,
+                        metadata_only: bool = False):
     # 统一不同数据源的构造方式，对外只暴露一个 build 入口。
     dataset_type = str(dataset_config["type"]).strip().lower()
     common_kwargs = {
@@ -63,6 +64,7 @@ def build_video_dataset(dataset_config: Dict, processor, is_train: bool):
             root_dir=str(root),
             max_pairs_per_scene=dataset_config.get("max_pairs_per_scene"),
             pair_manifest_path=pair_manifest,
+            verify_video_hashes=not metadata_only,
             **common_kwargs,
         )
     if dataset_type == "whirl":

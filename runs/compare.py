@@ -1,4 +1,4 @@
-"""Evaluate selected retrain groups, then merge all valid results into charts."""
+"""Re-evaluate selected retrain groups, then merge saved results into charts."""
 
 import argparse
 import json
@@ -11,7 +11,7 @@ bootstrap()
 from bise.common.comparison import (
     eval_manifest, export_comparison, export_curves, load_runs, prepare_raw_split,
 )
-from bise.common.evaluation import effective_config, validate_evaluation
+from bise.common.evaluation import ARTIFACTS, effective_config
 from bise.common.fingerprints import write_json
 from bise.common.paths import resolve_path
 from bise.common.process import run_logged
@@ -43,14 +43,7 @@ def compare(runs_path: str | Path, only: list[str] | None = None,
                 manifest = eval_manifest(config, run, cfg)
                 checkpoint = run / ("backbone.pth" if entry.get("raw") else "best_model.pth")
                 output = run / "evaluations" / cfg
-                if skip_existing and (output / "run_info.json").exists():
-                    try:
-                        validate_evaluation(output, config, checkpoint, modality, manifest)
-                    except (ValueError, FileNotFoundError, KeyError, AssertionError) as exc:
-                        print(f"Re-evaluate stale {key} {cfg}: {exc}", flush=True)
-                    else:
-                        print(f"Reuse validated {key} {cfg}", flush=True)
-                        continue
+                print(f"Evaluate {modality} {key} {cfg}: {output}", flush=True)
                 data_root = (config["data_root"] if modality == "trajectory"
                              else config["dataset"]["root_dir"])
                 common = ["--config", source, "--data-root", data_root,
@@ -64,6 +57,14 @@ def compare(runs_path: str | Path, only: list[str] | None = None,
                     command = [sys.executable, script, *common, "--checkpoint", checkpoint,
                                "--output-dir", output]
                 run_logged(command, root / "logs" / f"{key}_{cfg}.log")
+                missing = [name for name in ARTIFACTS if not (output / name).is_file()]
+                if missing:
+                    raise RuntimeError(
+                        f"Selected evaluation {modality} {key} {cfg} did not produce "
+                        f"{', '.join(missing)} in {output}; "
+                        f"see {root / 'logs' / f'{key}_{cfg}.log'}"
+                    )
+                print(f"Evaluated {modality} {key} {cfg}", flush=True)
                 source = params
     summary = export_comparison(registry, cfgs, root / "charts")
     export_curves(registry, root / "charts")
@@ -80,10 +81,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runs", required=True, help="New batch trajectory/video runs.json")
     parser.add_argument("--only", nargs="+",
-                        help="Only re-encode these groups; charts still include all groups")
+                        help="Re-evaluate these groups; charts merge all available saved results")
     parser.add_argument("--cfg", nargs="+", choices=("cfg2", "cfg3"))
     parser.add_argument("--charts-only", action="store_true")
-    parser.add_argument("--skip-existing", action="store_true")
+    parser.add_argument("--skip-existing", action="store_true",
+                        help="Compatibility option; selected evaluations are always overwritten")
     args = parser.parse_args()
     compare(args.runs, args.only, args.cfg, args.charts_only, args.skip_existing)
 

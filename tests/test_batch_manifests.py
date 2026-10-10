@@ -1,6 +1,7 @@
 """Check the supplied batch metadata and aligned modality split format."""
 
 import json
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -117,7 +118,7 @@ def test_prepare_reuses_supplied_batch_files_without_rewriting(tmp_path):
         prepare_protocols(tmp_path, tmp_path / "unused", directory, seed=43)
 
 
-def test_new_batches_create_separate_metadata_and_aligned_splits(tmp_path):
+def test_new_batches_create_separate_metadata_and_aligned_splits(tmp_path, monkeypatch):
     source = tmp_path / "source"
     for cfg, count in (("cfg2", 180), ("cfg3", 2)):
         _, payload, _ = frozen_protocol(tmp_path, cfg, count, with_files=True)
@@ -129,9 +130,15 @@ def test_new_batches_create_separate_metadata_and_aligned_splits(tmp_path):
                 file.write_bytes(b"fixture trajectory")
                 entry[key] = file_hash(file)
         write_json(source / f"{cfg}_valid.json", data)
-    first = prepare_protocols(tmp_path, source, tmp_path / "manifests/s42", decode=False)
-    second = prepare_protocols(tmp_path, source, tmp_path / "manifests/s43", seed=43,
-                               decode=False)
+    from bise.data.rh20t import splits
+    def no_video_hash(path):
+        assert Path(path).suffix != ".mp4", "Preparation must not read video contents"
+        return file_hash(path)
+    monkeypatch.setattr(splits, "file_hash", no_video_hash)
+    monkeypatch.setitem(sys.modules, "decord", SimpleNamespace(
+        VideoReader=lambda *a, **kw: pytest.fail("Preparation must not decode videos")))
+    first = prepare_protocols(tmp_path, source, tmp_path / "manifests/s42")
+    second = prepare_protocols(tmp_path, source, tmp_path / "manifests/s43", seed=43)
     for cfg, path in first.items():
         metadata = json.loads(Path(path).read_text())
         assert metadata["schema_version"] == 3
@@ -141,6 +148,32 @@ def test_new_batches_create_separate_metadata_and_aligned_splits(tmp_path):
             "train", "val", "test"}
         load_protocol(path)
     assert load_protocol(first["cfg2"])["test"] != load_protocol(second["cfg2"])["test"]
+
+
+def test_video_pair_inventory_checks_real_files_and_keeps_camera_priority(tmp_path):
+    from bise.data.rh20t.splits import _video_pairs
+    identity = "task_0001/scene_1"
+    scene = tmp_path / identity
+    scene.mkdir(parents=True)
+    for camera in ("2", "4"):
+        for domain in ("human", "robot"):
+            (scene / f"cam_{camera}_{domain}.mp4").touch()
+    for domain in ("human", "robot"):
+        (scene / f"cam_0_{domain}.mp4").mkdir()
+        (scene / f"cam_1_{domain}.mp4").symlink_to(scene / "missing.mp4")
+    (scene / "cam_3_human.mp4").touch()
+    pairs = _video_pairs(tmp_path, {identity: {"cameras": {"4": {}}}})[identity]
+    assert [p["camera_id"] for p in pairs] == ["4", "2"]
+    assert all(set(pair) == {"camera_id", "sample_id", "human_path", "robot_path"}
+               for pair in pairs)
+
+
+def test_existing_batch_rejects_missing_frozen_video_without_substitution(tmp_path):
+    path, metadata, mapping = batch_protocol(tmp_path)
+    root = Path(metadata["data_root"])
+    (root / mapping["test"][0] / "cam_0_human.mp4").unlink()
+    with pytest.raises(FileNotFoundError, match="Frozen video file missing"):
+        load_protocol(path)
 
 
 def test_new_batch_freezes_one_inventory_without_source_directory(tmp_path, monkeypatch):
@@ -159,7 +192,7 @@ def test_new_batch_freezes_one_inventory_without_source_directory(tmp_path, monk
     monkeypatch.setattr(hand_3d_trajectory_dataset, "build_hand_3d_trajectory_manifest",
                         lambda root: inventories[Path(root).name])
     output = tmp_path / "manifests/new"
-    result = prepare_protocols(tmp_path, None, output, seed=43, decode=False)
+    result = prepare_protocols(tmp_path, None, output, seed=43)
     expected = {f"{cfg}/{name}.json" for cfg in ("cfg2", "cfg3") for name in (
         "metadata", "data_manifest", "split_manifest_trajectory", "split_manifest_video")}
     assert {str(path.relative_to(output)) for path in output.rglob("*.json")} == expected
@@ -172,7 +205,7 @@ def test_new_batch_freezes_one_inventory_without_source_directory(tmp_path, monk
                         unexpected_rescan)
     # Recover a partial preparation from the one authoritative inventory.
     (output / "cfg3/metadata.json").unlink()
-    assert prepare_protocols(tmp_path, None, output, seed=43, decode=False) == result
+    assert prepare_protocols(tmp_path, None, output, seed=43) == result
     assert all(path.read_bytes() == value for path, value in before.items())
     assert len(load_protocol(result["cfg2"])["test"]) == 120
     assert len(load_protocol(result["cfg3"])["test"]) == 2
@@ -186,6 +219,32 @@ def test_independent_audit_derives_manifests_from_batch(tmp_path):
                            "trajectory": {}, "video": {}})
     assert report["protocols"]["cfg2"]["test"] == 120
     assert report["protocols"]["cfg3"]["test"] == 2
+
+
+def test_file_audit_checks_video_existence_without_hashing(tmp_path, monkeypatch):
+    from bise.data.rh20t import splits
+    for cfg, count in (("cfg2", 180), ("cfg3", 2)):
+        path, metadata, _ = batch_protocol(tmp_path, cfg, count)
+        data_path = Path(metadata["data_manifest"])
+        data = json.loads(data_path.read_text())
+        for entry in data["scenes"]:
+            for filename, key in (("human_hand_3d.npy", "human_sha256"),
+                                  ("tcp_base.npy", "robot_sha256")):
+                source = Path(data["data_root"]) / entry["scene_id"] / filename
+                source.write_bytes(b"fixture trajectory")
+                entry[key] = file_hash(source)
+        write_json(data_path, data)
+        metadata["data_sha256"] = file_hash(data_path)
+        write_json(path, metadata)
+    module = load_entry("audit_splits")
+    def no_video_hash(path):
+        assert Path(path).suffix != ".mp4", "Audit must not read video contents"
+        return file_hash(path)
+    monkeypatch.setattr(splits, "file_hash", no_video_hash)
+    monkeypatch.setattr(module, "file_hash", no_video_hash)
+    report = module.audit({"manifest_dir": str(tmp_path / "manifests"), "batch": "s42",
+                           "trajectory": {}, "video": {}}, files=True)
+    assert report["protocols"]["cfg2"]["test"] == 120
 
 
 def test_runtime_paths_follow_batch_and_preserve_task_configs(tmp_path):

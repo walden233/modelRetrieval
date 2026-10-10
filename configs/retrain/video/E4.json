@@ -8,11 +8,6 @@
     "num_frames": 16,
     "sampling_strategy": "uniform",
     "max_pairs_per_scene": 2,
-    "intra_train_augmentations": {
-      "brightness_jitter": 0.05,
-      "noise_std": 0.01,
-      "temporal_roll_max": 1
-    },
     "pair_manifests": {
       "RH20T_cfg2": "artifacts/manifests/retrain/s42/cfg2/metadata.json",
       "RH20T_cfg3": "artifacts/manifests/retrain/s42/cfg3/metadata.json"
@@ -38,7 +33,7 @@
   "loss": {
     "name": "multi_positive",
     "positive_level": "task",
-    "lambda_intra": 0.2,
+    "lambda_intra": 0.0,
     "temperature": 0.07
   },
   "optimization": {

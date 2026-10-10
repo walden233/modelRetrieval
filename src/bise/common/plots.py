@@ -76,7 +76,11 @@ def comparison_sources(path: Path) -> list[Path]:
     sources = [modality / "runs.json"]
     for experiment in payload["experiments"]:
         evaluation = modality / experiment["group"] / "evaluations" / payload["cfg"]
-        sources.extend([evaluation / "metrics.json", evaluation / "run_info.json"])
+        sources.append(evaluation / "metrics.json")
+        run = modality / experiment["group"]
+        optional = (evaluation / "metadata.json", run / "params.json",
+                    run / "split_manifest.json")
+        sources.extend(source for source in optional if source.is_file())
     return sources
 
 
@@ -111,8 +115,7 @@ def record_heatmap(path: Path, matrix: np.ndarray, max_items: int, label: str,
 
 def _restore_charts(directory: Path) -> None:
     """Rebuild missing aggregate data from saved runs, without evaluating models."""
-    from bise.common.comparison import _write_comparison
-    from bise.data.rh20t.splits import load_split_map, validate_split
+    from bise.common.comparison import _write_comparison, load_saved_experiments
 
     registry_path = directory / "runs.json"
     if not registry_path.is_file():
@@ -133,41 +136,9 @@ def _restore_charts(directory: Path) -> None:
     for cfg in ("cfg2", "cfg3"):
         if (charts / f"{cfg}.json").is_file():
             continue
-        experiments, missing = [], []
-        for key, entry in registry["groups"].items():
-            run = resolve_path(entry["run_dir"])
-            evaluation = run / "evaluations" / cfg
-            if not all((evaluation / name).is_file() for name in ("metrics.json", "run_info.json")):
-                missing.append(key)
-                continue
-            saved = json.loads((evaluation / "run_info.json").read_text())
-            info = saved.get("evaluation", saved)
-            params = run / "params.json"
-            config = json.loads(params.read_text()) if params.is_file() else {}
-            metadata_path = evaluation / "metadata.json"
-            metadata = json.loads(metadata_path.read_text()) if metadata_path.is_file() else {}
-            scenes = metadata.get("human_scene_ids", metadata.get("scene_ids", []))
-            identities = info.get("identities", scenes)
-            split = run / "split_manifest.json"
-            unit = config.get("split", {}).get("unit", "scene")
-            counts = (validate_split(load_split_map(split), unit)
-                      if split.is_file() and not entry.get("raw") else {})
-            manifest = str(split) if cfg == "cfg2" else config.get("eval_manifests", {}).get(cfg)
-            partition = "task" if cfg == "cfg2" and unit == "task" else "shared"
-            tasks = info.get("tasks", len({scene.split('/')[0] for scene in scenes}))
-            experiments.append({"group": key, "label": entry.get("label", key),
-                                "run_dir": str(run), "partition": partition,
-                                "queries": len(identities), "candidates": len(identities),
-                                "test_scenes": info.get("scenes", len(set(scenes))),
-                                "test_tasks": tasks,
-                                "split_manifest": manifest, "split_counts": counts,
-                                "sampling": info.get("sampling", {}),
-                                "checkpoint_selection": config.get("checkpoint_selection"),
-                                "metrics": json.loads((evaluation / "metrics.json").read_text()),
-                                "evaluation": info})
+        experiments = load_saved_experiments(registry, cfg)
         if experiments:
-            print(f"Rebuild {directory.name} {cfg}: {len(experiments)} saved runs"
-                  + (f"; missing evaluations: {', '.join(missing)}" if missing else ""), flush=True)
+            print(f"Rebuild {directory.name} {cfg}: {len(experiments)} saved runs", flush=True)
             _write_comparison(registry, cfg, experiments, charts)
 
 

@@ -1,6 +1,7 @@
 import csv
 import importlib.util
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -91,19 +92,22 @@ def test_cache_rejects_checkpoint_change(tmp_path):
                         "trajectory", run / "split_manifest.json")
     (run / "best_model.pth").write_bytes(b"another checkpoint")
     with pytest.raises(ValueError, match="Stale evaluation"):
-        export_comparison(registry, ["cfg2"], runs.parent / "charts")
+        validate_evaluation(run / "evaluations/cfg2", config, run / "best_model.pth",
+                            "trajectory", run / "split_manifest.json")
     assert not (runs.parent / "charts").exists()
 
 
 def test_cache_rejects_wrong_order_and_modified_metrics(tmp_path):
     runs, registry, protocol = batch_fixture(tmp_path)
     run = Path(registry["groups"]["T1"]["run_dir"])
+    config = json.loads((run / "params.json").read_text())
     path = run / "evaluations/cfg2/metadata.json"
     data = json.loads(path.read_text())
     data["human_camera_ids"][:2] = reversed(data["human_camera_ids"][:2])
     write_json(path, data)
     with pytest.raises(ValueError, match="inventory/order"):
-        export_comparison(registry, ["cfg2"], runs.parent / "charts")
+        validate_evaluation(run / "evaluations/cfg2", config, run / "best_model.pth",
+                            "trajectory", run / "split_manifest.json")
     evaluation_fixture(run, json.loads((run / "params.json").read_text()),
                        run / "split_manifest.json")
     path = run / "evaluations/cfg2/metrics.json"
@@ -111,7 +115,8 @@ def test_cache_rejects_wrong_order_and_modified_metrics(tmp_path):
     data["human_to_robot"]["task"]["R@1"] = .9
     write_json(path, data)
     with pytest.raises(ValueError, match="artifacts changed"):
-        export_comparison(registry, ["cfg2"], runs.parent / "charts")
+        validate_evaluation(run / "evaluations/cfg2", config, run / "best_model.pth",
+                            "trajectory", run / "split_manifest.json")
 
 
 def test_only_selected_run_is_evaluated_and_all_runs_are_merged(tmp_path, monkeypatch):
@@ -182,6 +187,126 @@ def test_task_heldout_results_join_main_chart_and_remove_old_chart(tmp_path, mon
     assert [x["partition"] for x in data["experiments"]] == ["task", "shared"]
     assert [x["test_scenes"] for x in data["experiments"]] == [80, 120]
     assert data["experiments"][0]["split_manifest"] == str(run / "split_manifest.json")
+
+
+@pytest.mark.parametrize("other", ["missing_info", "missing_metrics", "stale"])
+def test_re_evaluation_overwrites_selected_and_merges_available_metrics(tmp_path, monkeypatch, other):
+    runs, registry, _ = batch_fixture(tmp_path, keys=("T1", "T2"))
+    module = load_entry("compare")
+    selected = Path(registry["groups"]["T2"]["run_dir"])
+    unselected = Path(registry["groups"]["T1"]["run_dir"])
+    # A malformed old record must not prevent replacing the evaluation.
+    (selected / "evaluations/cfg2/run_info.json").write_text("old invalid JSON")
+    if other == "missing_info":
+        (unselected / "evaluations/cfg2/run_info.json").unlink()
+    elif other == "missing_metrics":
+        (unselected / "evaluations/cfg2/metrics.json").unlink()
+        (unselected / "curves.json").unlink()
+    else:
+        (unselected / "best_model.pth").write_bytes(b"changed checkpoint")
+    before = {path: path.read_bytes() for path in unselected.rglob("*") if path.is_file()}
+    commands = []
+    def evaluate(command, log):
+        commands.append(command)
+        run = Path(command[command.index("--checkpoint") + 1]).parent
+        assert run == selected
+        write_json(run / "evaluations/cfg2/run_info.json", {})
+        evaluation_fixture(run, json.loads((run / "params.json").read_text()),
+                           run / "split_manifest.json", score=.6)
+    monkeypatch.setattr(module, "run_logged", evaluate)
+    module.compare(runs, only=["T2"], cfgs=["cfg2"], skip_existing=True)
+    assert len(commands) == 1
+    result = json.loads((runs.parent / "charts/cfg2.json").read_text())
+    expected = ["T2"] if other == "missing_metrics" else ["T1", "T2"]
+    assert [row["group"] for row in result["experiments"]] == expected
+    assert result["experiments"][-1]["metrics"]["human_to_robot"]["task"]["R@1"] == .6
+    assert (runs.parent / "charts/cfg2.png").is_file()
+    assert all(path.read_bytes() == value for path, value in before.items())
+    dependencies = json.loads((runs.parent.parent / "plots.json").read_text())
+    assert "run_info.json" not in json.dumps(dependencies)
+
+
+def test_all_selected_evaluations_are_recomputed_even_with_skip_existing(tmp_path, monkeypatch):
+    runs, registry, _ = batch_fixture(tmp_path)
+    module = load_entry("compare")
+    commands = []
+    def evaluate(command, log):
+        commands.append(command)
+        run = Path(command[command.index("--checkpoint") + 1]).parent
+        evaluation_fixture(run, json.loads((run / "params.json").read_text()),
+                           run / "split_manifest.json", score=.7)
+    monkeypatch.setattr(module, "run_logged", evaluate)
+    module.compare(runs, cfgs=["cfg2"], skip_existing=True)
+    assert len(commands) == 2
+    result = json.loads((runs.parent / "charts/cfg2.json").read_text())
+    assert all(row["metrics"]["human_to_robot"]["task"]["R@1"] == .7
+               for row in result["experiments"])
+
+
+def test_selected_evaluation_cannot_be_silently_skipped_when_outputs_are_missing(tmp_path,
+                                                                              monkeypatch):
+    runs, registry, _ = batch_fixture(tmp_path)
+    run = Path(registry["groups"]["T1"]["run_dir"])
+    shutil.rmtree(run / "evaluations")
+    module = load_entry("compare")
+    monkeypatch.setattr(module, "run_logged", lambda *args: None)
+    with pytest.raises(RuntimeError, match="Selected evaluation trajectory T1 cfg2 did not produce"):
+        module.compare(runs, only=["T1"], cfgs=["cfg2"])
+    assert not (runs.parent / "charts").exists()
+
+
+@pytest.mark.parametrize("skip_existing", [False, True])
+def test_retrain_eval_cli_generates_missing_selected_run_for_both_cfgs(tmp_path, monkeypatch,
+                                                                    capsys, skip_existing):
+    runs, registry, _ = batch_fixture(tmp_path, keys=("T1", "T2"))
+    selected = Path(registry["groups"]["T1"]["run_dir"])
+    cfg3, _, _ = frozen_protocol(tmp_path, cfg="cfg3", count=2)
+    params = json.loads((selected / "params.json").read_text())
+    params["eval_manifests"]["cfg3"] = str(cfg3)
+    write_json(selected / "params.json", params)
+    shutil.rmtree(selected / "evaluations")
+    metrics = json.loads((Path(registry["groups"]["T2"]["run_dir"])
+                          / "evaluations/cfg2/metrics.json").read_text())
+    source = tmp_path / "run.json"
+    write_json(source, {"protocol": "retrain_v2", "seed": 42, "batch": "batch",
+                        "output_root": str(tmp_path), "dataset_root": str(tmp_path),
+                        "manifest_dir": str(tmp_path / "manifests"),
+                        "trajectory": {key: {"config": entry["config"]}
+                                       for key, entry in registry["groups"].items()}, "video": {}})
+    module = load_entry("retrain")
+    compare = load_entry("compare")
+    monkeypatch.setitem(sys.modules, "compare", compare)
+    commands = []
+    def evaluate(command, log):
+        commands.append(command)
+        output = Path(command[command.index("--output-dir") + 1])
+        assert output.parent.parent == selected
+        manifest = Path(command[command.index("--split-manifest") + 1])
+        scenes = json.loads(manifest.read_text())["test"]
+        metadata = {f"{domain}_scene_ids": scenes for domain in ("human", "robot")}
+        metadata.update({f"{domain}_camera_ids": ["0"] * len(scenes)
+                         for domain in ("human", "robot")})
+        write_json(output / "metrics.json", metrics)
+        write_json(output / "metadata.json", metadata)
+        write_json(output / "cases.json", [])
+        write_json(output / "data_manifest.json", {})
+        values = np.ones((len(scenes), 4), dtype=np.float32) / 2
+        np.save(output / "human_embeddings.npy", values)
+        np.save(output / "robot_embeddings.npy", values)
+        np.save(output / "similarity_matrix.npy", values @ values.T)
+    monkeypatch.setattr(compare, "run_logged", evaluate)
+    argv = ["retrain", "--config", str(source), "--batch", "batch", "--modality", "trajectory",
+            "--stage", "eval", "--only", "T1"]
+    if skip_existing:
+        argv.append("--skip-existing")
+    monkeypatch.setattr(sys, "argv", argv)
+    module.main()
+    assert len(commands) == 2
+    for cfg in ("cfg2", "cfg3"):
+        assert (selected / "evaluations" / cfg / "metrics.json").is_file()
+        chart = json.loads((runs.parent / "charts" / f"{cfg}.json").read_text())
+        assert "T1" in {row["group"] for row in chart["experiments"]}
+    assert "Skip missing evaluation trajectory T1" not in capsys.readouterr().out
 
 
 def test_cfg2_uses_run_manifest_and_cfg3_uses_matching_domain(tmp_path):

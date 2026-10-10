@@ -19,16 +19,31 @@ T3 两个阶段共用同一调度，不在微调开始时重置；每轮实际�
 
 | 名称 | 含义 |
 |---|---|
-| `E1` / `E2` | V-JEPA dual-head / VideoMAE dual-head |
-| `E3` / `E4` / `E5` | V-JEPA task 隔离 / 模态内损失 / InfoNCE |
+| `E0` | V-JEPA dual-head，单正样本 InfoNCE，无模态内增强与损失 |
+| `E1` / `E2` | V-JEPA dual-head + 模态内增强 / VideoMAE dual-head + 模态内增强 |
+| `E3` / `E4` / `E5` | V-JEPA task 隔离 / 关闭模态内增强与损失 / InfoNCE |
 | `E6s` / `E6d` | V-JEPA 冻结 + 机器人单适配头 / 最后两层微调 + 双适配头 |
 | `RawJ` / `RawM` | 原始 V-JEPA / VideoMAE，仅评估，不训练投影头 |
 
 新轨迹组统一使用 `human_hand_3d.npy`、真实时间与缺测标记、
 机器人 `relative_rot6d`，batch size 8。视频训练和评估 batch size 统一为 4。
-E1–E5 均冻结骨干并训练双适配头；E6s 冻结骨干，人类侧不加适配头；
+E0–E5 均冻结骨干并训练双适配头；E6s 冻结骨干，人类侧不加适配头；
 E6d 共用一套骨干，解冻最后两个 Transformer block 并训练双适配头。
 三种设置都训练共享投影层，实际可训练参数和 block 编号保存到 `trainable.json`。
+E1 为带模态内增强的基线；E4 使用原 E1 的设置，不启用模态内增强或损失。
+E1、E2、E3、E5、E6s、E6d 均采用 0.2 权重的模态内一致性损失，
+增强为亮度抖动 0.05、噪声标准差 0.01、最多 1 帧时间滚动。
+RawJ/RawM 不训练，也不启用这些增强。
+
+核心四格消融共用 V-JEPA2 骨干、双适配头和 scene 划分：
+
+| 实验 | 跨域正样本 | 模态内增强一致性 |
+|---|---|---|
+| E0 | 单正样本 InfoNCE | 无 |
+| E5 | 单正样本 InfoNCE | 有，权重 0.2 |
+| E4 | task 多正样本 | 无 |
+| E1 | task 多正样本 | 有，权重 0.2 |
+
 `N0/N1/N2` 只改变人手坐标表示，所有组保持同模态的有效相机集合一致。
 
 轨迹组的具体区别：
@@ -69,8 +84,8 @@ cfg3 每个本地 task 固定两个评估 scene，train/val 为空。
 
 固定抽样 seed 为 42，与训练 seed 分开。cfg2 从 428 个共同有效 scene 抽样；
 cfg3 的 64 个 task 共 128 个评估 scene。视频划分文件显式冻结两个 camera，
-人机路径按 sample ID 解析。生成新批次时检查均匀 16 帧解码；视频文件指纹继续记录
-在 run 的数据快照中，训练期间文件变化或读取失败直接报错。
+人机路径按 sample ID 解析。生成新批次时只检查视频文件存在，不解码、不计算视频文件哈希。
+视频训练和评估读取数据时仍沿用原有解码和文件指纹逻辑。
 
 普通实验配置默认 `split.use_fixed_val=true`。设为 `false` 时，从排除 test 的可用
 scene 中按训练 seed 随机选择 `split.val_count` 个验证 scene（默认 50）；原固定 val
@@ -120,7 +135,7 @@ python runs/retrain.py --batch s42b --dry-run
 # 生成/校验清单 → 审计源文件和划分 → 全部训练 → 独立评估 → 比较图。
 python runs/retrain.py --batch s42b
 
-# 已完成的训练和有效评估可以复用；缺少最佳模型或未完成的 run 会重训。
+# 已完成的训练可以复用；评估始终重新计算并覆盖输出。
 python runs/retrain.py --batch s42b --skip-existing
 
 # 只跑某一模态。
@@ -136,6 +151,11 @@ python runs/retrain.py --seed 43 --batch s43
 只有实际重训时才更新，独立评估继续读取该文件。
 
 `--skip-existing` 是流水线复用，不是恢复中断训练的 optimizer 状态。
+该参数仅跳过已完成的训练，评估阶段始终重新计算所选 run 的 cfg2/cfg3 结果。
+`--only` 只重评所选组，随后合并其它已有指标；仅未选择且缺少评估的组会跳过并提示。
+所选 run 没有评估目录时会生成新结果；子进程完成后必须存在完整指标、样本信息和 NPY 产物，
+否则报错并指出对应日志，不会将所选 run 静默跳过。
+`run_info.json` 是新评估生成的来源记录，不再作为重评、汇总或绘图的前置条件。
 训练阶段的判断规则：
 
 - 不加 `--skip-existing`：从头训练所有所选组，已有 run 先归档。
@@ -179,7 +199,7 @@ HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
 python runs/retrain.py --batch s42b --stage eval --only T4 E3
 ```
 
-默认完整入口依次校验协议、审计、替换训练、评估 cfg2/cfg3，并与其它 run 的有效评估
+默认完整入口依次校验协议、审计、替换训练、评估 cfg2/cfg3，并与其它 run 已保存的评估指标
 合并更新主图。旧 run、对应日志及过期的汇总图/数据移到
 `artifacts/runs/retrain/archive/<batch>/<时间>/<modality>/`，其它组的 checkpoint、评估和
 数据划分保留。绘图清单同步移除过期条目，完成训练/评估后记录新依赖。
@@ -194,7 +214,7 @@ python runs/retrain.py --batch s42b --stage eval --only T4 E3
 # 只准备共享清单和数据库存快照。
 python runs/prepare_splits.py --batch s42b
 
-# 只审计；--files 校验所有冻结源文件。
+# 只审计；--files 校验轨迹文件哈希及视频文件存在。
 python runs/audit_splits.py --files --output artifacts/runs/retrain/audit.json
 
 # 只训练；也可选择部分组。两阶段 --traj-epochs 指总预算。
@@ -204,7 +224,7 @@ python runs/retrain.py --batch s42b --stage train --modality trajectory --only T
 # 只评估和绘图；两个模态都默认 cfg2+cfg3。
 python runs/retrain.py --batch s42b --stage eval
 
-# 使用已训练的 checkpoint，复用有效评估；清单变化的结果会重新评估。
+# 使用已训练的 checkpoint，完整重新评估所选组并覆盖已有输出。
 HF_HUB_OFFLINE=1 python runs/retrain.py --batch s42b --stage eval --skip-existing
 
 # 校验评估结果，重新汇总比较数据并导出主图。
@@ -370,4 +390,4 @@ python runs/retrieval/build_retrieval_library.py --config configs/retrain/librar
 视频入口由自动化集成测试覆盖训练、240 对固定测试样本评估、
 E3 按自身 test 合入主图、默认 cfg3 评估、原始骨干权重冻结复用和比较数据输出；
 测试使用本地小骨干与模拟解码，
-真实视频的配对、解码和文件指纹则由共享清单准备与全文件审计校验。
+共享清单准备和视频文件审计仅检查文件存在；真实视频解码与文件指纹由视频训练、评估入口处理。

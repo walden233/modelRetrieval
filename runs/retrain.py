@@ -60,7 +60,8 @@ def prepare_batch(config: dict, root: Path, modalities: list[str], seed: int,
                     f"RH20T_{cfg}": str(manifest_dir / cfg / "data_manifest.json")
                     for cfg in ("cfg2", "cfg3")
                 }
-                if current["model_params"].get("grasp_geometry"):
+                if (current["model_params"].get("grasp_geometry")
+                        or current["model_params"].get("use_gripper")):
                     current["data_params"]["geometry_manifests"] = {
                         f"RH20T_{cfg}": str(resolve_path(config["dataset_root"])
                                            / f"RH20T_{cfg}" / "geometry.json")
@@ -134,7 +135,7 @@ def main():
     parser.add_argument("--device", choices=("cuda", "cpu"),
                         help="Explicit execution device override")
     parser.add_argument("--skip-existing", action="store_true",
-                        help="Reuse completed best models and validated evaluation")
+                        help="Reuse completed training; selected evaluations are always recomputed")
     parser.add_argument("--replace", action="store_true",
                         help="Archive and retrain --only groups in this batch")
     parser.add_argument("--dry-run", action="store_true",
@@ -195,7 +196,8 @@ def main():
                                 if not args.only or key in args.only]
                     for entry in selected:
                         current = json.loads(Path(entry["config"]).read_text())
-                        if current["model_params"].get("grasp_geometry"):
+                        if (current["model_params"].get("grasp_geometry")
+                                or current["model_params"].get("use_gripper")):
                             from bise.data.rh20t.grasp_geometry import validate_dataset_geometry
                             validate_dataset_geometry(current)
                             break
@@ -214,16 +216,29 @@ def main():
                 write_json(root / "audit.json", report)
             elif stage == "train":
                 from bise.common.device import experiment_device
+                from bise.common.training import prepare_training_run
                 for registry in registries.values():
                     for key, entry in registry["groups"].items():
                         if not entry.get("raw") and (not args.only or key in args.only):
                             experiment_device(json.loads(resolve_path(entry["config"]).read_text()))
+                training = []
                 for modality, registry in registries.items():
                     for key, entry in registry["groups"].items():
-                        if entry.get("raw") or (args.only and key not in args.only):
+                        if args.only and key not in args.only:
                             continue
                         run = resolve_path(entry["run_dir"])
                         split_manifest = run / "split_manifest.json"
+                        if entry.get("raw"):
+                            metadata = ("params.json", "split_manifest.json", "data_manifest.json",
+                                        "split_info.json", "protocols.json", "status.json")
+                            if not all((run / name).is_file() for name in metadata):
+                                source = (run / "params.json" if (run / "params.json").is_file()
+                                          else resolve_path(entry["config"]))
+                                current = json.loads(source.read_text())
+                                current["raw_backbone"] = True
+                                prepare_training_run(
+                                    current, modality, run, split_manifest)
+                            continue
                         if run.exists():
                             status_path = run / "status.json"
                             complete = (status_path.is_file()
@@ -238,13 +253,18 @@ def main():
                             split_manifest = backup / modality / key / "split_manifest.json"
                             record["archive"] = str(backup)
                             write_json(pipeline_path, history)
-                        script = f"runs/{modality}/train_{modality}.py"
-                        command = [sys.executable, script, "--config", entry["config"],
-                                   "--run-dir", run]
-                        if split_manifest.is_file():
-                            command.extend(["--split-manifest", split_manifest])
-                        run_logged(command,
-                                   root / modality / "logs" / f"{key}_train.log")
+                        prepare_training_run(
+                            json.loads(resolve_path(entry["config"]).read_text()),
+                            modality, run, split_manifest)
+                        print(f"Prepared {modality}/{key}: {run}", flush=True)
+                        training.append((modality, key, run))
+                print(f"Training metadata ready; start {len(training)} runs", flush=True)
+                for modality, key, run in training:
+                    script = f"runs/{modality}/train_{modality}.py"
+                    command = [sys.executable, script, "--config", run / "params.json",
+                               "--run-dir", run, "--prepared"]
+                    run_logged(command,
+                               root / modality / "logs" / f"{key}_train.log")
             elif stage in ("eval", "charts"):
                 from compare import compare
                 for modality, registry in registries.items():

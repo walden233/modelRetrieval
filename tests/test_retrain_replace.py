@@ -15,6 +15,18 @@ from bise.common.fingerprints import write_json
 from test_retrain_comparison import load_entry
 
 
+def prepare_metadata(config, modality, run, split_manifest=None):
+    mapping = (json.loads(split_manifest.read_text())
+               if split_manifest is not None and split_manifest.is_file()
+               else {"train": [], "val": [], "test": []})
+    write_json(run / "split_manifest.json", mapping)
+    config["split"]["manifest_path"] = str(run / "split_manifest.json")
+    write_json(run / "params.json", config)
+    for name in ("data_manifest", "split_info", "protocols"):
+        write_json(run / f"{name}.json", {})
+    write_json(run / "status.json", {"state": "prepared"})
+
+
 def test_replacement_pipeline_archives_selected_runs_and_reuses_other_groups(tmp_path,
                                                                           monkeypatch):
     module = load_entry("retrain")
@@ -75,11 +87,17 @@ def test_replacement_pipeline_archives_selected_runs_and_reuses_other_groups(tmp
     monkeypatch.setattr(splits, "prepare_protocols", lambda *args: None)
     monkeypatch.setitem(sys.modules, "audit_splits",
                         SimpleNamespace(audit=lambda *args, **kwargs: {}))
+    monkeypatch.setattr("bise.common.training.prepare_training_run", prepare_metadata)
     trained, compared = [], []
     def train(command, log):
         run = Path(command[command.index("--run-dir") + 1])
         source = Path(command[command.index("--config") + 1])
-        assert not run.exists()
+        assert "--prepared" in command
+        for modality, key in (("trajectory", "T4"), ("video", "E3")):
+            prepared = root / modality / key
+            assert (prepared / "params.json").is_file()
+            assert (prepared / "split_manifest.json").is_file()
+        assert json.loads((run / "status.json").read_text())["state"] == "prepared"
         params = json.loads(source.read_text())
         assert params["split"]["scene_counts"] == {"test": 120, "val": 50}
         write_json(run / "params.json", params)
@@ -193,8 +211,8 @@ def test_same_batch_retraining_reuses_saved_split(tmp_path, monkeypatch, modalit
 
     def train(command, log):
         commands.append(command)
-        assert not run.exists()
-        preserved = Path(command[command.index("--split-manifest") + 1])
+        assert "--prepared" in command
+        preserved = run / "split_manifest.json"
         assert json.loads(preserved.read_text()) == mapping
         current = json.loads(Path(command[command.index("--config") + 1]).read_text())
         assert current["split"]["manifest_path"] == str(run / "split_manifest.json")
@@ -204,6 +222,7 @@ def test_same_batch_retraining_reuses_saved_split(tmp_path, monkeypatch, modalit
         (run / "best_model.pth").write_bytes(b"new checkpoint")
 
     monkeypatch.setattr(module, "run_logged", train)
+    monkeypatch.setattr("bise.common.training.prepare_training_run", prepare_metadata)
     arguments = ["retrain", "--config", str(config_path), "--batch", "s42",
                  "--stage", "train", "--modality", modality]
     if skip:
@@ -236,3 +255,52 @@ def test_replace_rejects_ambiguous_scope_and_raw_training(arguments, monkeypatch
     with pytest.raises(SystemExit) as error:
         module.main()
     assert error.value.code == 2
+
+
+@pytest.mark.parametrize("fail", [False, True])
+def test_all_metadata_precedes_training_and_failure_stops_training(tmp_path, monkeypatch, fail):
+    module = load_entry("retrain")
+    config = json.loads((ROOT / "configs/retrain/run.json").read_text())
+    config["output_root"] = str(tmp_path / "runs")
+    config["trajectory"] = {key: config["trajectory"][key] for key in ("T1", "T4")}
+    config["video"] = {key: config["video"][key] for key in ("E1", "RawJ")}
+    for modality in ("trajectory", "video"):
+        for key, entry in config[modality].items():
+            current = json.loads((ROOT / entry["config"]).read_text())
+            current["device"] = "cpu"
+            path = tmp_path / f"{key}.json"
+            write_json(path, current)
+            entry["config"] = str(path)
+    source = tmp_path / "run.json"
+    write_json(source, config)
+    prepared, trained = [], []
+    def prepare(current, modality, run, split_manifest):
+        prepared.append(run.name)
+        if fail and run.name == "T4":
+            raise RuntimeError("Cannot prepare T4 split")
+        prepare_metadata(current, modality, run, split_manifest)
+    root = tmp_path / "runs/test"
+    def train(command, log):
+        assert prepared == ["T1", "T4", "E1", "RawJ"]
+        for modality in ("trajectory", "video"):
+            for key in config[modality]:
+                for name in ("params", "split_manifest", "data_manifest",
+                             "split_info", "protocols", "status"):
+                    assert (root / modality / key / f"{name}.json").is_file()
+        assert json.loads((root / "video/RawJ/params.json").read_text())["raw_backbone"]
+        run = Path(command[command.index("--run-dir") + 1])
+        trained.append(run.name)
+        write_json(run / "status.json", {"state": "complete"})
+    monkeypatch.setattr("bise.common.training.prepare_training_run", prepare)
+    monkeypatch.setattr(module, "run_logged", train)
+    monkeypatch.setattr(sys, "argv", ["retrain", "--config", str(source), "--batch", "test",
+                                     "--stage", "train"])
+    if fail:
+        with pytest.raises(RuntimeError, match="Cannot prepare T4 split"):
+            module.main()
+        assert prepared == ["T1", "T4"] and trained == []
+    else:
+        module.main()
+        assert trained == ["T1", "T4", "E1"]
+    assert json.loads((root / "pipeline.json").read_text())["steps"][-1]["state"] == (
+        "failed" if fail else "complete")

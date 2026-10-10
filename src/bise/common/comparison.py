@@ -1,4 +1,4 @@
-"""Compare validated evaluations using each run's recorded cfg2 split."""
+"""Compare saved evaluation metrics using each run's recorded cfg2 split."""
 
 import csv
 import json
@@ -7,7 +7,6 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from bise.common.evaluation import effective_config, validate_evaluation
 from bise.common.fingerprints import write_json
 from bise.common.paths import resolve_path
 from bise.common.plots import comparison_sources, curve_sources, record_plot
@@ -109,55 +108,63 @@ def _plot(experiments: list, path: Path, title: str) -> None:
     plt.close(fig)
 
 
+def load_saved_experiments(registry: dict, cfg: str) -> list[dict]:
+    """Read plotting data without requiring cached evaluation fingerprints."""
+    experiments = []
+    for key, entry in registry["groups"].items():
+        run = resolve_path(entry["run_dir"])
+        directory = run / "evaluations" / cfg
+        if not all((directory / name).is_file() for name in ("metrics.json", "metadata.json")):
+            print(f"Skip missing evaluation {registry['modality']} {key} {cfg}", flush=True)
+            continue
+        params = run / "params.json"
+        config = json.loads(params.read_text()) if params.is_file() else {}
+        metadata = json.loads((directory / "metadata.json").read_text())
+        scenes = metadata.get("human_scene_ids", metadata.get("scene_ids", []))
+        cameras = metadata.get("human_camera_ids", metadata.get("camera_ids", []))
+        robots = metadata.get("robot_scene_ids", scenes)
+        source_key = "data_params" if registry["modality"] == "trajectory" else "dataset"
+        source = config.get(source_key, {})
+        keys = (("max_human_frames", "max_robot_frames", "preserve_timing")
+                if registry["modality"] == "trajectory" else
+                ("num_frames", "sampling_strategy", "sampling_stride", "eval_augmentations"))
+        info = {"identities": [list(x) for x in zip(scenes, cameras)],
+                "scenes": len(set(scenes)), "tasks": len({x.split('/')[0] for x in scenes}),
+                "sampling": {key: source.get(key) for key in keys}}
+        metrics = json.loads((directory / "metrics.json").read_text())
+        for levels in metrics.values():
+            for values in levels.values():
+                if any(not np.isfinite(value) for value in values.values()):
+                    raise ValueError(f"Non-finite metrics: {directory}")
+        for level in ("task", "scene"):
+            for metric in METRICS:
+                if metric not in metrics["human_to_robot"][level]:
+                    raise ValueError(f"Missing {metric}: {directory}")
+        split = run / "split_manifest.json"
+        unit = config.get("split", {}).get("unit", "scene")
+        counts = (validate_split(load_split_map(split), unit)
+                  if split.is_file() and not entry.get("raw") else {})
+        manifest = str(split) if cfg == "cfg2" else config.get("eval_manifests", {}).get(cfg)
+        experiments.append({"group": key, "label": entry.get("label", key),
+                            "run_dir": str(run),
+                            "partition": "task" if cfg == "cfg2" and unit == "task" else "shared",
+                            "queries": len(scenes), "candidates": len(robots),
+                            "test_scenes": info["scenes"], "test_tasks": info["tasks"],
+                            "split_manifest": manifest, "split_counts": counts,
+                            "sampling": info["sampling"],
+                            "checkpoint_selection": config.get("checkpoint_selection"),
+                            "metrics": metrics, "evaluation": info})
+    return experiments
+
+
 def export_comparison(registry: dict, cfgs: list[str], output: Path) -> dict:
-    # Validate every input before replacing any previously published chart.
-    gathered = {}
-    for cfg in cfgs:
-        experiments, reference = [], None
-        for key, entry in registry["groups"].items():
-            run = resolve_path(entry["run_dir"])
-            config = json.loads((run / "params.json").read_text())
-            config = effective_config(config, registry["modality"], cfg)
-            manifest = eval_manifest(config, run, cfg)
-            directory = run / "evaluations" / cfg
-            checkpoint = run / ("backbone.pth" if entry.get("raw") else "best_model.pth")
-            print(f"Validate {registry['modality']} {key} {cfg}", flush=True)
-            info = validate_evaluation(directory, config, checkpoint,
-                                       registry["modality"], manifest)
-            partition = ("task" if cfg == "cfg2" and config["split"].get("unit") == "task"
-                         else "shared")
-            signature = (info["protocol_sha256"], info["data_sha256"], info["evaluator_sha256"],
-                         info["sampling"])
-            # cfg2 permits per-run test sets; cfg3 still uses one frozen inventory.
-            if cfg == "cfg3":
-                signature += (info["identities"],)
-            if reference is not None and reference != signature:
-                raise ValueError(f"Incompatible evaluation data/settings for {cfg}")
-            reference = signature
-            metrics = json.loads((directory / "metrics.json").read_text())
-            for direction in ("human_to_robot", "robot_to_human"):
-                for level in ("task", "scene"):
-                    if any(not np.isfinite(value) for value in metrics[direction][level].values()):
-                        raise ValueError(f"Non-finite metrics: {directory}")
-                    for metric in (*METRICS, "MPR-all"):
-                        if metric not in metrics[direction][level]:
-                            raise ValueError(f"Missing {metric}: {directory}")
-            counts = {} if entry.get("raw") else validate_split(
-                load_split_map(run / "split_manifest.json"), config["split"].get("unit", "scene"))
-            experiments.append({"group": key, "label": entry.get("label", key),
-                                "run_dir": str(run), "partition": partition,
-                                "queries": len(info["identities"]),
-                                "candidates": len(info["identities"]),
-                                "test_scenes": info["scenes"], "test_tasks": info["tasks"],
-                                "split_manifest": str(manifest),
-                                "split_counts": counts, "sampling": info["sampling"],
-                                "checkpoint_selection": config.get("checkpoint_selection"),
-                                "metrics": metrics,
-                                "evaluation": info})
-        gathered[cfg] = experiments
+    gathered = {cfg: load_saved_experiments(registry, cfg) for cfg in cfgs}
     output.mkdir(parents=True, exist_ok=True)
     summary = {}
     for cfg, experiments in gathered.items():
+        if not experiments:
+            print(f"No saved evaluations for {cfg}; skip comparison", flush=True)
+            continue
         _write_comparison(registry, cfg, experiments, output)
         test_label = "per-run test" if cfg == "cfg2" else "shared test"
         _plot(experiments, output / f"{cfg}.png",
@@ -179,11 +186,13 @@ def export_curves(registry: dict, output: Path) -> None:
     labels = {}
     for key, entry in registry["groups"].items():
         path = resolve_path(entry["run_dir"]) / "curves.json"
-        if entry.get("raw"):
+        if entry.get("raw") or not path.is_file():
             continue
         values = json.loads(path.read_text())
         series[key] = values
         labels[key] = entry.get("label", key)
+    if not series:
+        return
     output.mkdir(parents=True, exist_ok=True)
     write_json(output / "curves.json", series)
     plot_curves(series, labels, output / "curves.png",

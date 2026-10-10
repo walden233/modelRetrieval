@@ -70,7 +70,7 @@ def test_index_records_every_source_before_drawing_and_recovers_missing_pngs(tmp
     assert comparison["inputs"] == ["video/charts/cfg2.json"]
     assert set(comparison["upstream"]) == {
         "video/runs.json", "video/E3/evaluations/cfg2/metrics.json",
-        "video/E3/evaluations/cfg2/run_info.json",
+        "video/E3/evaluations/cfg2/metadata.json",
     }
     assert payload["video/E3/curves.png"] == {
         "kind": "run_curves", "inputs": ["video/E3/curves.json"],
@@ -221,10 +221,10 @@ def test_redraw_rebuilds_missing_chart_data_from_saved_runs(tmp_path, monkeypatc
         (charts / f"{missing}.json").unlink()
         (charts / f"{missing}.png").write_bytes(b"old image without aggregate JSON")
 
-    from bise.common import comparison
+    from bise.common import evaluation
     def evaluate(*args, **kwargs):
         raise AssertionError("Redraw must use saved results without evaluating models")
-    monkeypatch.setattr(comparison, "validate_evaluation", evaluate)
+    monkeypatch.setattr(evaluation, "validate_evaluation", evaluate)
     def savefig(figure, path, **kwargs):
         manifest = json.loads((root / "plots.json").read_text())
         assert path.relative_to(root).as_posix() in manifest
@@ -247,6 +247,20 @@ def test_redraw_rebuilds_missing_chart_data_from_saved_runs(tmp_path, monkeypatc
     assert (charts / "curves.png").is_file()
     assert all(file_hash(path) == digest for path, digest in before.items())
     assert "sha256" not in (root / "plots.json").read_text()
+
+
+def test_rebuild_plot_index_without_any_evaluation_run_info(tmp_path):
+    root, _, _ = plot_batch(tmp_path)
+    for source in root.rglob("run_info.json"):
+        source.unlink()
+    for modality in ("trajectory", "video"):
+        shutil.rmtree(root / modality / "charts")
+    payload = index_plots(root)
+    assert len(payload) == 16
+    assert "run_info.json" not in json.dumps(payload)
+    for modality in ("trajectory", "video"):
+        assert (root / modality / "charts/cfg2.json").is_file()
+        assert (root / modality / "charts/cfg3.json").is_file()
 
 
 def test_redraw_prefers_existing_comparison_json_over_changed_run_metrics(tmp_path, monkeypatch):
@@ -290,4 +304,4 @@ def test_rebuild_uses_available_evaluations_and_preserves_registry_order(tmp_pat
     redraw_plots(root)
     data = json.loads((directory / "charts/cfg2.json").read_text())
     assert [experiment["group"] for experiment in data["experiments"]] == ["T4", "T2"]
-    assert "missing evaluations: N3" in capsys.readouterr().out
+    assert "Skip missing evaluation trajectory N3 cfg2" in capsys.readouterr().out

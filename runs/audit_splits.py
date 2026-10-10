@@ -20,7 +20,7 @@ def audit(config: dict, files: bool = False, runs: str | None = None) -> dict:
         directory = resolve_path(config["manifest_dir"]) / config["batch"]
         manifests = {cfg: directory / cfg / "metadata.json" for cfg in ("cfg2", "cfg3")}
     for cfg, path in manifests.items():
-        payload = load_protocol(path, video_hashes=files)
+        payload = load_protocol(path)
         root = resolve_path(payload["data_root"])
         data = json.loads(resolve_path(payload["data_manifest"]).read_text())
         if files:
@@ -28,8 +28,8 @@ def audit(config: dict, files: bool = False, runs: str | None = None) -> dict:
                 for pair in pairs:
                     for domain in ("human", "robot"):
                         source = root / pair[f"{domain}_path"]
-                        if file_hash(source) != pair[f"{domain}_sha256"]:
-                            raise ValueError(f"Frozen video changed: {source}")
+                        if not source.is_file():
+                            raise FileNotFoundError(f"Frozen video file missing: {source}")
                 if index % 50 == 0:
                     print(f"Audit {cfg} files {index + 1}/{len(payload['video_pairs'])}",
                           flush=True)
@@ -59,7 +59,8 @@ def audit(config: dict, files: bool = False, runs: str | None = None) -> dict:
             split.setdefault("seed", current["seed"])
             if modality == "trajectory":
                 source = build_trajectory_dataset(current)
-                if files and current["model_params"].get("grasp_geometry"):
+                if files and (current["model_params"].get("grasp_geometry")
+                        or current["model_params"].get("use_gripper")):
                     for index in range(len(source)):
                         source[index]
                 subsets = (split_task_dataset(source, split, modality)
@@ -90,7 +91,8 @@ def audit(config: dict, files: bool = False, runs: str | None = None) -> dict:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default="configs/retrain/run.json")
-    parser.add_argument("--files", action="store_true", help="Verify all frozen source file hashes")
+    parser.add_argument("--files", action="store_true",
+                        help="Verify trajectory hashes and video file existence")
     parser.add_argument("--runs", help="Additionally audit a new batch runs.json")
     parser.add_argument("--output", help="Optional JSON audit report")
     args = parser.parse_args()

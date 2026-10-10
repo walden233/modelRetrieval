@@ -39,5 +39,56 @@
       "label": "N3"
     }
   },
-  "video": {}
+  "video": {
+    "E0": {
+      "config": "configs/retrain/video/E0.json",
+      "label": "E0",
+      "raw": false
+    },
+    "E1": {
+      "config": "configs/retrain/video/E1.json",
+      "label": "E1",
+      "raw": false
+    },
+    "E2": {
+      "config": "configs/retrain/video/E2.json",
+      "label": "E2",
+      "raw": false
+    },
+    "E3": {
+      "config": "configs/retrain/video/E3.json",
+      "label": "E3",
+      "raw": false
+    },
+    "E4": {
+      "config": "configs/retrain/video/E4.json",
+      "label": "E4",
+      "raw": false
+    },
+    "E5": {
+      "config": "configs/retrain/video/E5.json",
+      "label": "E5",
+      "raw": false
+    },
+    "E6s": {
+      "config": "configs/retrain/video/E6s.json",
+      "label": "E6s",
+      "raw": false
+    },
+    "E6d": {
+      "config": "configs/retrain/video/E6d.json",
+      "label": "E6d",
+      "raw": false
+    },
+    "RawJ": {
+      "config": "configs/retrain/video/RawJ.json",
+      "label": "RawJ",
+      "raw": true
+    },
+    "RawM": {
+      "config": "configs/retrain/video/RawM.json",
+      "label": "RawM",
+      "raw": true
+    }
+  }
 }

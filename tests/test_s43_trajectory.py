@@ -25,6 +25,8 @@ from bise.modalities.trajectory.grasp import human_grasp_features, robot_grasp_f
 from bise.modalities.trajectory.trainer import train_augmented_trajectory_epoch
 from test_hand_3d_trajectory_dataset import _write_scene
 
+HAND_11 = [0, 2, 4, 5, 8, 9, 12, 13, 16, 17, 20]
+
 
 def config(name):
     return json.loads((ROOT / f"configs/retrain/s43/trajectory/{name}.json").read_text())
@@ -44,7 +46,15 @@ def hand():
 def test_s43_matrix_and_keypoint_only_ablation():
     configs = {name: config(name) for name in ("T1", "T2", "T3", "T4", "T5", "N1", "N2", "N3")}
     assert all(c["seed"] == 43 and not c["use_6_keypoints"] for c in configs.values())
-    assert all(c["num_epochs"] == 70 for c in configs.values())
+    assert all(c["num_epochs"] > 0 and "max_train_batches" not in c
+               for c in configs.values())
+    for name, c in configs.items():
+        assert c["model_params"]["use_gripper"]
+        assert c["model_params"]["robot_input_dim"] == (15 if name in ("N2", "N3") else 10)
+        expected_dim = 63 if name == "T5" else (42 if name in ("N2", "N3") else 33)
+        assert c["model_params"]["human_input_dim"] == expected_dim
+        assert c["model_params"].get("human_keypoint_indices") == (
+            None if name == "T5" else HAND_11)
     assert configs["T4"]["split"]["unit"] == "task"
     assert configs["T3"]["mode"] == "augment"
     assert not configs["T3"]["model_params"]["shared_transformer"]
@@ -85,26 +95,90 @@ def test_shared_weights_have_distinct_stems_and_adapters_and_roundtrip():
                                    restored.forward_human(points, mask, context))
 
 
-def test_five_points_are_selected_after_common_augmentation_source():
-    cfg = config("T5")
+def test_baseline_uses_measured_opening_and_preserves_legacy_pose_only_model():
+    cfg = config("T2")
+    cfg["model_params"].update(d_model=16, nhead=4, num_layers=1,
+                               dim_feedforward=32, proj_dim=8, dropout=0)
+    model = build_trajectory_model(cfg, "cpu").eval()
+    tcp = torch.zeros(2, 5, 8)
+    tcp[..., 3] = 1
+    tcp[..., 7] = .4
+    tcp.requires_grad_()
+    mask = torch.ones(2, 5, dtype=torch.bool)
+    mask[1, -1] = False
+    captured = []
+    hook = model.robot_encoder.input_proj.register_forward_pre_hook(
+        lambda module, inputs: captured.append(inputs[0]))
+    model.forward_robot(tcp, mask, torch.ones(2, 5, 3))[..., 0].sum().backward()
+    hook.remove()
+    assert captured[0].shape == (2, 5, 10)
+    torch.testing.assert_close(captured[0][0, :, -1], tcp[0, :, 7])
+    assert captured[0][1, -1].abs().sum() == 0
+    assert tcp.grad[..., 7].abs().sum() > 0
+    assert tcp.grad[1, -1].abs().sum() == 0
+    with pytest.raises(ValueError, match="measured opening"):
+        model.forward_robot(tcp[..., :7], mask, torch.ones(2, 5, 3))
+    cfg["model_params"].pop("use_gripper")
+    cfg["model_params"]["robot_input_dim"] = 9
+    legacy = build_trajectory_model(cfg, "cpu").eval()
+    restored = build_trajectory_model(cfg, "cpu").eval()
+    restored.load_state_dict(legacy.state_dict(), strict=True)
+    with torch.no_grad():
+        torch.testing.assert_close(legacy.forward_robot(tcp[..., :7], mask, torch.ones(2, 5, 3)),
+                                   restored.forward_robot(tcp[..., :7], mask, torch.ones(2, 5, 3)))
+
+
+def test_training_batch_limit_preserves_dataset_and_counts_actual_steps():
+    from test_retrain_comparison import load_entry
+    module = load_entry("trajectory/train_trajectory")
+    dataset = list(range(24))
+    loader = DataLoader(dataset, batch_size=8)
+    limited = module.LimitedBatches(loader, 1)
+    assert len(limited) == 1 and len(loader.dataset) == 24
+    assert len(list(limited)) == 1 and limited.steps == 1
+    assert len(list(limited)) == 1 and limited.steps == 2
+    assert len(module.LimitedBatches(loader, 10)) == 3
+    for invalid in (0, -1, 1.5, True):
+        with pytest.raises(ValueError, match="positive integer"):
+            module.LimitedBatches(loader, invalid)
+
+
+@pytest.mark.parametrize("name", ["T1", "T2", "T3", "T4", "T5", "N1", "N2", "N3"])
+def test_keypoints_are_selected_after_common_augmentation_source(name):
+    cfg = config(name)
     cfg["model_params"].update(d_model=16, nhead=4, num_layers=1,
                                dim_feedforward=32, proj_dim=8, dropout=0)
     model = build_trajectory_model(cfg, "cpu")
     points = hand().requires_grad_()
     mask = torch.ones(2, 5, dtype=torch.bool)
     context = torch.ones(2, 5, 3)
+    captured = []
+    hook = model.human_encoder.input_proj.register_forward_pre_hook(
+        lambda module, inputs: captured.append(inputs[0]))
     model.forward_human(points, mask, context)[..., 0].sum().backward()
-    assert points.grad[..., [4, 8, 12, 16, 20], :].abs().sum() > 0
-    assert points.grad[..., [0, 1, 5, 9, 17], :].abs().sum() == 0
+    hook.remove()
+    assert captured[0].shape == (2, 5, cfg["model_params"]["human_input_dim"])
+    selected = list(range(21)) if name == "T5" else HAND_11
+    assert (points.grad[..., selected, :].abs().sum(dim=(0, 1, 3)) > 0).all()
+    omitted = sorted(set(range(21)) - set(selected))
+    assert points.grad[..., omitted, :].abs().sum() == 0
 
 
-def test_local_hand_shape_is_rigid_and_size_invariant_but_global_motion_is_kept():
+@pytest.mark.parametrize("indices", [None, HAND_11])
+def test_local_hand_shape_is_rigid_and_size_invariant_but_global_motion_is_kept(indices):
     points = hand()
     mask = torch.ones(2, 5, dtype=torch.bool)
     mask[1, 3] = False
-    baseline = human_grasp_features(points, mask)
+    baseline = human_grasp_features(points, mask, keypoint_indices=indices)
+    assert baseline.shape[-1] == (72 if indices is None else 42)
+    if indices is not None:
+        full = human_grasp_features(points, mask)
+        torch.testing.assert_close(baseline[..., :9], full[..., :9])
+        torch.testing.assert_close(baseline[..., 9:],
+                                   full[..., 9:].reshape(2, 5, 21, 3)[..., indices, :].flatten(-2))
     rotation = torch.tensor([[0., -1., 0.], [1., 0., 0.], [0., 0., 1.]])
-    changed = human_grasp_features((points @ rotation.T) * 1.3 + 2, mask)
+    changed = human_grasp_features((points @ rotation.T) * 1.3 + 2, mask,
+                                  keypoint_indices=indices)
     torch.testing.assert_close(baseline[..., 9:], changed[..., 9:], atol=2e-5, rtol=2e-5)
     assert not torch.allclose(baseline[..., :9], changed[..., :9])
     assert baseline[1, 3].abs().sum() == 0
@@ -175,6 +249,39 @@ def prepared_fixture(tmp_path):
     return manifests, geometry
 
 
+def test_prepared_trajectory_entry_trains_one_batch_without_changing_split(tmp_path, monkeypatch):
+    from bise.common import evaluation, training
+    from bise.common.fingerprints import write_json
+    from test_retrain_comparison import load_entry
+    manifests, settings = prepared_fixture(tmp_path)
+    paths = prepare_grasp_geometry(settings, manifests)
+    cfg = config("T2")
+    cfg.update(data_root=str(tmp_path / "RH20T_cfg2"), device="cpu",
+               num_epochs=1, max_train_batches=1)
+    cfg["data_manifests"] = {f"RH20T_{c}": str(manifests / c / "data_manifest.json")
+                             for c in ("cfg2", "cfg3")}
+    cfg["data_params"]["geometry_manifests"] = {f"RH20T_{c}": p for c, p in paths.items()}
+    cfg["model_params"].update(d_model=16, nhead=4, num_layers=1,
+                               dim_feedforward=32, proj_dim=8, dropout=0)
+    cfg["split"] = {"unit": "scene", "ratios": {"train": 1., "val": 0., "test": 0.}}
+    # This single-scene fixture exercises training; protocol binding is covered separately.
+    bind = lambda run, current: write_json(run / "protocols.json", {})
+    monkeypatch.setattr(training, "bind_protocols", bind)
+    monkeypatch.setattr(evaluation, "bind_protocols", bind)
+    run = tmp_path / "runs/T2"
+    training.prepare_training_run(cfg, "trajectory", run)
+    training.validate_prepared_run(run)
+    split = (run / "split_manifest.json").read_bytes()
+    module = load_entry("trajectory/train_trajectory")
+    monkeypatch.setattr(sys, "argv", ["train_trajectory", "--config", str(run / "params.json"),
+                                     "--run-dir", str(run), "--prepared"])
+    module.main()
+    assert (run / "split_manifest.json").read_bytes() == split
+    assert (run / "best_model.pth").is_file()
+    status = json.loads((run / "status.json").read_text())
+    assert status["state"] == "complete" and status["train_batches"] == 1
+
+
 def test_preparation_uses_actual_source_cfg_and_freezes_calibration(tmp_path):
     manifests, settings = prepared_fixture(tmp_path)
     _, report = geometry_plan(settings, manifests)
@@ -207,7 +314,7 @@ def test_aligned_tcp_proxy_preserves_motion_and_records_virtual_geometry(tmp_pat
         validate_profile(bad)
 
 
-@pytest.mark.parametrize("name", ["N2", "N3"])
+@pytest.mark.parametrize("name", ["T2", "T5", "N1", "N2", "N3"])
 @pytest.mark.parametrize("storage", ["legacy", "dataset"])
 def test_geometry_dataset_joint_training_roundtrip_and_source_binding(tmp_path, name, storage):
     manifests, settings = prepared_fixture(tmp_path)
@@ -261,7 +368,7 @@ def test_geometry_dataset_joint_training_roundtrip_and_source_binding(tmp_path, 
     transform = np.eye(4)
     transform[:3, 3] = [.1, -.2, .3]
     shifted = dataset.with_human_transform(transform)[0]
-    if name == "N3":
+    if name in ("N1", "N3"):
         torch.testing.assert_close(item["human_poses"][0], shifted["human_poses"][0])
     else:
         assert not torch.allclose(item["human_poses"][0], shifted["human_poses"][0])
@@ -326,7 +433,7 @@ def test_selected_audit_excludes_unprepared_geometry_groups(tmp_path, monkeypatc
     module.main()
 
 
-@pytest.mark.parametrize("group,expected", [("T2", 0), ("N3", 1)])
+@pytest.mark.parametrize("group,expected", [("T2", 1), ("N3", 1)])
 def test_geometry_preparation_is_scoped_to_selected_groups(tmp_path, monkeypatch, group, expected):
     from test_retrain_comparison import load_entry
     from bise.data.rh20t import grasp_geometry, splits

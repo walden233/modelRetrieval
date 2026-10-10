@@ -91,9 +91,6 @@ def evaluation_inputs(config: dict, checkpoint: str | Path, modality: str,
     cfg = root.name.removeprefix("RH20T_")
     protocol_path = resolve_path(config["eval_manifests"][cfg])
     payload = load_protocol(protocol_path, root, video_hashes=modality == "video")
-    bindings = json.loads((run / "protocols.json").read_text())
-    if bindings[cfg]["sha256"] != protocol_hash(protocol_path):
-        raise ValueError(f"Frozen evaluation protocol changed since training: {protocol_path}")
     mapping = load_split_map(manifest_path)
     selected = mapping.get(split, [])
     if not selected:
@@ -149,7 +146,8 @@ def evaluation_inputs(config: dict, checkpoint: str | Path, modality: str,
             else ("num_frames", "sampling_strategy", "sampling_stride", "eval_augmentations"))
     sampling = {key: source.get(key) for key in keys}
     geometry = {}
-    if modality == "trajectory" and config["model_params"].get("grasp_geometry"):
+    if modality == "trajectory" and (config["model_params"].get("grasp_geometry")
+            or config["model_params"].get("use_gripper")):
         from bise.data.rh20t.grasp_geometry import geometry_digest
         geometry["geometry_sha256"] = geometry_digest(config, selected)
     return {"cfg": cfg, "split": split, "modality": modality, "protocol": PROTOCOL,

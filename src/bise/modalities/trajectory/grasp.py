@@ -20,8 +20,8 @@ class MotionShapeProjection(nn.Module):
         return (self.motion(features[..., :9]) + self.shape(features[..., 9:])) / 2**0.5
 
 
-def human_grasp_features(points, mask, context=None):
-    """Keep global motion; express all 21 points in the current grasp frame."""
+def human_grasp_features(points, mask, context=None, keypoint_indices=None):
+    """Keep grasp motion; express selected hand points in the current grasp frame."""
     if points.shape[-2:] != (21, 3):
         raise ValueError("Grasp geometry requires all 21 human landmarks")
     observed = mask if context is None else mask & context[..., 2].bool()
@@ -39,7 +39,8 @@ def human_grasp_features(points, mask, context=None):
     rot6d = rotation[..., :, :2].transpose(-1, -2).flatten(-2)
     length = forward.norm(dim=-1).masked_fill(~observed, float("nan"))
     scale = torch.nanmedian(length, dim=1).values.clamp_min(1e-4)[:, None, None, None]
-    local = (points - center.unsqueeze(-2)) @ rotation / scale
+    shape_points = points if keypoint_indices is None else points[..., keypoint_indices, :]
+    local = (shape_points - center.unsqueeze(-2)) @ rotation / scale
     features = torch.cat((center, rot6d, local.flatten(-2)), dim=-1)
     return features.masked_fill(~observed.unsqueeze(-1), 0)
 

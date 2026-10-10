@@ -4,6 +4,7 @@ import json
 import math
 import random
 import sys
+from itertools import islice
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -30,6 +31,25 @@ from bise.modalities.trajectory.factory import (build_split_manifest, split_traj
                                               build_trajectory_dataset, build_trajectory_model)
 
 
+class LimitedBatches:
+    """Limit training iterations while preserving the full dataset and validation split."""
+
+    def __init__(self, loader, limit: int):
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+            raise ValueError("max_train_batches must be a positive integer")
+        self.loader = loader
+        self.limit = limit
+        self.steps = 0
+
+    def __len__(self):
+        return min(len(self.loader), self.limit)
+
+    def __iter__(self):
+        for batch in islice(self.loader, self.limit):
+            self.steps += 1
+            yield batch
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Train the trajectory retrieval model.")
     parser.add_argument("--config", required=True, help="Path to the JSON config file.")
@@ -37,6 +57,8 @@ def parse_args():
     parser.add_argument("--output-dir", help="Optional output dir override.")
     parser.add_argument("--epochs", type=int, help="Override epochs for a closed-loop short run.")
     parser.add_argument("--run-dir", help="Exact new run directory (must not exist).")
+    parser.add_argument("--prepared", action="store_true",
+                        help="Train an existing run whose metadata is prepared by the pipeline.")
     parser.add_argument("--split-manifest", help="Existing split_manifest.json to reuse.")
     parser.add_argument("--seed", type=int, help="Override training and dynamic split seed.")
     return parser.parse_args()
@@ -67,13 +89,17 @@ def main():
 
     run_name = f'{config["experiment_name"]}_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}'
     run_dir = Path(args.run_dir) if args.run_dir else Path(config["output_dir"]) / run_name
-    run_dir.mkdir(parents=True, exist_ok=False)
+    if args.prepared:
+        from bise.common.training import validate_prepared_run
+        validate_prepared_run(run_dir)
+    run_dir.mkdir(parents=True, exist_ok=args.prepared)
     if args.split_manifest:
         manifest = resolve_path(args.split_manifest)
         (run_dir / "split_manifest.json").write_bytes(manifest.read_bytes())
         config.setdefault("split", {})["manifest_path"] = str(run_dir / "split_manifest.json")
 
-    if config["model_params"].get("grasp_geometry"):
+    if (config["model_params"].get("grasp_geometry")
+            or config["model_params"].get("use_gripper")):
         from bise.data.rh20t.grasp_geometry import bind_geometry
         bind_geometry(config)
     dataset = build_trajectory_dataset(config)
@@ -116,6 +142,8 @@ def main():
         shuffle=True,
         collate_fn=collate_trajectories,
     )
+    if config.get("max_train_batches") is not None:
+        train_loader = LimitedBatches(train_loader, config["max_train_batches"])
     val_loader = None
     if split_datasets.get("val") is not None and len(split_datasets["val"]) > 0:
         val_loader = DataLoader(
@@ -227,7 +255,10 @@ def main():
     torch.save(model.state_dict(), run_dir / "last_model.pth")
     save_run_artifacts(run_dir, config, history, best_result)
     if config.get("protocol") == "retrain_v2":
-        write_json(run_dir / "status.json", {"state": "complete", "epochs": len(history["train_loss"])})
+        status = {"state": "complete", "epochs": len(history["train_loss"])}
+        if isinstance(train_loader, LimitedBatches):
+            status["train_batches"] = train_loader.steps
+        write_json(run_dir / "status.json", status)
 
 
 def _build_lr_scheduler(optimizer, config: dict, total_epochs: int):

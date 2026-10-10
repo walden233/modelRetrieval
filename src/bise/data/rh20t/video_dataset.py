@@ -25,6 +25,7 @@ class RH20TVideoDataset(Dataset):
         max_pairs_per_scene: int | None = None,
         debug_max_samples: int | None = None,
         pair_manifest_path: str | None = None,
+        verify_video_hashes: bool = True,
     ):
         self.root_dir = root_dir
         self.processor = processor
@@ -37,6 +38,7 @@ class RH20TVideoDataset(Dataset):
         self.max_pairs_per_scene = max_pairs_per_scene
         self._verified_files = {}
         self._file_hashes = {}
+        self.verify_video_hashes = verify_video_hashes
         self.manifest = None
         if pair_manifest_path:
             self.samples = self._frozen_samples(pair_manifest_path)
@@ -142,7 +144,8 @@ class RH20TVideoDataset(Dataset):
     def _frozen_samples(self, manifest_path: str) -> List[VideoPairSample]:
         from bise.common.fingerprints import file_hash
         from .splits import load_protocol
-        payload = load_protocol(manifest_path, self.root_dir, video_hashes=True)
+        payload = load_protocol(manifest_path, self.root_dir,
+                                video_hashes=self.verify_video_hashes)
         if self.max_pairs_per_scene not in (None, 2):
             raise ValueError("Frozen video protocol requires exactly two pairs per scene")
         samples = []
@@ -154,7 +157,8 @@ class RH20TVideoDataset(Dataset):
                 for domain, path in paths.items():
                     if not Path(path).is_file():
                         raise FileNotFoundError(f"Frozen video file missing: {path}")
-                    self._file_hashes[path] = pair[f"{domain}_sha256"]
+                    if self.verify_video_hashes:
+                        self._file_hashes[path] = pair[f"{domain}_sha256"]
                 samples.append(VideoPairSample(
                     sample_id=pair["sample_id"], pair_id=pair["sample_id"], dataset_name="rh20t",
                     task_id=task, scene_id=identity, camera_id=pair["camera_id"],
