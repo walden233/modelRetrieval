@@ -1,5 +1,5 @@
 {
-  "experiment_name": "E5",
+  "experiment_name": "E4",
   "output_dir": "artifacts/runs/retrain",
   "seed": 42,
   "dataset": {
@@ -9,8 +9,8 @@
     "sampling_strategy": "uniform",
     "max_pairs_per_scene": 2,
     "pair_manifests": {
-      "RH20T_cfg2": "artifacts/manifests/retrain/s42/cfg2/metadata.json",
-      "RH20T_cfg3": "artifacts/manifests/retrain/s42/cfg3/metadata.json"
+      "RH20T_cfg2": "artifacts/manifests/retrain/s43/cfg2/metadata.json",
+      "RH20T_cfg3": "artifacts/manifests/retrain/s43/cfg3/metadata.json"
     },
     "seed": 42,
     "intra_train_augmentations": {
@@ -20,7 +20,7 @@
     }
   },
   "split": {
-    "shared_manifest_path": "artifacts/manifests/retrain/s42/cfg2/split_manifest_video.json",
+    "shared_manifest_path": "artifacts/manifests/retrain/s43/cfg2/split_manifest_video.json",
     "unit": "scene",
     "use_fixed_val": true,
     "val_count": 50
@@ -28,12 +28,12 @@
   "model": {
     "backbone_type": "vjepa",
     "backbone_name": "facebook/vjepa2-vitl-fpc64-256",
-    "encoder_mode": "dual_head",
+    "encoder_mode": "robot_head",
     "feature_dim": 128,
     "dropout": 0.1,
     "temperature": 0.07,
-    "freeze_backbone": false,
-    "unfreeze_last_n_blocks": 2
+    "freeze_backbone": true,
+    "unfreeze_last_n_blocks": 0
   },
   "loss": {
     "name": "multi_positive",
@@ -58,8 +58,8 @@
   },
   "protocol": "retrain_v2",
   "eval_manifests": {
-    "cfg2": "artifacts/manifests/retrain/s42/cfg2/split_manifest_video.json",
-    "cfg3": "artifacts/manifests/retrain/s42/cfg3/split_manifest_video.json"
+    "cfg2": "artifacts/manifests/retrain/s43/cfg2/split_manifest_video.json",
+    "cfg3": "artifacts/manifests/retrain/s43/cfg3/split_manifest_video.json"
   },
   "checkpoint_selection": {
     "loss_weight": 0.0,

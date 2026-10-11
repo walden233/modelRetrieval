@@ -40,7 +40,7 @@ cfg4 是 **UR5＋Robotiq 2F-85**，将来可以用 cfg3/cfg4 补充机械臂相�
 调研初稿时子集未找到夹爪开合或关节状态文件；此后已补齐原始 `gripper.npy` 和派生 `geometry.npy`。
 人手相机轨迹的有效帧覆盖率中位数，cfg2/cfg3 约为 **31.7%/36.9%**。
 因此，补齐夹爪状态、正确处理缺测，应优先于扩大模型。
-上述数据统计来自当前 s42 批次的
+上述数据统计来自调研时的历史 s42 批次的
 [cfg2 清单](../../artifacts/manifests/retrain/s42/cfg2/data_manifest.json)和
 [cfg3 清单](../../artifacts/manifests/retrain/s42/cfg3/data_manifest.json)，后续数据更新时需要重新核对。
 

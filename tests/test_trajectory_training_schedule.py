@@ -21,7 +21,7 @@ def trajectory_entry():
 
 def test_cosine_schedule_keeps_initial_rate_and_reaches_minimum_in_epoch_65():
     module = trajectory_entry()
-    config = json.loads((ROOT / "configs/retrain/trajectory/T1.json").read_text())
+    config = json.loads((ROOT / "configs/retrain/s43/trajectory/T1.json").read_text())
     parameter = torch.nn.Parameter(torch.ones(1))
     optimizer = torch.optim.AdamW([parameter], lr=config["learning_rate"])
     scheduler = module._build_lr_scheduler(optimizer, config, 65)
@@ -50,7 +50,7 @@ def test_legacy_config_without_schedule_keeps_fixed_learning_rate():
 @pytest.mark.parametrize("budget", [2, 12])
 def test_training_entry_records_used_rates_in_both_stages(tmp_path, monkeypatch, group, budget):
     module = trajectory_entry()
-    config = json.loads((ROOT / f"configs/retrain/trajectory/{group}.json").read_text())
+    config = json.loads((ROOT / f"configs/retrain/s43/trajectory/{group}.json").read_text())
     config.pop("protocol")
     config["device"] = "cpu"
     if group == "T3":

@@ -4,8 +4,9 @@
 
 ## 当前训练安排
 
-当前使用 `configs/retrain/s43/trajectory/` 或默认 `configs/retrain/trajectory/`。
-统一 65 epoch、batch 8；初始学习率 2e-4，前 10 epoch 保持，之后余弦下降至 2e-5。
+当前使用 `configs/retrain/s43/trajectory/`。
+统一 65 epoch、batch 8；T0 初始学习率 1e-4，前 8 epoch 保持，之后余弦下降至 1e-5；
+其余组为 2e-4、保持 10 epoch、余弦下降至 2e-5。
 所有组使用双残差适配头和共享最终检索投影，T3 是增强＋双 Transformer 基线。
 
 | 实验 | 相对设置 |

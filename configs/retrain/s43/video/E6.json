@@ -1,7 +1,6 @@
 {
-  "experiment_name": "RawM",
+  "experiment_name": "E6",
   "output_dir": "artifacts/runs/retrain",
-  "seed": 42,
   "dataset": {
     "type": "rh20t",
     "root_dir": "dataset/RH20T_subset/RH20T_cfg2",
@@ -9,20 +8,27 @@
     "sampling_strategy": "uniform",
     "max_pairs_per_scene": 2,
     "pair_manifests": {
-      "RH20T_cfg2": "artifacts/manifests/retrain/s42/cfg2/metadata.json",
-      "RH20T_cfg3": "artifacts/manifests/retrain/s42/cfg3/metadata.json"
+      "RH20T_cfg2": "artifacts/manifests/retrain/s43/cfg2/metadata.json",
+      "RH20T_cfg3": "artifacts/manifests/retrain/s43/cfg3/metadata.json"
     },
-    "seed": 42
+    "seed": 42,
+    "intra_train_augmentations": {
+      "brightness_jitter": 0.05,
+      "noise_std": 0.01,
+      "temporal_roll_max": 1
+    }
   },
   "split": {
-    "shared_manifest_path": "artifacts/manifests/retrain/s42/cfg2/split_manifest_video.json",
-    "unit": "scene",
-    "use_fixed_val": true,
-    "val_count": 50
+    "unit": "task",
+    "seed": 42,
+    "scene_counts": {
+      "test": 120,
+      "val": 50
+    }
   },
   "model": {
-    "backbone_type": "videomae",
-    "backbone_name": "MCG-NJU/videomae-base",
+    "backbone_type": "vjepa",
+    "backbone_name": "facebook/vjepa2-vitl-fpc64-256",
     "encoder_mode": "dual_head",
     "feature_dim": 128,
     "dropout": 0.1,
@@ -33,7 +39,7 @@
   "loss": {
     "name": "multi_positive",
     "positive_level": "task",
-    "lambda_intra": 0.0,
+    "lambda_intra": 0.2,
     "temperature": 0.07
   },
   "optimization": {
@@ -52,15 +58,15 @@
     "gradient_accumulation_steps": 1
   },
   "protocol": "retrain_v2",
+  "seed": 42,
   "eval_manifests": {
-    "cfg2": "artifacts/manifests/retrain/s42/cfg2/split_manifest_video.json",
-    "cfg3": "artifacts/manifests/retrain/s42/cfg3/split_manifest_video.json"
+    "cfg2": "artifacts/manifests/retrain/s43/cfg2/split_manifest_video.json",
+    "cfg3": "artifacts/manifests/retrain/s43/cfg3/split_manifest_video.json"
   },
   "checkpoint_selection": {
     "loss_weight": 0.0,
     "mrr_weight": 1.0,
     "ndcg_weight": 0.0
   },
-  "raw_backbone": true,
   "device": "cuda"
 }

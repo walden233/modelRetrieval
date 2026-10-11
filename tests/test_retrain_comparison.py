@@ -328,7 +328,7 @@ def test_two_stage_epoch_budget_and_dry_run_without_files(tmp_path):
     assert module.epoch_budget(config, "trajectory", 70) == config
     with pytest.raises(ValueError, match="at least two"):
         module.epoch_budget(config, "trajectory", 1)
-    run_config = json.loads((ROOT / "configs/retrain/run.json").read_text())
+    run_config = json.loads((ROOT / "configs/retrain/s43/run.json").read_text())
     run_config["output_root"] = str(tmp_path / "outputs")
     path = tmp_path / "run.json"
     write_json(path, run_config)

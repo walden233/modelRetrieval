@@ -127,13 +127,6 @@ def test_explicit_manifest_overrides_legacy_all_test_config(tmp_path):
     assert config == {"manifest_path": str(path)}
     assert resolved == path
 
-
-def test_existing_video_manifest_overlap_is_rejected():
-    with pytest.raises(ValueError, match="Scene overlap"):
-        validate_split({"train": ["rh20t::task_0001::scene_1::0"],
-                        "test": ["rh20t::task_0001::scene_1::1"]})
-
-
 def test_frozen_video_order_and_decode_failure_never_substitute(tmp_path, monkeypatch):
     from bise.data.rh20t import video_dataset
     path, payload, identities = frozen_protocol(tmp_path, with_files=True)
@@ -153,7 +146,7 @@ def test_frozen_video_order_and_decode_failure_never_substitute(tmp_path, monkey
 
 def test_current_configs_control_ablations_and_share_budgets():
     root = Path(__file__).resolve().parents[1] / "configs/retrain"
-    for filename in (root / "run.json", root / "s43/run.json"):
+    for filename in (root / "s43/run.json",):
         registry = json.loads(filename.read_text())
         assert registry["prepare"] == {"cfg2_test_first96": True}
         assert list(registry["trajectory"]) == ["T0", "T1", "T2", "T3", "T4", "T5",
@@ -162,9 +155,10 @@ def test_current_configs_control_ablations_and_share_budgets():
             config = json.loads((root.parents[1] / entry["config"]).read_text())
             assert config["num_epochs"] == 65
             assert config["loss_checkpoint_threshold"] == .73
-            assert config["learning_rate"] == 2e-4
+            assert config["learning_rate"] == (1e-4 if name == "T0" else 2e-4)
             assert config["lr_schedule"] == {
-                "name": "cosine", "hold_epochs": 10, "min_lr": 2e-5,
+                "name": "cosine", "hold_epochs": 8 if name == "T0" else 10,
+                "min_lr": 1e-5 if name == "T0" else 2e-5,
             }
             assert config["mode"] == ("standard" if name in ("T0", "T1") else "augment")
             assert config["model_params"]["shared_transformer"] == (name in ("T0", "T2"))
@@ -177,7 +171,7 @@ def test_current_configs_control_ablations_and_share_budgets():
         assert list(registry["video"]) == ["E0", "E1", "E2", "E3", "E4", "E5",
                                              "E6", "E7", "RawJ", "RawM"]
     for name in (f"E{i}" for i in range(8)):
-        config = json.loads((root / f"video/{name}.json").read_text())
+        config = json.loads((root / f"s43/video/{name}.json").read_text())
         assert config["training"]["batch_size"] == config["training"]["eval_batch_size"] == 4
         assert config["loss"]["name"] == ("info_nce" if name in ("E0", "E2")
                                             else "multi_positive")

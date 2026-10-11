@@ -310,7 +310,7 @@ def test_file_audit_checks_video_existence_without_hashing(tmp_path, monkeypatch
 
 def test_runtime_paths_follow_batch_and_preserve_task_configs(tmp_path):
     module = load_entry("retrain")
-    config = json.loads((ROOT / "configs/retrain/run.json").read_text())
+    config = json.loads((ROOT / "configs/retrain/s43/run.json").read_text())
     config["manifest_dir"] = str(tmp_path / "manifests")
     config["trajectory"] = {key: config["trajectory"][key] for key in ("T1", "T4")}
     config["video"] = {key: config["video"][key] for key in ("E1", "E6")}
@@ -326,7 +326,8 @@ def test_runtime_paths_follow_batch_and_preserve_task_configs(tmp_path):
                 assert current["eval_manifests"][cfg] == str(
                     manifests / cfg / f"split_manifest_{modality}.json")
             if key in ("T4", "E6"):
-                assert current["split"] == {"unit": "task", "seed": 42,
+                source = json.loads((ROOT / config[modality][key]["config"]).read_text())
+                assert current["split"] == {"unit": "task", "seed": source["split"]["seed"],
                                             "scene_counts": {"test": 120, "val": 50}}
             else:
                 assert current["split"]["shared_manifest_path"] == current["eval_manifests"]["cfg2"]

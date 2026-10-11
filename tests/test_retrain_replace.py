@@ -30,7 +30,7 @@ def prepare_metadata(config, modality, run, split_manifest=None):
 def test_replacement_pipeline_archives_selected_runs_and_reuses_other_groups(tmp_path,
                                                                           monkeypatch):
     module = load_entry("retrain")
-    config = json.loads((ROOT / "configs/retrain/run.json").read_text())
+    config = json.loads((ROOT / "configs/retrain/s43/run.json").read_text())
     config["output_root"] = str(tmp_path / "retrain")
     config["trajectory"] = {key: config["trajectory"][key] for key in ("T1", "T4")}
     config["video"] = {key: config["video"][key] for key in ("E1", "E6")}
@@ -136,7 +136,7 @@ def test_replacement_pipeline_archives_selected_runs_and_reuses_other_groups(tmp
 
 def test_existing_batch_accepts_updated_configs_and_registry(tmp_path):
     module = load_entry("retrain")
-    config = json.loads((ROOT / "configs/retrain/run.json").read_text())
+    config = json.loads((ROOT / "configs/retrain/s43/run.json").read_text())
     config["trajectory"] = {key: config["trajectory"][key] for key in ("T1", "T4")}
     root = tmp_path / "s42"
     budgets = {"trajectory": None, "video": None}
@@ -172,7 +172,7 @@ def test_existing_batch_accepts_updated_configs_and_registry(tmp_path):
 def test_same_batch_retraining_reuses_saved_split(tmp_path, monkeypatch, modality, key,
                                                 skip, best, state, params):
     module = load_entry("retrain")
-    config = json.loads((ROOT / "configs/retrain/run.json").read_text())
+    config = json.loads((ROOT / "configs/retrain/s43/run.json").read_text())
     config["output_root"] = str(tmp_path / "retrain")
     entry = config[modality][key]
     source = json.loads((ROOT / entry["config"]).read_text())
@@ -262,7 +262,7 @@ def test_replace_rejects_ambiguous_scope_and_raw_training(arguments, monkeypatch
 @pytest.mark.parametrize("fail", [False, True])
 def test_all_metadata_precedes_training_and_failure_stops_training(tmp_path, monkeypatch, fail):
     module = load_entry("retrain")
-    config = json.loads((ROOT / "configs/retrain/run.json").read_text())
+    config = json.loads((ROOT / "configs/retrain/s43/run.json").read_text())
     config["output_root"] = str(tmp_path / "runs")
     config["trajectory"] = {key: config["trajectory"][key] for key in ("T1", "T4")}
     config["video"] = {key: config["video"][key] for key in ("E1", "RawJ")}

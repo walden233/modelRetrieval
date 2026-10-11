@@ -121,8 +121,8 @@ def archive_run(root: Path, modality: str, key: str, backup: Path) -> None:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", default="configs/retrain/run.json")
-    parser.add_argument("--batch", help="Short batch name, for example s42 or smoke")
+    parser.add_argument("--config", default="configs/retrain/s43/run.json")
+    parser.add_argument("--batch", help="Short batch name, for example s45 or smoke")
     parser.add_argument("--stage", default="all",
                         choices=("all", "prepare", "audit", "train", "eval", "charts", "robust"))
     parser.add_argument("--modality", nargs="+", choices=("trajectory", "video"),
@@ -143,7 +143,7 @@ def main():
     args = parser.parse_args()
     config = json.loads(resolve_path(args.config).read_text())
     if config.get("protocol") != PROTOCOL:
-        raise ValueError("Expected configs/retrain/run.json protocol")
+        raise ValueError(f"Expected protocol {PROTOCOL!r} in {args.config}")
     os.chdir(project_root())
     seed = config["seed"] if args.seed is None else args.seed
     batch = args.batch or (config["batch"] if args.seed is None else f"s{seed}")

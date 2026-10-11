@@ -1,5 +1,5 @@
 {
-  "experiment_name": "RawJ",
+  "experiment_name": "E1",
   "output_dir": "artifacts/runs/retrain",
   "seed": 42,
   "dataset": {
@@ -9,13 +9,13 @@
     "sampling_strategy": "uniform",
     "max_pairs_per_scene": 2,
     "pair_manifests": {
-      "RH20T_cfg2": "artifacts/manifests/retrain/s42/cfg2/metadata.json",
-      "RH20T_cfg3": "artifacts/manifests/retrain/s42/cfg3/metadata.json"
+      "RH20T_cfg2": "artifacts/manifests/retrain/s43/cfg2/metadata.json",
+      "RH20T_cfg3": "artifacts/manifests/retrain/s43/cfg3/metadata.json"
     },
     "seed": 42
   },
   "split": {
-    "shared_manifest_path": "artifacts/manifests/retrain/s42/cfg2/split_manifest_video.json",
+    "shared_manifest_path": "artifacts/manifests/retrain/s43/cfg2/split_manifest_video.json",
     "unit": "scene",
     "use_fixed_val": true,
     "val_count": 50
@@ -53,14 +53,13 @@
   },
   "protocol": "retrain_v2",
   "eval_manifests": {
-    "cfg2": "artifacts/manifests/retrain/s42/cfg2/split_manifest_video.json",
-    "cfg3": "artifacts/manifests/retrain/s42/cfg3/split_manifest_video.json"
+    "cfg2": "artifacts/manifests/retrain/s43/cfg2/split_manifest_video.json",
+    "cfg3": "artifacts/manifests/retrain/s43/cfg3/split_manifest_video.json"
   },
   "checkpoint_selection": {
     "loss_weight": 0.0,
     "mrr_weight": 1.0,
     "ndcg_weight": 0.0
   },
-  "raw_backbone": true,
   "device": "cuda"
 }

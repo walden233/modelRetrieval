@@ -45,52 +45,52 @@
   },
   "video": {
     "E0": {
-      "config": "configs/retrain/video/E0.json",
+      "config": "configs/retrain/s43/video/E0.json",
       "label": "E0",
       "raw": false
     },
     "E1": {
-      "config": "configs/retrain/video/E1.json",
+      "config": "configs/retrain/s43/video/E1.json",
       "label": "E1",
       "raw": false
     },
     "E2": {
-      "config": "configs/retrain/video/E2.json",
+      "config": "configs/retrain/s43/video/E2.json",
       "label": "E2",
       "raw": false
     },
     "E3": {
-      "config": "configs/retrain/video/E3.json",
+      "config": "configs/retrain/s43/video/E3.json",
       "label": "E3",
       "raw": false
     },
     "E4": {
-      "config": "configs/retrain/video/E4.json",
+      "config": "configs/retrain/s43/video/E4.json",
       "label": "E4",
       "raw": false
     },
     "E5": {
-      "config": "configs/retrain/video/E5.json",
+      "config": "configs/retrain/s43/video/E5.json",
       "label": "E5",
       "raw": false
     },
     "E6": {
-      "config": "configs/retrain/video/E6.json",
+      "config": "configs/retrain/s43/video/E6.json",
       "label": "E6",
       "raw": false
     },
     "E7": {
-      "config": "configs/retrain/video/E7.json",
+      "config": "configs/retrain/s43/video/E7.json",
       "label": "E7",
       "raw": false
     },
     "RawJ": {
-      "config": "configs/retrain/video/RawJ.json",
+      "config": "configs/retrain/s43/video/RawJ.json",
       "label": "RawJ",
       "raw": true
     },
     "RawM": {
-      "config": "configs/retrain/video/RawM.json",
+      "config": "configs/retrain/s43/video/RawM.json",
       "label": "RawM",
       "raw": true
     }

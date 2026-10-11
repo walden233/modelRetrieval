@@ -4,7 +4,7 @@
 
 ## 当前训练安排
 
-当前配置在 `configs/retrain/video/`，由 `configs/retrain/s43/run.json` 或默认 retrain 配置注册。
+当前配置在 `configs/retrain/s43/video/`，由唯一批次模板 `configs/retrain/s43/run.json` 注册。
 统一 batch 4、5 epoch，以验证集 human→robot task MRR 选择 `best_model.pth`，不保存 last 权重。
 
 | 编号 | 跨域损失 | 模态内增强 | 模型/划分 |

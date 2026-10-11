@@ -92,7 +92,7 @@ def audit(config: dict, files: bool = False, runs: str | None = None) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", default="configs/retrain/run.json")
+    parser.add_argument("--config", default="configs/retrain/s43/run.json")
     parser.add_argument("--files", action="store_true",
                         help="Verify trajectory hashes and video file existence")
     parser.add_argument("--runs", help="Additionally audit a new batch runs.json")

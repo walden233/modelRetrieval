@@ -79,7 +79,7 @@ def test_video_training_evaluation_and_frozen_raw_comparison(tmp_path, monkeypat
     monkeypatch.setattr(video_dataset, "sample_video_frames", local_frames)
     monkeypatch.setattr(factory, "build_video_backbone",
                         lambda **kwargs: (local_processor, LocalBackbone()))
-    config = json.loads((ROOT / "configs/retrain/video/E3.json").read_text())
+    config = json.loads((ROOT / "configs/retrain/s43/video/E3.json").read_text())
     config["device"] = "cpu"
     config["dataset"].update(root_dir=payload["data_root"], num_frames=2,
                              pair_manifests={"RH20T_cfg2": str(protocol),

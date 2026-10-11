@@ -11,8 +11,9 @@ from bise.common.plots import index_plots, redraw_plots
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--batch", default="s42", help="Batch under artifacts/runs/retrain")
-    parser.add_argument("--root", help="Override the batch directory")
+    target = parser.add_mutually_exclusive_group(required=True)
+    target.add_argument("--batch", help="Batch under artifacts/runs/retrain")
+    target.add_argument("--root", help="Batch directory")
     parser.add_argument("--index-only", action="store_true",
                         help="Write plots.json without drawing images")
     args = parser.parse_args()
