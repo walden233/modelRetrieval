@@ -1,6 +1,6 @@
 {
   "experiment_name": "T4",
-  "mode": "standard",
+  "mode": "augment",
   "data_root": "dataset/RH20T_subset/RH20T_cfg2",
   "output_dir": "artifacts/runs/retrain",
   "split": {
@@ -12,7 +12,7 @@
     }
   },
   "batch_size": 8,
-  "num_epochs": 70,
+  "num_epochs": 65,
   "learning_rate": 0.0002,
   "lr_schedule": {
     "name": "cosine",
@@ -22,10 +22,10 @@
   "seed": 42,
   "train_task_positives": true,
   "evaluate_task_positives": false,
-  "use_6_keypoints": true,
+  "use_6_keypoints": false,
   "model_params": {
-    "human_input_dim": 18,
-    "robot_input_dim": 9,
+    "human_input_dim": 33,
+    "robot_input_dim": 10,
     "d_model": 128,
     "nhead": 8,
     "num_layers": 5,
@@ -35,7 +35,24 @@
     "tcp_sample_factor": 1,
     "robot_representation": "relative_rot6d",
     "quaternion_order": "wxyz",
-    "temporal_features": true
+    "temporal_features": true,
+    "shared_transformer": false,
+    "dual_adapters": true,
+    "grasp_geometry": false,
+    "use_gripper": true,
+    "human_keypoint_indices": [
+      0,
+      2,
+      4,
+      5,
+      8,
+      9,
+      12,
+      13,
+      16,
+      17,
+      20
+    ]
   },
   "protocol": "retrain_v2",
   "eval_manifests": {
@@ -51,12 +68,21 @@
     "human_representation": "base_xyz",
     "max_human_frames": 256,
     "max_robot_frames": 256,
-    "preserve_timing": true
+    "preserve_timing": true,
+    "geometry_manifests": {
+      "RH20T_cfg2": "dataset/RH20T_subset/RH20T_cfg2/geometry.json",
+      "RH20T_cfg3": "dataset/RH20T_subset/RH20T_cfg3/geometry.json"
+    }
   },
   "checkpoint_selection": {
     "loss_weight": 0.0,
     "mrr_weight": 1.0,
     "ndcg_weight": 0.0
   },
-  "device": "cuda"
+  "device": "cuda",
+  "loss_checkpoint_threshold": 0.73,
+  "intra_loss_weight": 0.3,
+  "intra_task_positive_weight": 0.25,
+  "augmentation_noise_std": 0.005,
+  "augmentation_max_rotation_degrees": 10.0
 }

@@ -1,6 +1,7 @@
 {
   "experiment_name": "E3",
   "output_dir": "artifacts/runs/retrain",
+  "seed": 42,
   "dataset": {
     "type": "rh20t",
     "root_dir": "dataset/RH20T_subset/RH20T_cfg2",
@@ -19,12 +20,10 @@
     }
   },
   "split": {
-    "unit": "task",
-    "seed": 42,
-    "scene_counts": {
-      "test": 120,
-      "val": 50
-    }
+    "shared_manifest_path": "artifacts/manifests/retrain/s42/cfg2/split_manifest_video.json",
+    "unit": "scene",
+    "use_fixed_val": true,
+    "val_count": 50
   },
   "model": {
     "backbone_type": "vjepa",
@@ -58,7 +57,6 @@
     "gradient_accumulation_steps": 1
   },
   "protocol": "retrain_v2",
-  "seed": 42,
   "eval_manifests": {
     "cfg2": "artifacts/manifests/retrain/s42/cfg2/split_manifest_video.json",
     "cfg3": "artifacts/manifests/retrain/s42/cfg3/split_manifest_video.json"

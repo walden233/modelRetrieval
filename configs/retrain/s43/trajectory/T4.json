@@ -1,6 +1,6 @@
 {
   "experiment_name": "T4",
-  "mode": "standard",
+  "mode": "augment",
   "data_root": "dataset/RH20T_subset/RH20T_cfg2",
   "output_dir": "artifacts/runs/retrain",
   "split": {
@@ -12,7 +12,7 @@
     }
   },
   "batch_size": 8,
-  "num_epochs": 70,
+  "num_epochs": 65,
   "learning_rate": 0.0002,
   "lr_schedule": {
     "name": "cosine",
@@ -36,7 +36,7 @@
     "robot_representation": "relative_rot6d",
     "quaternion_order": "wxyz",
     "temporal_features": true,
-    "shared_transformer": true,
+    "shared_transformer": false,
     "dual_adapters": true,
     "grasp_geometry": false,
     "use_gripper": true,
@@ -79,5 +79,10 @@
     "mrr_weight": 1.0,
     "ndcg_weight": 0.0
   },
-  "device": "cuda"
+  "device": "cuda",
+  "loss_checkpoint_threshold": 0.73,
+  "intra_loss_weight": 0.3,
+  "intra_task_positive_weight": 0.25,
+  "augmentation_noise_std": 0.005,
+  "augmentation_max_rotation_degrees": 10.0
 }

@@ -15,6 +15,7 @@ bootstrap()
 
 from bise.common import ensure_directory, load_json_config
 from bise.modalities.video import build_retrieval_cases, collate_video_pairs, evaluate_video_retrieval
+from bise.modalities.video.checkpoints import raw_backbone_path
 from bise.modalities.video.factory import build_video_dataset, split_video_dataset
 from bise.modalities.video.models.backbone_registry import build_video_backbone
 from evaluate_video import _resolve_split_config, _save_evaluation_outputs
@@ -60,15 +61,17 @@ def main():
             config["raw_backbone"] = True
             write_json(run_dir / "params.json", config)
         bind_protocols(run_dir, config)
-        frozen_backbone = run_dir / "backbone.pth"
-        if frozen_backbone.exists():
-            model.load_state_dict(torch.load(frozen_backbone, map_location="cpu", weights_only=True))
-        else:
-            torch.save(model.state_dict(), frozen_backbone)
+    frozen_backbone = raw_backbone_path(config, run_dir)
+    if frozen_backbone.is_file():
+        model.load_state_dict(torch.load(frozen_backbone, map_location="cpu", weights_only=True))
+    else:
+        frozen_backbone.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(model.state_dict(), frozen_backbone)
+    print(f"Raw backbone checkpoint: {frozen_backbone}", flush=True)
 
     split_config, split_manifest_path = _resolve_split_config(
         config,
-        str(Path(run_dir) / "raw_backbone.pth"),
+        str(Path(run_dir) / "backbone.pth"),
         args.split_manifest,
         all_as_test=args.all_as_test,
     )
@@ -76,7 +79,8 @@ def main():
         from bise.common.evaluation import evaluation_inputs
         if split_manifest_path is None:
             raise ValueError("Retrain raw evaluation requires a frozen split manifest")
-        evaluation_inputs(config, frozen_backbone, "video", split_manifest_path, args.split)
+        evaluation_inputs(config, frozen_backbone, "video", split_manifest_path, args.split,
+                          run_dir=run_dir)
     dataset_source = build_video_dataset(config["dataset"], processor=processor, is_train=False)
     split_datasets = split_video_dataset(dataset_source, split_config)
     dataset = split_datasets.get(args.split)
@@ -104,7 +108,7 @@ def main():
     if config.get("protocol") == "retrain_v2":
         from bise.common.evaluation import stamp_evaluation
         stamp_evaluation(final_test_dir, config, frozen_backbone,
-                         "video", split_manifest_path, args.split)
+                         "video", split_manifest_path, args.split, run_dir=run_dir)
     elif not args.skip_save_params:
         _save_raw_params(run_dir, config, args, split_manifest_path)
     print(json.dumps({"metrics": result["metrics"], "cases": cases[:5]}, indent=2, ensure_ascii=False))

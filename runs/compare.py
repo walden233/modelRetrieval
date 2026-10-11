@@ -41,7 +41,6 @@ def compare(runs_path: str | Path, only: list[str] | None = None,
             for cfg in cfgs:
                 config = effective_config(json.loads(source.read_text()), modality, cfg)
                 manifest = eval_manifest(config, run, cfg)
-                checkpoint = run / ("backbone.pth" if entry.get("raw") else "best_model.pth")
                 output = run / "evaluations" / cfg
                 print(f"Evaluate {modality} {key} {cfg}: {output}", flush=True)
                 data_root = (config["data_root"] if modality == "trajectory"
@@ -52,6 +51,7 @@ def compare(runs_path: str | Path, only: list[str] | None = None,
                     command = [sys.executable, "runs/video/evaluate_raw_video_backbone.py", *common,
                                "--output-dir", run, "--final-subdir", f"evaluations/{cfg}"]
                 else:
+                    checkpoint = run / "best_model.pth"
                     script = ("runs/trajectory/evaluate_retrieval.py" if modality == "trajectory"
                               else "runs/video/evaluate_video.py")
                     command = [sys.executable, script, *common, "--checkpoint", checkpoint,

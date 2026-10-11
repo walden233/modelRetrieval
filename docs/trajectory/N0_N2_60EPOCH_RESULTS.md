@@ -1,5 +1,10 @@
 # N0–N2 60 epoch 轨迹实验结果（seed 42）
 
+本报告保留历史编号与原始指标，不随当前实验重命名。旧 N2 是掌部归一化，
+当前 N2 是运动/手形分离；当前矩阵与编号见 [轨迹模板](S43.md)。
+本报告的 43 scene cfg2 测试与 cfg3 全量协议不同于 retrain 的 120 scene / 每 task 两个 scene，
+这些数值应作为历史结果单独记录。
+
 运行产物：`artifacts/runs/trajectory/hand_3d_n0_n2_seed42_60ep/summary.json`。本报告对应 2026-09-29 16:56 完成的最新运行，使用重新生成后的 cfg2/cfg3 valid manifest。三组均完成 60 个 epoch，并完成 cfg2 固定测试集、cfg3 全集和固定机器人候选库的刚体变换稳健性评估。
 
 三组使用完全相同的 cfg2 scene 划分：342 train、43 val、43 test；固定 test 与 `rh20t_shared_v1/cfg2_fixed_test_scenes.json` 逐项一致。cfg2 测试有 113 条 camera sequence、43 个 scene、35 个本地 task；cfg3 有 680 条 camera sequence、252 个 scene、64 个本地 task。最佳 checkpoint 只按 cfg2 validation task MRR 选择，没有使用 cfg2 test 或 cfg3 结果。

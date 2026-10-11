@@ -22,6 +22,13 @@ def scene_id(value: str) -> str:
     raise ValueError(f"Unsupported RH20T identity: {value}")
 
 
+def scene_in_test_range(identity: str, task_max: int | None) -> bool:
+    if task_max is None:
+        return True
+    task = scene_id(identity).split('/')[0]
+    return 1 <= int(task.removeprefix("task_")) <= task_max
+
+
 def load_split_map(path: str | Path) -> dict:
     payload = json.loads(resolve_path(path).read_text())
     if not isinstance(payload, dict):
@@ -131,6 +138,9 @@ def load_protocol(path: str | Path, data_root: str | Path | None = None,
     if payload["cfg"] == "cfg2":
         if len(mapping.get("test", [])) != 120 or len(mapping.get("val", [])) != 50:
             raise ValueError("cfg2 requires exactly 120 test and 50 validation scenes")
+        if any(not scene_in_test_range(identity, payload.get("test_task_max"))
+               for identity in mapping["test"]):
+            raise ValueError("cfg2 test contains a task outside the frozen task range")
     elif payload["cfg"] == "cfg3":
         from collections import Counter
         counts = Counter(x.split('/')[0] for x in mapping.get("test", []))
@@ -222,7 +232,9 @@ def _video_pairs(root: Path, hand_entries: dict) -> dict:
 
 def prepare_protocols(dataset_root: str | Path, source_dir: str | Path | None,
                       output_dir: str | Path,
-                      seed: int = 42) -> dict:
+                      seed: int = 42, cfg2_test_first96: bool = True) -> dict:
+    if not isinstance(cfg2_test_first96, bool):
+        raise ValueError("prepare.cfg2_test_first96 must be a boolean")
     dataset_root = resolve_path(dataset_root)
     source_dir = resolve_path(source_dir) if source_dir is not None else None
     output_dir = resolve_path(output_dir)
@@ -262,7 +274,14 @@ def prepare_protocols(dataset_root: str | Path, source_dir: str | Path | None,
             if len(eligible) <= 170:
                 raise ValueError("cfg2 needs more than 170 shared valid scenes")
             shuffled = rng.permutation(eligible).tolist()
-            test, val = sorted(shuffled[:120]), sorted(shuffled[120:170])
+            task_max = 96 if cfg2_test_first96 else None
+            test_pool = [identity for identity in shuffled
+                         if scene_in_test_range(identity, task_max)]
+            if len(test_pool) < 120:
+                raise ValueError("cfg2 needs at least 120 shared valid scenes in the test task range")
+            test = sorted(test_pool[:120])
+            selected = set(test)
+            val = sorted([identity for identity in shuffled if identity not in selected][:50])
         else:
             test, val = [], []
             for task in sorted({x.split('/')[0] for x in eligible}):
@@ -287,6 +306,8 @@ def prepare_protocols(dataset_root: str | Path, source_dir: str | Path | None,
                                        "video": str(video_path)}}
         if cfg == "cfg3":
             payload["scenes_per_task"] = 2
+        else:
+            payload["test_task_max"] = task_max
         write_json(target, payload)
         load_protocol(target, root)
         result[cfg] = str(target)

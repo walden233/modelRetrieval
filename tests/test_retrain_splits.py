@@ -151,45 +151,41 @@ def test_frozen_video_order_and_decode_failure_never_substitute(tmp_path, monkey
         dataset[0]
 
 
-def test_new_configs_isolate_legacy_names_and_control_ablations():
+def test_current_configs_control_ablations_and_share_budgets():
     root = Path(__file__).resolve().parents[1] / "configs/retrain"
-    t1 = json.loads((root / "trajectory/T1.json").read_text())
-    t4 = json.loads((root / "trajectory/T4.json").read_text())
-    t5 = json.loads((root / "trajectory/T5.json").read_text())
-    n0 = json.loads((root / "trajectory/N0.json").read_text())
-    n1 = json.loads((root / "trajectory/N1.json").read_text())
-    n2 = json.loads((root / "trajectory/N2.json").read_text())
-    assert t1["data_params"] == t5["data_params"] == n0["data_params"]
-    assert t1["model_params"]["human_input_dim"] == 18
-    assert t5["model_params"]["human_input_dim"] == 63
-    assert t1["model_params"]["robot_representation"] == "relative_rot6d"
-    assert t4["split"] == {"unit": "task", "seed": 42,
-                           "scene_counts": {"test": 120, "val": 50}}
-    assert json.loads((root / "video/E3.json").read_text())["split"] == t4["split"]
-    assert n1["data_params"]["human_representation"] == "wrist_relative"
-    assert n2["data_params"]["human_representation"] == "palm_relative"
-    for path in list((root / "trajectory").glob("*.json")) + list((root / "video").glob("*.json")):
-        config = json.loads(path.read_text())
-        assert config["protocol"] == PROTOCOL
-        assert config["seed"] == 42
-        assert config["checkpoint_selection"] == {
-            "loss_weight": 0., "mrr_weight": 1., "ndcg_weight": 0.,
-        }
-        assert "retrain" in config["output_dir"]
-        if path.parent.name == "trajectory":
-            total = (config["pretrain_epochs"] + config["finetune_epochs"]
-                     if config["mode"] == "two_stage" else config["num_epochs"])
-            assert total == 70
+    for filename in (root / "run.json", root / "s43/run.json"):
+        registry = json.loads(filename.read_text())
+        assert registry["prepare"] == {"cfg2_test_first96": True}
+        assert list(registry["trajectory"]) == ["T0", "T1", "T2", "T3", "T4", "T5",
+                                                  "N1", "N2", "N3"]
+        for name, entry in registry["trajectory"].items():
+            config = json.loads((root.parents[1] / entry["config"]).read_text())
+            assert config["num_epochs"] == 65
+            assert config["loss_checkpoint_threshold"] == .73
             assert config["learning_rate"] == 2e-4
             assert config["lr_schedule"] == {
                 "name": "cosine", "hold_epochs": 10, "min_lr": 2e-5,
             }
-        else:
-            assert config["training"]["batch_size"] == config["training"]["eval_batch_size"] == 4
-            assert config["model"]["encoder_mode"] == (
-                "robot_head" if path.stem == "E6s" else "dual_head"
-            )
-            assert config["model"]["freeze_backbone"] == (path.stem != "E6d")
-            assert config["model"]["unfreeze_last_n_blocks"] == (2 if path.stem == "E6d" else 0)
-    t3 = json.loads((root / "trajectory/T3.json").read_text())
-    assert t3["pretrain_epochs"] == 10 and t3["finetune_epochs"] == 60
+            assert config["mode"] == ("standard" if name in ("T0", "T1") else "augment")
+            assert config["model_params"]["shared_transformer"] == (name in ("T0", "T2"))
+            assert config["model_params"]["dual_adapters"]
+            assert config["model_params"]["human_input_dim"] == (
+                63 if name == "T5" else 42 if name in ("N2", "N3") else 33)
+            assert config["split"]["unit"] == ("task" if name == "T4" else "scene")
+            assert "cfg2_test_first96" not in config
+            assert "cfg2_test_first96" not in config["split"]
+        assert list(registry["video"]) == ["E0", "E1", "E2", "E3", "E4", "E5",
+                                             "E6", "E7", "RawJ", "RawM"]
+    for name in (f"E{i}" for i in range(8)):
+        config = json.loads((root / f"video/{name}.json").read_text())
+        assert config["training"]["batch_size"] == config["training"]["eval_batch_size"] == 4
+        assert config["loss"]["name"] == ("info_nce" if name in ("E0", "E2")
+                                            else "multi_positive")
+        assert config["loss"]["lambda_intra"] == (0 if name in ("E0", "E1") else .2)
+        assert bool(config["dataset"].get("intra_train_augmentations")) == (
+            name not in ("E0", "E1"))
+        assert config["model"]["encoder_mode"] == ("robot_head" if name == "E4" else "dual_head")
+        assert config["model"]["freeze_backbone"] == (name != "E5")
+        assert config["model"]["unfreeze_last_n_blocks"] == (2 if name == "E5" else 0)
+        assert config["model"]["backbone_type"] == ("videomae" if name == "E7" else "vjepa")
+        assert config["split"]["unit"] == ("task" if name == "E6" else "scene")

@@ -26,8 +26,8 @@
     "val_count": 50
   },
   "model": {
-    "backbone_type": "videomae",
-    "backbone_name": "MCG-NJU/videomae-base",
+    "backbone_type": "vjepa",
+    "backbone_name": "facebook/vjepa2-vitl-fpc64-256",
     "encoder_mode": "dual_head",
     "feature_dim": 128,
     "dropout": 0.1,
@@ -36,7 +36,7 @@
     "unfreeze_last_n_blocks": 0
   },
   "loss": {
-    "name": "multi_positive",
+    "name": "info_nce",
     "positive_level": "task",
     "lambda_intra": 0.2,
     "temperature": 0.07

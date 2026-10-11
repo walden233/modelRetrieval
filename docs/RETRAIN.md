@@ -1,130 +1,150 @@
 # RH20T retrain
 
-新实验配置统一放在 `configs/retrain/`，产物放在
-`artifacts/runs/retrain/<batch>/{trajectory,video}/<group>/`。旧配置和 run 保留。
+更新时间：2026-10-10。本文为当前实验编号、流水线和产物规则的主说明。
 
-本文实验矩阵对应原 retrain 模板；s43 轨迹模板及新 batch 入口见
-[s43 轨迹实验](trajectory/S43.md#新数据存储结构的入口)。
-数据集内的夹爪参数、反馈与几何缓存格式及来源集中记录在
-[当前子集存储与夹爪来源](RH20T_SPLIT_AND_MANIFESTS.md#当前子集存储与夹爪来源)。
+配置位于 `configs/retrain/`，产物位于
+`artifacts/runs/retrain/<batch>/{trajectory,video}/<group>/`。
+当前轨迹设计和几何表示见 [轨迹模板](trajectory/S43.md)。默认模板 seed 42，s43 模板 seed 43；
+两者实验矩阵相同。更新源配置不会自动改变已有 run 的实际训练设置；
+以各 run 的 `params.json` 为准。s44 视频的编号迁移见下节。
 
-正式训练默认：轨迹 70 epoch（T3 为 10+60）、视频 5 epoch、seed 42。
-checkpoint 仅依据 validation human→robot task MRR 选择。
-轨迹初始学习率 2e-4，前 10 轮保持不变，第 11–70 轮按余弦曲线降至 2e-5。
-T3 两个阶段共用同一调度，不在微调开始时重置；每轮实际学习率记录在
-`curves.json:learning_rate` 和训练日志中。短跑预算不超过 10 轮时保持初始学习率。
-视频训练只保存 `best_model.pth`；轨迹仍保存最佳与最后一轮的权重。
+## 当前实验矩阵
 
-## 协议与命名
+轨迹统一 65 epoch、batch 8、双残差适配头与共享检索投影。
+单/双指 Transformer 数量；T3 为双 Transformer＋增强基线。
+除 T5 使用 21 点（63 维）外，人手使用 11 点；N2/N3 再增加运动分支。
 
-| 名称 | 含义 |
+| 实验 | 相对设置 |
 |---|---|
-| `E0` | V-JEPA dual-head，单正样本 InfoNCE，无模态内增强与损失 |
-| `E1` / `E2` | V-JEPA dual-head + 模态内增强 / VideoMAE dual-head + 模态内增强 |
-| `E3` / `E4` / `E5` | V-JEPA task 隔离 / 关闭模态内增强与损失 / InfoNCE |
-| `E6s` / `E6d` | V-JEPA 冻结 + 机器人单适配头 / 最后两层微调 + 双适配头 |
-| `RawJ` / `RawM` | 原始 V-JEPA / VideoMAE，仅评估，不训练投影头 |
+| T0 | 无模态内增强，单 Transformer |
+| T1 | 无模态内增强，双 Transformer |
+| T2 | 有模态内增强，单 Transformer |
+| T3 | 有模态内增强，双 Transformer；基线 |
+| T4 | T3＋task-held-out 划分 |
+| T5 | T3＋21 点人手 |
+| N1 | T3＋初始掌部平移、旋转归一化 |
+| N2 | T3＋运动/手形分离，人类运动＋局部手形，机器人运动＋虚拟两指 |
+| N3 | N1＋N2 |
 
-新轨迹组统一使用 `human_hand_3d.npy`、真实时间与缺测标记、
-机器人 `relative_rot6d`，batch size 8。视频训练和评估 batch size 统一为 4。
-E0–E5 均冻结骨干并训练双适配头；E6s 冻结骨干，人类侧不加适配头；
-E6d 共用一套骨干，解冻最后两个 Transformer block 并训练双适配头。
-三种设置都训练共享投影层，实际可训练参数和 block 编号保存到 `trainable.json`。
-E1 为带模态内增强的基线；E4 使用原 E1 的设置，不启用模态内增强或损失。
-E1、E2、E3、E5、E6s、E6d 均采用 0.2 权重的模态内一致性损失，
-增强为亮度抖动 0.05、噪声标准差 0.01、最多 1 帧时间滚动。
-RawJ/RawM 不训练，也不启用这些增强。
+轨迹初始学习率 2e-4，前 10 epoch 保持，随后余弦下降到 2e-5。
+`best_model.pth` 仍按验证集 human→robot task MRR 选择。
+每个 run 的 epoch 平均总训练 loss 首次严格低于 `loss_checkpoint_threshold=0.73` 时，
+额外保存一次 `loss_model.pth`，不覆盖它；对应 epoch/loss 记录在日志及 `status.json:loss_checkpoint`。
+未达到阈值则不生成该文件。轨迹、视频均不再保存 `last_model.pth`，已有历史文件不自动删除。
 
-核心四格消融共用 V-JEPA2 骨干、双适配头和 scene 划分：
+视频统一 batch 4、5 epoch；以下未注明项以 E3 为准。
 
-| 实验 | 跨域正样本 | 模态内增强一致性 |
+| 实验 | 跨域损失 | 模态内增强 | 模型/划分 |
+|---|---|---|---|
+| E0 | 一对一 InfoNCE | 无 | 冻结 V-JEPA2＋双适配头 |
+| E1 | task 多正样本 | 无 | 同 E0 |
+| E2 | 一对一 InfoNCE | 有 | 同 E0 |
+| E3 | task 多正样本 | 有 | 冻结 V-JEPA2＋双适配头；基线 |
+| E4 | 同 E3 | 有 | 冻结 V-JEPA2＋机器人单适配头 |
+| E5 | 同 E3 | 有 | 微调 V-JEPA2 最后两个 block＋双适配头 |
+| E6 | 同 E3 | 有 | task-held-out 划分 |
+| E7 | 同 E3 | 有 | 冻结 VideoMAE＋双适配头 |
+| RawJ / RawM | 不训练 | 无 | 原始 V-JEPA2 / VideoMAE 特征评估 |
+
+E4 仍训练共享最终投影。所有增强组沿用现有增强和损失；
+[跨相机扩展与语义监督](video/CROSS_VIEW.md)是后续独立方案，本次不纳入。
+旧 E6s/E6d 已由 E4/E5 替代，不再注册；未注册的 N0 配置仅供历史检索库兼容。
+
+## s44 视频编号迁移
+
+2026-10-10 已核对实际训练参数，将 s44 的八个完整视频 run 对应到当前编号：
+
+| 当前编号 | 迁移前编号 | 设置 |
 |---|---|---|
-| E0 | 单正样本 InfoNCE | 无 |
-| E5 | 单正样本 InfoNCE | 有，权重 0.2 |
-| E4 | task 多正样本 | 无 |
-| E1 | task 多正样本 | 有，权重 0.2 |
+| E0 | E0 | 一对一，无模态内增强 |
+| E1 | E4 | 多正样本，无模态内增强 |
+| E2 | E5 | 一对一，有模态内增强 |
+| E3 | E1 | 多正样本，有模态内增强；基线 |
+| E4 | E6s | 机器人单适配头 |
+| E5 | E6d | 微调最后两个 block＋双适配头 |
+| E6 | E3 | task-held-out |
+| E7 | E2 | VideoMAE＋双适配头 |
 
-`N0/N1/N2` 只改变人手坐标表示，所有组保持同模态的有效相机集合一致。
+目录、配置快照、`params.json`、评估来源记录、注册表、日志文件名和绘图依赖已同步。
+八组均为 5 epoch、batch 4；RawJ/RawM 保留。权重、划分、训练曲线数据、评估指标及
+特征数组经文件指纹校验保持不变，cfg2/cfg3 对比图和汇总曲线已按新编号重绘。
+本次只调整视频实验身份，s44 继续使用原冻结清单，不应用新 batch 的 task 1–96 限制。
+s44 轨迹仍是此前八组 70 epoch 的训练设置；当前九组轨迹矩阵应在新 batch 上运行。
 
-轨迹组的具体区别：
+迁移映射和元数据备份路径记入
+[s44/pipeline.json](../artifacts/runs/retrain/s44/pipeline.json) 的 `rename_video` 步骤。
+备份位于现有 `artifacts/runs/retrain/archive/s44/` 下；历史日志正文保留原执行编号。
 
-| 组 | 人手点数 / 输入维度 | 人手表示 | 训练与损失 | 正式预算 | cfg2 划分 |
-|---|---|---|---|---|---|
-| T1 | 6 / 18 | 基座 XYZ | 跨域对比 | 70 | 共享 scene |
-| T2 | 6 / 18 | 基座 XYZ | 跨域 + 域内增强一致性 | 70 | 共享 scene |
-| T3 | 6 / 18 | 基座 XYZ | 域内预训练，再跨域 + 域内联合微调 | 10 + 60 | 共享 scene |
-| T4 | 6 / 18 | 基座 XYZ | 跨域对比 | 70 | task 隔离，目标 test 120 / val 50 |
-| T5 | 21 / 63 | 基座 XYZ | 跨域对比 | 70 | 共享 scene |
-| N0 | 21 / 63 | 基座 XYZ | 跨域 + 域内增强一致性 | 70 | 共享 scene |
-| N1 | 21 / 63 | 首有效腕点相对坐标 | 跨域 + 域内增强一致性 | 70 | 共享 scene |
-| N2 | 21 / 63 | 首有效掌部相对坐标系 | 跨域 + 域内增强一致性 | 70 | 共享 scene |
+```bash
+# 复用已完成的视频训练，不重新评估。
+python runs/retrain.py --config configs/retrain/s43/run.json --batch s44 --modality video --stage train --skip-existing
 
-八组统一按 task 定义训练正样本，评估同时报告 task / scene 两层指标。
-联合训练的域内权重为 0.3，域内 task 正样本权重为 0.25；增强噪声标准差
-0.005 m、最大旋转 10°。统一模型宽度 128、5 层、投影维度 128、初始学习率 2e-4，
-双侧最多 256 帧。cfg3 对八组使用同一评估集合。
+# 只重评新编号 E3，再合并其它已有指标；默认同时评估 cfg2/cfg3。
+python runs/compare.py --runs artifacts/runs/retrain/s44/video/runs.json --only E3
 
-共享协议按大 batch 存在 `artifacts/manifests/retrain/<batch>/<cfg>/`，
-同一 batch 内共享，两个 cfg 都采用以下格式：
-
-```text
-metadata.json                  # schema_version=3，数据根目录、快照指纹、两份划分路径
-data_manifest.json             # 原轨迹数据库存格式
-split_manifest_trajectory.json # train/val/test：task_xxxx/scene_x
-split_manifest_video.json      # train/val/test：rh20t::task_xxxx::scene_x::camera
+# 从已有评估指标重新汇总视频主图与曲线，不加载模型。
+python runs/compare.py --runs artifacts/runs/retrain/s44/video/runs.json --charts-only
 ```
 
-两份划分只有 `train/val/test` 三个列表，格式与各 run 的 `split_manifest.json` 相同。
-视频按轨迹的 scene 顺序逐一展开，每个 scene 两条固定相机样本；读取时校验两份文件
-的集合、划分和顺序一致。cfg2 随机固定 120 test / 50 val，其余共同有效 scene 训练；
-cfg3 每个本地 task 固定两个评估 scene，train/val 为空。
-`--batch` 同时选择 run 与清单目录；准备阶段优先校验并复用已有批次文件。
-已有 batch 不原地修改 seed 或数据快照，不同 batch 使用独立文件。
-协议仍为 `retrain_v2`，旧 schema_version=2 的清单和旧 run 继续可读。
+## batch 划分准备
 
-固定抽样 seed 为 42，与训练 seed 分开。cfg2 从 428 个共同有效 scene 抽样；
-cfg3 的 64 个 task 共 128 个评估 scene。视频划分文件显式冻结两个 camera，
-人机路径按 sample ID 解析。生成新批次时只检查视频文件存在，不解码、不计算视频文件哈希。
-视频训练和评估读取数据时仍沿用原有解码和文件指纹逻辑。
+在批次入口 `configs/retrain/run.json` 或 `configs/retrain/s43/run.json` 中配置：
 
-普通实验配置默认 `split.use_fixed_val=true`。设为 `false` 时，从排除 test 的可用
-scene 中按训练 seed 随机选择 `split.val_count` 个验证 scene（默认 50）；原固定 val
-不再单独保留。实际 train/val/test 保存到 run 的 `split_manifest.json`。
+```json
+"prepare": {
+  "cfg2_test_first96": true
+}
+```
 
-T4/E3 保留 task 隔离，seed 42，不使用共享 cfg2 test/val。
-通过 `split.scene_counts={"test":120,"val":50}` 按 scene 数量选择整组 task，
-剩余 task 全部训练。联合寻找最接近目标的划分，可达到目标时使用精确数量，
-不能达到时选择总偏差最小的数量，优先保持测试规模；实际数量写入 `split_info.json`。
-三个集合的 task 必须互斥，所有同 task 的有效 scene 随组进入对应集合。
-当前两种模态都能达到 120 test / 50 val，各为 30 / 13 个 task，训练使用剩余 66 个 task。
+此开关属于 batch 清单准备，不属于单个实验配置。默认开启：新 batch 的 cfg2
+固定测试集从 task_0001–task_0096 的共同有效 scene 中随机选择 120 个；
+验证集仍从剩余全部 task 中选择 50 个，训练使用其余 scene。
+关闭后，测试抽样不限制 task。不会把 task 97 之后的 scene 从整个数据集移除。
 
-当前数据的 scene 数量：
+策略记入该 batch 的 `cfg2/metadata.json:test_task_max`（96 或 null），
+轨迹、视频共用同一 scene 划分和顺序；视频每个 scene 展开两对固定相机。
+T4/E6 仍按完整 task 隔离、接近 test 120 / val 50，自动读取冻结策略限制可选测试 task，
+不改为共享 scene 测试集。三个集合保留 task 隔离，训练和验证 task 不受此范围限制。
 
-| 组别 | train | val | test |
-|---|---:|---:|---:|
-| 普通轨迹组 | 258 | 50 | 120 |
-| T4（新目标） | 258 | 50 | 120 |
-| 普通视频组（新 batch 共享清单） | 258 | 50 | 120 |
-| E3（新目标） | 264 | 50 | 120 |
+新清单位于 `artifacts/manifests/retrain/<batch>/<cfg>/`，每个 cfg 保持四个文件：
 
-视频每 scene 两对，普通 cfg2 test 为 240 查询 / 240 候选。
-轨迹使用所有冻结有效相机，其查询数量可能与视频不同；共享 scene 组的集合一致。
-cfg3 task 编号是该子集内部标签，不表示已建立 cfg2↔cfg3 任务编号映射。
+```text
+metadata.json
+data_manifest.json
+split_manifest_trajectory.json
+split_manifest_video.json
+```
 
-cfg2 独立评估统一读取每个 run 的 `split_manifest.json:test`，保留实际训练划分。
-RawJ/RawM 没有训练阶段，首次评估会按它们的配置生成并保存同格式的 cfg2 划分。
-cfg3 使用该 batch 的 `cfg3/split_manifest_<modality>.json:test`；
-不能将 cfg2 的训练划分用于 cfg3 数据。已有 run 的参数和划分仍按原记录复用。
-两个模态默认都评估 cfg2、cfg3，每个数据域各输出一张包含全部组的主比较图。
-T4/E3 也放进 cfg2 主图，以星号标注 task 划分；图中显示各组测试 scene 数，
-JSON/CSV 同时记录各自的清单路径、测试 scene/task 数、查询和候选数。
+两份 split 仅含 train/val/test 列表，与 run 内格式一致，scene 集合和顺序一致。
+cfg3 不受 task 范围开关影响，仍为每个 task 两个评估 scene。
+准备时只检查视频文件存在，不解码、不计算视频文件哈希。
+本次不新增数据清单哈希字段。
+
+已有 batch 优先复用冻结文件，即使准备开关改变，也不会改写已有清单，包括 s44。
+要应用新开关和新矩阵，使用新的 batch，例如：
+
+```bash
+conda activate torch2
+python runs/retrain.py --config configs/retrain/s43/run.json --batch s45
+```
+
+只准备共享清单：
+
+```bash
+python runs/prepare_splits.py --config configs/retrain/s43/run.json --batch s45
+```
+
+cfg2 评估继续使用每个 run 自己的 `split_manifest.json:test`；cfg3 使用 batch 的对应模态清单。
+两个模态均评估 cfg2/cfg3，任务级划分 T4/E6 仍纳入主图并标记，不能将其分数差异直接归因于结构。
 
 ## 完整入口
 
 在仓库根目录、`torch2` 环境执行。正式新配置要求 CUDA；不会静默改用 CPU。
-输入前提是现有 `human_hand_3d.npy` / `tcp_base.npy` 以及
-`artifacts/manifests/trajectory_hand_3d_v1/{cfg2,cfg3}_valid.json` 已准备好；
-准备阶段会核验 NPY 指纹，并冻结当前视频配对。
+输入来自 `dataset/RH20T_subset/RH20T_cfg2`、`RH20T_cfg3` 的人手、TCP、视频及
+`gripper.npy` / `geometry.npy` / `geometry.json`，结构见
+[数据存储说明](RH20T_SPLIT_AND_MANIFESTS.md#当前子集存储与夹爪来源)。
+准备阶段直接从 dataset 构建有效库存，核验既有 NPY 指纹，并冻结当前视频配对；
+无需预建 batch 清单、旧 `source/` 或额外的几何索引。
 
 ```bash
 conda activate torch2
@@ -141,7 +161,7 @@ python runs/retrain.py --batch s42b --skip-existing
 # 只跑某一模态。
 python runs/retrain.py --batch s42b --modality trajectory
 
-# 更换训练 seed；共享 test 与默认固定 val 不变。
+# 固定划分种子来自 run.json；--seed 只覆盖训练和动态验证划分种子。
 python runs/retrain.py --seed 43 --batch s43
 ```
 
@@ -165,6 +185,9 @@ python runs/retrain.py --seed 43 --batch s43
   只有没有该清单时，才按当前配置生成划分；`last_model.pth` 不参与判断。
 - 旧 run、过期比较图及对应日志归档，原评估缓存随旧 run 一起移走。
 
+`train` 先为所有所选 run 准备配置、划分、库存和 `status.json:state=prepared`，
+全部准备成功后才依次启动训练。RawJ/RawM 只准备元信息，不参与训练。
+
 例如，在 `s42` 使用新配置重训全部轨迹并评估绘图：
 
 ```bash
@@ -179,7 +202,7 @@ python runs/retrain.py --batch s42 --skip-existing
 
 ## 替换 task 划分实验
 
-下面命令仅替换 `s42b/trajectory/T4` 和 `s42b/video/E3`，正式预算是 70 / 5 epoch。
+下面命令仅替换 `s42b/trajectory/T4` 和 `s42b/video/E6`，正式预算是 65 / 5 epoch。
 当前有效 scene 总数为轨迹 428、视频 434；保留 test 120 / val 50 后，train 分别为
 258 / 264。重训沿用已有划分；没有清单时按 task 隔离生成目标划分。
 评估读取每个新 run 的清单。需要重新划分时，先删除所选 run 的
@@ -187,23 +210,23 @@ python runs/retrain.py --batch s42 --skip-existing
 
 ```bash
 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
-python runs/retrain.py --batch s42b --only T4 E3 --replace
+python runs/retrain.py --batch s42b --only T4 E6 --replace
 
 # 先查看计划；不移动文件或加载模型。
-python runs/retrain.py --batch s42b --only T4 E3 --replace --dry-run
+python runs/retrain.py --batch s42b --only T4 E6 --replace --dry-run
 
 # 分开执行：只替换并训练这两组，再独立评估和汇总绘图。
 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
-python runs/retrain.py --batch s42b --stage train --only T4 E3 --replace
+python runs/retrain.py --batch s42b --stage train --only T4 E6 --replace
 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
-python runs/retrain.py --batch s42b --stage eval --only T4 E3
+python runs/retrain.py --batch s42b --stage eval --only T4 E6
 ```
 
 默认完整入口依次校验协议、审计、替换训练、评估 cfg2/cfg3，并与其它 run 已保存的评估指标
 合并更新主图。旧 run、对应日志及过期的汇总图/数据移到
 `artifacts/runs/retrain/archive/<batch>/<时间>/<modality>/`，其它组的 checkpoint、评估和
 数据划分保留。绘图清单同步移除过期条目，完成训练/评估后记录新依赖。
-旧 T4/E3 的 80%/10%/10% 划分仅保存在归档结果中。
+早期 T4 / 视频旧 E3（当前任务划分编号 E6）曾使用 80%/10%/10% 划分，历史结果保留在归档中。
 `--replace` 是兼容保留的显式替换入口，必须搭配 `--only` 和 `--stage all/train`，
 每次执行都会从头训练所选组，也沿用已有划分；
 `--skip-existing` 与替换互斥。
@@ -217,7 +240,7 @@ python runs/prepare_splits.py --batch s42b
 # 只审计；--files 校验轨迹文件哈希及视频文件存在。
 python runs/audit_splits.py --files --output artifacts/runs/retrain/audit.json
 
-# 只训练；也可选择部分组。两阶段 --traj-epochs 指总预算。
+# 只训练；也可选择部分组。--traj-epochs 可覆盖轨迹预算。
 python runs/retrain.py --batch s42b --stage train
 python runs/retrain.py --batch s42b --stage train --modality trajectory --only T2 N1
 
@@ -227,7 +250,7 @@ python runs/retrain.py --batch s42b --stage eval
 # 使用已训练的 checkpoint，完整重新评估所选组并覆盖已有输出。
 HF_HUB_OFFLINE=1 python runs/retrain.py --batch s42b --stage eval --skip-existing
 
-# 校验评估结果，重新汇总比较数据并导出主图。
+# 读取已有指标，重新汇总比较数据并导出主图，不重新评估。
 python runs/retrain.py --batch s42b --stage charts
 
 # 先记录依赖，再从已有数据重绘此批次全部图片，无需模型或原始数据集。
@@ -236,7 +259,7 @@ python runs/redraw.py --batch s42b
 # 只补齐/更新图表依赖清单，不重绘。
 python runs/redraw.py --batch s42b --index-only
 
-# N0–N2 的独立人手变换稳健性评估，使用相同冻结查询/候选。
+# N1–N3 的独立人手变换稳健性评估，使用相同冻结查询/候选。
 python runs/retrain.py --batch s42b --stage robust --modality trajectory
 ```
 
@@ -258,7 +281,7 @@ python runs/trajectory/evaluate_retrieval.py \
   --config artifacts/runs/retrain/s42b/trajectory/T2/params.json \
   --checkpoint artifacts/runs/retrain/s42b/trajectory/T2/best_model.pth \
   --data-root dataset/RH20T_subset/RH20T_cfg3 \
-  --split-manifest artifacts/manifests/rh20t_shared_v1/cfg3_split_manifest.json \
+  --split-manifest artifacts/manifests/retrain/s42b/cfg3/split_manifest_trajectory.json \
   --output-dir artifacts/runs/retrain/s42b/trajectory/T2/evaluations/cfg3
 
 # 只重算 T2/N1；其它组读取已有有效结果，重新输出 cfg2/cfg3 两张比较图。
@@ -280,12 +303,12 @@ python runs/compare.py --runs artifacts/runs/retrain/s42b/trajectory/runs.json -
 使用 `configs/retrain/<modality>/<group>.json` 和 `--run-dir` 指定全新目录。
 两个训练入口也支持 `--split-manifest <已有清单>`，可直接复用指定划分。
 
-增量更新前需要先建立所有组在新协议下的评估结果。未选组若缺失或过期，合并报错，
-不会偷偷重算未选组，也不会混入旧数据。缓存校验包括 checkpoint、协议、数据库存、
-评估代码、采样配置、查询/候选集合及顺序、矩阵与 embedding 一致性和产物文件指纹。
-cfg2 test 与该 run 的 train/val 重叠时拒绝评估。
-cfg2 允许不同 run 使用不同 test 集合；cfg3 仍校验各组查询/候选集合完全一致。
-已有按共享 cfg2 清单记录的缓存需要重新评估一次，训练 checkpoint 可以继续复用。
+增量评估只重新计算所选组，并直接覆盖其已有输出；未选组读取已保存的
+`metrics.json`、`metadata.json`、训练配置和划分。未选组缺少指标或样本信息时明确提示并跳过。
+汇总不以 `run_info.json` 或旧评估指纹作为前置条件，也不会自动重评未选组。
+新评估仍记录 checkpoint、配置、协议、查询/候选顺序和产物指纹供追溯。
+cfg2 使用各 run 自身 test，cfg3 使用该 batch 的冻结模态清单；
+若改变了指标算法或评估协议，应显式重评所有需要比较的组后再汇总。
 
 ## 产物
 
@@ -295,11 +318,11 @@ artifacts/runs/retrain/s42b/
   audit.json
   plots.json                  # 图片路径 → 数据文件依赖和绘图参数
   trajectory/                 # video/ 采用相同结构
-    configs/T1.json ...        # 该批次实际训练配置
+    configs/T0.json ...        # 最近一次流水线生成的配置快照
     runs.json
     summary.json
     logs/
-    T1/ ... T5/ N0/ N1/ N2/
+    T0/ ... T5/ N1/ N2/ N3/
       params.json
       data_manifest.json
       split_manifest.json
@@ -308,14 +331,14 @@ artifacts/runs/retrain/s42b/
       checkpoint_info.json
       status.json
       best_model.pth
-      last_model.pth            # 仅轨迹
+      loss_model.pth            # 轨迹首次 train loss < 0.73 时保存
       trainable.json            # 仅视频：实际可训练参数和 block
       curves.json / curves.png
       evaluations/cfg2/ ...
       evaluations/cfg3/ ...
       human_robustness/cfg2/ ...  # 独立阶段生成
     charts/
-      cfg2.png                  # 各 run 自身 test，包含 T4/E3
+      cfg2.png                  # 各 run 自身 test，包含 T4/E6
       cfg3.png                  # 共享 cfg3 test，两个模态都包含全部组
       cfg2.json / cfg2.csv       # 含所有组、方向、层级、指标与来源
       cfg3.json / cfg3.csv
@@ -336,23 +359,36 @@ artifacts/runs/retrain/s42b/
 python runs/retrain.py --batch s42 --stage eval --skip-existing
 ```
 
-原始 backbone 在 `RawJ/RawM/backbone.pth` 冻结权重，后续评估复用该版本。
-cfg2 主图中的 T4/E3 使用不同测试集合，图中标记并保留样本规模。
+原始 backbone 权重按模型名集中保存，不随 batch 重复复制：
+
+```text
+artifacts/models/video/
+  facebook--vjepa2-vitl-fpc64-256.pth
+  MCG-NJU--videomae-base.pth
+```
+
+原始骨干评估优先读取 run 内历史 `backbone.pth`，缺失时使用上述公共权重。
+公共权重尚不存在时，首次评估将已加载的预训练骨干保存到公共位置，后续批次直接复用。
+s44 的两份权重已迁移至此，原 run 内副本移除；文件内容保持一致。
+各 run 仍单独保存参数、划分、指标和评估来源，checkpoint 指纹对应实际使用的权重文件。
+构建骨干结构和 processor 仍使用 Hugging Face 模型缓存，公共 `.pth` 不替代该缓存。
+
+cfg2 主图中的 T4/E6 使用不同测试集合，图中标记并保留样本规模。
 重新导出主图会清除旧的 `cfg2_task.png`，不再生成单独的 task 图。
-训练曲线的 validation 指标使用各自 run 的验证集，T4/E3 的验证协议也不同。
+训练曲线的 validation 指标使用各自 run 的验证集，T4/E6 的验证协议也不同。
 
 训练曲线、评估热图和比较图在绘制前更新批次根目录的 `plots.json`。
 清单以图片相对路径为键，记录绘图类型 `kind` 和直接读取的数据文件 `inputs`。
 汇总图另有 `upstream` 原始来源，有绘图参数时才保存 `options`；空字段省略。
 数据依赖均为相对批次根目录的路径列表，不记录 SHA-256。
-比较图追溯到各 run 的 `metrics.json` / `run_info.json`，汇总曲线追溯到各 run 的
+比较图追溯到各 run 的 `metrics.json`、`metadata.json`、`params.json` 和划分，汇总曲线追溯到各 run 的
 `curves.json`。例如：
 
 ```json
 {
-  "trajectory/N0/curves.png": {
+  "trajectory/N1/curves.png": {
     "kind": "run_curves",
-    "inputs": ["trajectory/N0/curves.json"]
+    "inputs": ["trajectory/N1/curves.json"]
   }
 }
 ```
@@ -362,22 +398,23 @@ cfg2 主图中的 T4/E3 使用不同测试集合，图中标记并保留样本�
 PNG 已删除时也能恢复。旧批次首次执行会自动补齐清单。
 该入口只重绘已保存的数据快照，不训练、不加载 checkpoint、不重新计算评估指标，
 无需 CUDA、模型缓存或 RH20T 原始文件。
-如果更新了评估指标，先用 `--stage charts` 校验并重新汇总，再用该入口重绘全部图。
+已有汇总 JSON 时优先从中恢复；汇总目录或 JSON 缺失时，从原 run 的评估与曲线重建。
+如果更新了评估指标，先用 `--stage charts` 重新汇总，再用该入口重绘全部图。
 缺少依赖文件或发现无法重绘的 PNG 时，在覆盖图片前报错。
 自定义批次路径用 `python runs/redraw.py --root <批次目录>`。
 
-## 新检索建库配置
+## 历史检索建库模板
 
-`configs/retrain/library_cfg2.json` 与 `library_cfg3.json` 使用新共享 test、
-新 E4/N0 配置和 `s42` checkpoint，产物进入 `artifacts/retrieval/retrain/s42/`。
-新建库预检校验共享协议与训练绑定、模型/数据配置和 test 泄漏。
-旧 `configs/retrieval/` 文件及用户现有修改保留，避免把旧 checkpoint 当作新实验。
+`configs/retrain/library_cfg2.json` 与 `library_cfg3.json` 仍绑定 s42 的 E4/N0 历史 checkpoint，
+尚未随本次 s44 视频编号迁移更新。当前源 E4 已是机器人单适配头，
+不能据此推断旧 s42/E4 的训练结构。使用这些模板时，需要将模型配置指向所选 run 的
+`params.json`，并同步 checkpoint、batch 测试清单与输出目录，再执行建库。
 
 ```bash
 python runs/retrieval/build_retrieval_library.py --config configs/retrain/library_cfg2.json
 ```
 
-## 工程验证
+## 历史工程验证
 
 在 `torch2` 环境执行 `python -m pytest -q tests`，覆盖划分、缓存与各评估入口。
 
@@ -388,6 +425,7 @@ python runs/retrieval/build_retrieval_library.py --config configs/retrain/librar
 以及 N1/N2 在两个评估集合上的独立人手变换入口。
 
 视频入口由自动化集成测试覆盖训练、240 对固定测试样本评估、
-E3 按自身 test 合入主图、默认 cfg3 评估、原始骨干权重冻结复用和比较数据输出；
+当时的 task-held-out（旧 E3，现 E6）按自身 test 合入主图、默认 cfg3 评估、
+原始骨干权重冻结复用和比较数据输出；
 测试使用本地小骨干与模拟解码，
 共享清单准备和视频文件审计仅检查文件存在；真实视频解码与文件指纹由视频训练、评估入口处理。

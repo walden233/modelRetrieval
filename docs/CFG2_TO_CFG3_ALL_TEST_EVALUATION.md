@@ -2,6 +2,27 @@
 
 更新时间：2026-05-01
 
+2026-10-10 补充：本文下方的 `--all-as-test` 命令只用于历史全量 cfg3 复现。
+当前 retrain 的 cfg3 每个 task 固定两个 scene，两模态均使用各自 batch 清单，
+结果写入 run 的 `evaluations/cfg3/`，不采用全量 cfg3。
+
+```bash
+# 只重新评估 s44 视频的 cfg3，编号已迁移到当前 E0–E7。
+python runs/compare.py --runs artifacts/runs/retrain/s44/video/runs.json --cfg cfg3
+
+# 单 run 使用该 run 的实际参数和 batch 的 cfg3 模态清单。
+python runs/video/evaluate_video.py \
+  --config artifacts/runs/retrain/s44/video/E3/params.json \
+  --checkpoint artifacts/runs/retrain/s44/video/E3/best_model.pth \
+  --data-root dataset/RH20T_subset/RH20T_cfg3 \
+  --split-manifest artifacts/manifests/retrain/s44/cfg3/split_manifest_video.json \
+  --split test \
+  --output-dir artifacts/runs/retrain/s44/video/E3/evaluations/cfg3
+```
+
+轨迹使用 `split_manifest_trajectory.json` 和 `runs/trajectory/evaluate_retrieval.py`。
+完整规则见 [retrain](RETRAIN.md)；以下是原有全量测试记录。
+
 本文档记录如何使用 `RH20T_cfg2` 训练得到的模型，在 `RH20T_cfg3` 上做单模态检索评估。这里的 cfg3 全部作为 test，不参与训练、验证或 checkpoint 选择。
 
 ## 1. 核心原则

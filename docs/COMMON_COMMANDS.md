@@ -1,8 +1,10 @@
 # 项目常用入口命令
 
-更新时间：2026-05-03
+更新时间：2026-10-10
 
-本文档只整理常用入口。优先使用 `scripts/*.sh`，它们已经把常用路径和变量前置，适合复现实验和减少手写长命令。
+当前两模态实验使用第 0.1 节的 retrain 入口，完整说明见 [RETRAIN.md](RETRAIN.md)。
+后文视频/轨迹 `scripts/*.sh` 命令保留用于旧 `configs/video/`、`configs/trajectory/` 实验复现，
+其中编号和 cfg3 all-test 协议与当前批次不同。
 
 ## 0. 环境
 
@@ -24,7 +26,35 @@ export ZHIPU_API_KEY="你的 key"
 PYTHON_BIN=/home/ttt/miniconda3/envs/torch2/bin/python
 ```
 
-## 1. 视频模态
+## 0.1 当前 retrain 批次
+
+轨迹 T0–T5、N1–N3：65 epoch、batch 8，以 T3 为基线。
+视频 E0–E7：5 epoch、batch 4，以 E3 为基线；RawJ/RawM 不训练。
+新 batch 默认将 cfg2 测试抽样限制在 task 1–96，已有清单继续复用。
+
+```bash
+# 新 batch 完整流水线；--dry-run 只显示计划。
+python runs/retrain.py --config configs/retrain/s43/run.json --batch s45
+
+# 独立准备共享清单；其它阶段使用 --stage audit/train/eval/charts。
+python runs/prepare_splits.py --config configs/retrain/s43/run.json --batch s45
+
+# s44 视频已按新编号迁移；只复用训练，不评估。
+python runs/retrain.py --config configs/retrain/s43/run.json --batch s44 --modality video --stage train --skip-existing
+
+# 完整重评 s44 视频并绘图，或加 --only E3 只重评所选组。
+python runs/compare.py --runs artifacts/runs/retrain/s44/video/runs.json
+
+# 不加载模型，重新汇总视频图；重绘两模态所有已有图片。
+python runs/compare.py --runs artifacts/runs/retrain/s44/video/runs.json --charts-only
+python runs/redraw.py --batch s44
+```
+
+`--skip-existing` 只复用已完成训练，评估仍覆盖重算；不恢复 optimizer 状态。
+图表依赖在批次根目录 `plots.json`，不记录哈希；`MPR-all` 进入指标及 JSON/CSV，不进入图片。
+s44 迁移映射见 [迁移记录](RETRAIN.md#s44-视频编号迁移)。
+
+## 1. 视频模态（历史入口）
 
 ### 1.1 训练单个视频实验
 
@@ -102,7 +132,7 @@ LEVEL=task \
 scripts/export_video_final_charts.sh
 ```
 
-## 2. 轨迹模态
+## 2. 轨迹模态（历史入口）
 
 ### 2.1 训练单个轨迹实验
 

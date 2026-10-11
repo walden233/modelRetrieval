@@ -44,9 +44,10 @@ def hand():
 
 
 def test_s43_matrix_and_keypoint_only_ablation():
-    configs = {name: config(name) for name in ("T1", "T2", "T3", "T4", "T5", "N1", "N2", "N3")}
+    configs = {name: config(name) for name in ("T0", "T1", "T2", "T3", "T4", "T5", "N1", "N2", "N3")}
     assert all(c["seed"] == 43 and not c["use_6_keypoints"] for c in configs.values())
-    assert all(c["num_epochs"] > 0 and "max_train_batches" not in c
+    assert all(c["num_epochs"] == 65 and c["loss_checkpoint_threshold"] == .73
+               and "max_train_batches" not in c
                for c in configs.values())
     for name, c in configs.items():
         assert c["model_params"]["use_gripper"]
@@ -60,20 +61,22 @@ def test_s43_matrix_and_keypoint_only_ablation():
     assert not configs["T3"]["model_params"]["shared_transformer"]
     assert configs["T3"]["model_params"]["dual_adapters"]
     assert all(c["model_params"]["dual_adapters"] for c in configs.values())
-    assert all(c["model_params"]["shared_transformer"]
-               for name, c in configs.items() if name != "T3")
+    assert all(c["model_params"]["shared_transformer"] == (name in ("T0", "T2"))
+               for name, c in configs.items())
+    assert all(c["mode"] == ("standard" if name in ("T0", "T1") else "augment")
+               for name, c in configs.items())
     for name in ("N1", "N3"):
         assert configs[name]["data_params"]["human_representation"] == "palm_relative"
     assert configs["N2"]["data_params"]["human_representation"] == "base_xyz"
     for name in ("N2", "N3"):
         assert configs[name]["model_params"]["grasp_geometry"]
-        assert configs[name]["model_params"]["shared_transformer"]
-    t2, t5 = copy.deepcopy(configs["T2"]), copy.deepcopy(configs["T5"])
-    for c in (t2, t5):
+        assert not configs[name]["model_params"]["shared_transformer"]
+    t3, t5 = copy.deepcopy(configs["T3"]), copy.deepcopy(configs["T5"])
+    for c in (t3, t5):
         c.pop("experiment_name")
         c["model_params"].pop("human_keypoint_indices", None)
         c["model_params"]["human_input_dim"] = 63
-    assert t2 == t5
+    assert t3 == t5
 
 
 def test_shared_weights_have_distinct_stems_and_adapters_and_roundtrip():
@@ -402,7 +405,7 @@ def test_runtime_batch_binds_geometry_paths_and_one_epoch_t3(tmp_path):
     registries, runtime = module.prepare_batch(
         source, tmp_path / "runs/s44", ["trajectory"], 43,
         {"trajectory": 1, "video": None}, device="cpu")
-    assert list(registries["trajectory"]["groups"]) == ["T1", "T2", "T3", "T4",
+    assert list(registries["trajectory"]["groups"]) == ["T0", "T1", "T2", "T3", "T4",
                                                         "T5", "N1", "N2", "N3"]
     t3 = json.loads(Path(runtime["trajectory"]["T3"]["config"]).read_text())
     assert t3["mode"] == "augment" and t3["num_epochs"] == 1

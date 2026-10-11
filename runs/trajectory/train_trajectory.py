@@ -70,6 +70,7 @@ def main():
     config = merge_overrides(config, {"data_root": args.data_root, "output_dir": args.output_dir})
     if args.seed is not None:
         config["seed"] = args.seed
+    config.setdefault("loss_checkpoint_threshold", 0.73)
     if args.epochs is not None:
         if args.epochs < 1:
             raise ValueError("--epochs must be positive")
@@ -109,7 +110,8 @@ def main():
         split_config["seed"] = int(config.get("seed", 42))
     if split_config.get("scene_counts") and not split_config.get("manifest_path"):
         from bise.data.rh20t.task_split import split_task_dataset
-        split_datasets = split_task_dataset(dataset, split_config, "trajectory")
+        split_datasets = split_task_dataset(dataset, split_config, "trajectory",
+                                           config.get("eval_manifests", {}).get("cfg2"))
     else:
         split_datasets = split_trajectory_dataset(dataset, split_config)
     split_manifest = build_split_manifest(split_datasets)
@@ -172,6 +174,7 @@ def main():
     history["learning_rate"] = []
     best_result = None
     best_score = float("-inf")
+    loss_checkpoint = None
 
     if mode == "two_stage":
         for epoch in range(config["pretrain_epochs"]):
@@ -224,6 +227,13 @@ def main():
                 use_task_labels=config.get("train_task_positives", False),
             )
 
+        if loss_checkpoint is None and train_loss < config["loss_checkpoint_threshold"]:
+            torch.save(model.state_dict(), run_dir / "loss_model.pth")
+            loss_checkpoint = {"epoch": len(history["train_loss"]) + 1,
+                               "train_loss": train_loss,
+                               "threshold": config["loss_checkpoint_threshold"]}
+            print(f"Saved loss_model.pth: {json.dumps(loss_checkpoint)}", flush=True)
+
         result = evaluate_trajectory_retrieval(model, val_loader, device) if val_loader is not None else None
         primary_metrics = _extract_primary_metrics(result)
         history["train_loss"].append(train_loss)
@@ -252,10 +262,11 @@ def main():
         }, ensure_ascii=False))
         if scheduler is not None:
             scheduler.step()
-    torch.save(model.state_dict(), run_dir / "last_model.pth")
     save_run_artifacts(run_dir, config, history, best_result)
     if config.get("protocol") == "retrain_v2":
         status = {"state": "complete", "epochs": len(history["train_loss"])}
+        if loss_checkpoint is not None:
+            status["loss_checkpoint"] = loss_checkpoint
         if isinstance(train_loader, LimitedBatches):
             status["train_batches"] = train_loader.steps
         write_json(run_dir / "status.json", status)

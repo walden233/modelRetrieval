@@ -10,7 +10,7 @@
     "val_count": 50
   },
   "batch_size": 8,
-  "num_epochs": 70,
+  "num_epochs": 65,
   "learning_rate": 0.0002,
   "lr_schedule": {
     "name": "cosine",
@@ -38,7 +38,7 @@
     "robot_representation": "relative_rot6d",
     "quaternion_order": "wxyz",
     "temporal_features": true,
-    "shared_transformer": true,
+    "shared_transformer": false,
     "dual_adapters": true,
     "grasp_geometry": true,
     "use_gripper": true,
@@ -81,5 +81,6 @@
     "mrr_weight": 1.0,
     "ndcg_weight": 0.0
   },
-  "device": "cuda"
+  "device": "cuda",
+  "loss_checkpoint_threshold": 0.73
 }

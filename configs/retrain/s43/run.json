@@ -6,6 +6,10 @@
   "dataset_root": "dataset/RH20T_subset",
   "manifest_dir": "artifacts/manifests/retrain",
   "trajectory": {
+    "T0": {
+      "config": "configs/retrain/s43/trajectory/T0.json",
+      "label": "T0"
+    },
     "T1": {
       "config": "configs/retrain/s43/trajectory/T1.json",
       "label": "T1"
@@ -70,14 +74,14 @@
       "label": "E5",
       "raw": false
     },
-    "E6s": {
-      "config": "configs/retrain/video/E6s.json",
-      "label": "E6s",
+    "E6": {
+      "config": "configs/retrain/video/E6.json",
+      "label": "E6",
       "raw": false
     },
-    "E6d": {
-      "config": "configs/retrain/video/E6d.json",
-      "label": "E6d",
+    "E7": {
+      "config": "configs/retrain/video/E7.json",
+      "label": "E7",
       "raw": false
     },
     "RawJ": {
@@ -90,5 +94,8 @@
       "label": "RawM",
       "raw": true
     }
+  },
+  "prepare": {
+    "cfg2_test_first96": true
   }
 }

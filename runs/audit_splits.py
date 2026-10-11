@@ -63,13 +63,15 @@ def audit(config: dict, files: bool = False, runs: str | None = None) -> dict:
                         or current["model_params"].get("use_gripper")):
                     for index in range(len(source)):
                         source[index]
-                subsets = (split_task_dataset(source, split, modality)
+                subsets = (split_task_dataset(source, split, modality,
+                                             current.get("eval_manifests", {}).get("cfg2"))
                            if split.get("scene_counts") and not split.get("manifest_path")
                            else split_trajectory_dataset(source, split))
                 mapping = trajectory_manifest(subsets)
             else:
                 source = build_video_dataset(current["dataset"], object(), False)
-                subsets = (split_task_dataset(source, split, modality)
+                subsets = (split_task_dataset(source, split, modality,
+                                             current.get("eval_manifests", {}).get("cfg2"))
                            if split.get("scene_counts") and not split.get("manifest_path")
                            else split_video_dataset(source, split))
                 mapping = video_manifest(subsets)

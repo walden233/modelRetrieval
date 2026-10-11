@@ -1,8 +1,39 @@
 # 单轨迹编码器训练与实验计划
 
-更新时间：2026-04-30
+更新时间：2026-10-10
 
-本文档面向当前 `configs/trajectory`、`src/bise/modalities/trajectory/models`、`runs/trajectory` 代码，目标是检查轨迹单模态模块的硬伤与不足，并参考视频模态的实验组织方式，给出只做必要实验的训练与评估计划。本文只覆盖轨迹模态，不涉及视频、语义或多模态融合。
+## 当前训练安排
+
+当前使用 `configs/retrain/s43/trajectory/` 或默认 `configs/retrain/trajectory/`。
+统一 65 epoch、batch 8；初始学习率 2e-4，前 10 epoch 保持，之后余弦下降至 2e-5。
+所有组使用双残差适配头和共享最终检索投影，T3 是增强＋双 Transformer 基线。
+
+| 实验 | 相对设置 |
+|---|---|
+| T0 | 无模态内增强，单 Transformer |
+| T1 | 无模态内增强，双 Transformer |
+| T2 | 有模态内增强，单 Transformer |
+| T3 | 有模态内增强，双 Transformer；基线 |
+| T4 | T3＋task-held-out |
+| T5 | T3＋21 点人手，其余基线使用 11 点 |
+| N1 | T3＋初始掌部平移、旋转归一化 |
+| N2 | T3＋运动/手形分离，人类运动＋局部手形，机器人运动＋虚拟两指 |
+| N3 | N1＋N2 |
+
+最佳模型按验证 task MRR 保存。epoch 平均总 loss 首次严格低于 0.73 时另存一次
+`loss_model.pth`，不保存 last 权重；默认评估仍使用 `best_model.pth`。
+具体输入维度、夹爪来源及编码方式见 [轨迹模板](S43.md)，划分与独立入口见 [retrain](../RETRAIN.md)。
+s44 轨迹仍是此前八组 70 epoch 的训练，当前矩阵应在新 batch 运行。
+
+```bash
+python runs/retrain.py --config configs/retrain/s43/run.json --batch s45 --modality trajectory
+```
+
+## 历史安排（2026-04-30）
+
+以下原文对应 `configs/trajectory/`、旧人手/TCP 表示及中期实验，保留用于复现。
+旧 T3 是两阶段训练，当前 T3 是增强＋双 Transformer；旧 6 点输入与当前 11 点基线也不同。
+旧文中的代码检查结论、数据规模和产物规则不代表当前模板。
 
 ## 1. 当前代码检查结论
 

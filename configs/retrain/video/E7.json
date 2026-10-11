@@ -1,5 +1,5 @@
 {
-  "experiment_name": "E6s",
+  "experiment_name": "E7",
   "output_dir": "artifacts/runs/retrain",
   "seed": 42,
   "dataset": {
@@ -26,9 +26,9 @@
     "val_count": 50
   },
   "model": {
-    "backbone_type": "vjepa",
-    "backbone_name": "facebook/vjepa2-vitl-fpc64-256",
-    "encoder_mode": "robot_head",
+    "backbone_type": "videomae",
+    "backbone_name": "MCG-NJU/videomae-base",
+    "encoder_mode": "dual_head",
     "feature_dim": 128,
     "dropout": 0.1,
     "temperature": 0.07,

@@ -10,7 +10,7 @@
     "val_count": 50
   },
   "batch_size": 8,
-  "num_epochs": 70,
+  "num_epochs": 65,
   "learning_rate": 0.0002,
   "lr_schedule": {
     "name": "cosine",
@@ -61,5 +61,6 @@
     "cfg2": "artifacts/manifests/retrain/s42/cfg2/split_manifest_trajectory.json",
     "cfg3": "artifacts/manifests/retrain/s42/cfg3/split_manifest_trajectory.json"
   },
-  "device": "cuda"
+  "device": "cuda",
+  "loss_checkpoint_threshold": 0.73
 }

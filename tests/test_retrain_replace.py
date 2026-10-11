@@ -33,12 +33,12 @@ def test_replacement_pipeline_archives_selected_runs_and_reuses_other_groups(tmp
     config = json.loads((ROOT / "configs/retrain/run.json").read_text())
     config["output_root"] = str(tmp_path / "retrain")
     config["trajectory"] = {key: config["trajectory"][key] for key in ("T1", "T4")}
-    config["video"] = {key: config["video"][key] for key in ("E1", "E3")}
+    config["video"] = {key: config["video"][key] for key in ("E1", "E6")}
     for modality in ("trajectory", "video"):
         for key, entry in config[modality].items():
             source = json.loads((ROOT / entry["config"]).read_text())
             source["device"] = "cpu"
-            if key in ("T4", "E3"):
+            if key in ("T4", "E6"):
                 source["split"] = {"unit": "task", "seed": 42,
                                    "ratios": {"train": .8, "val": .1, "test": .1}}
             path = tmp_path / "source" / f"{key}.json"
@@ -64,7 +64,7 @@ def test_replacement_pipeline_archives_selected_runs_and_reuses_other_groups(tmp
             log = root / modality / "logs" / f"{key}_train.log"
             log.parent.mkdir(parents=True, exist_ok=True)
             log.write_bytes(f"old log {key}".encode())
-            if key not in ("T4", "E3"):
+            if key not in ("T4", "E6"):
                 untouched.update({path: path.read_bytes() for path in run.rglob("*")
                                   if path.is_file()})
                 untouched[log] = log.read_bytes()
@@ -74,7 +74,7 @@ def test_replacement_pipeline_archives_selected_runs_and_reuses_other_groups(tmp
         write_json(root / modality / "summary.json", {"old": True})
         plots[f"{modality}/charts/cfg2.png"] = {"kind": "comparison", "inputs": []}
     write_json(root / "plots.json", plots)
-    for modality, key in (("trajectory", "T4"), ("video", "E3")):
+    for modality, key in (("trajectory", "T4"), ("video", "E6")):
         source = Path(config[modality][key]["config"])
         current = json.loads(source.read_text())
         current["split"] = {"unit": "task", "seed": 42,
@@ -85,6 +85,8 @@ def test_replacement_pipeline_archives_selected_runs_and_reuses_other_groups(tmp
 
     from bise.data.rh20t import splits
     monkeypatch.setattr(splits, "prepare_protocols", lambda *args: None)
+    monkeypatch.setattr("bise.data.rh20t.grasp_geometry.validate_dataset_geometry",
+                        lambda *args: None)
     monkeypatch.setitem(sys.modules, "audit_splits",
                         SimpleNamespace(audit=lambda *args, **kwargs: {}))
     monkeypatch.setattr("bise.common.training.prepare_training_run", prepare_metadata)
@@ -93,7 +95,7 @@ def test_replacement_pipeline_archives_selected_runs_and_reuses_other_groups(tmp
         run = Path(command[command.index("--run-dir") + 1])
         source = Path(command[command.index("--config") + 1])
         assert "--prepared" in command
-        for modality, key in (("trajectory", "T4"), ("video", "E3")):
+        for modality, key in (("trajectory", "T4"), ("video", "E6")):
             prepared = root / modality / key
             assert (prepared / "params.json").is_file()
             assert (prepared / "split_manifest.json").is_file()
@@ -105,19 +107,19 @@ def test_replacement_pipeline_archives_selected_runs_and_reuses_other_groups(tmp
         (run / "best_model.pth").write_bytes(b"new checkpoint")
         trained.append(run.name)
     def compare(runs, only, charts_only, skip_existing):
-        assert only in (["T4"], ["E3"])
+        assert only in (["T4"], ["E6"])
         assert not charts_only and not skip_existing
         compared.extend(only)
     monkeypatch.setattr(module, "run_logged", train)
     monkeypatch.setitem(sys.modules, "compare", SimpleNamespace(compare=compare))
     monkeypatch.setattr(sys, "argv", ["retrain", "--config", str(config_path),
-                                     "--batch", "s42", "--only", "T4", "E3", "--replace"])
+                                     "--batch", "s42", "--only", "T4", "E6", "--replace"])
     module.main()
-    assert trained == compared == ["T4", "E3"]
+    assert trained == compared == ["T4", "E6"]
     archives = list((root.parent / "archive/s42").iterdir())
     assert len(archives) == 1
     archive = archives[0]
-    for modality, key in (("trajectory", "T4"), ("video", "E3")):
+    for modality, key in (("trajectory", "T4"), ("video", "E6")):
         assert (archive / modality / key / "best_model.pth").read_bytes() == f"old {key}".encode()
         assert (archive / modality / "charts/cfg2.png").read_bytes() == b"old comparison"
         assert (archive / modality / "logs" / f"{key}_train.log").is_file()

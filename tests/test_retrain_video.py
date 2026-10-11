@@ -51,6 +51,24 @@ def entry(name):
     return module
 
 
+@pytest.mark.parametrize("name", ["facebook/vjepa2-vitl-fpc64-256", "MCG-NJU/videomae-base"])
+def test_raw_backbone_prefers_run_snapshot_then_shared_weights(tmp_path, monkeypatch, name):
+    from bise.modalities.video import checkpoints
+
+    monkeypatch.setattr(checkpoints, "resolve_path", lambda path: tmp_path / path)
+    config = {"model": {"backbone_name": name}}
+    run = tmp_path / "batch/video/raw"
+    shared = checkpoints.raw_backbone_path(config, run)
+    shared.parent.mkdir(parents=True, exist_ok=True)
+    shared.write_bytes(b"shared pretrained weights")
+    assert checkpoints.raw_backbone_path(config, tmp_path / "another_batch/video/raw") == shared
+    run.mkdir(parents=True)
+    local = run / "backbone.pth"
+    local.write_bytes(b"historical snapshot")
+    assert checkpoints.raw_backbone_path(config, run) == local
+    assert shared.read_bytes() == b"shared pretrained weights"
+
+
 def test_video_training_evaluation_and_frozen_raw_comparison(tmp_path, monkeypatch):
     from bise.data.rh20t import video_dataset
     from bise.modalities.video import factory
@@ -61,7 +79,7 @@ def test_video_training_evaluation_and_frozen_raw_comparison(tmp_path, monkeypat
     monkeypatch.setattr(video_dataset, "sample_video_frames", local_frames)
     monkeypatch.setattr(factory, "build_video_backbone",
                         lambda **kwargs: (local_processor, LocalBackbone()))
-    config = json.loads((ROOT / "configs/retrain/video/E1.json").read_text())
+    config = json.loads((ROOT / "configs/retrain/video/E3.json").read_text())
     config["device"] = "cpu"
     config["dataset"].update(root_dir=payload["data_root"], num_frames=2,
                              pair_manifests={"RH20T_cfg2": str(protocol),
@@ -71,9 +89,9 @@ def test_video_training_evaluation_and_frozen_raw_comparison(tmp_path, monkeypat
                               num_epochs=1, num_workers=0, amp=False)
     config["split"]["shared_manifest_path"] = str(protocol)
     config["eval_manifests"] = {"cfg2": str(protocol), "cfg3": str(cfg3)}
-    source = tmp_path / "E1.json"
+    source = tmp_path / "E3.json"
     write_json(source, config)
-    run = tmp_path / "video/E1"
+    run = tmp_path / "video/E3"
     threads = torch.get_num_threads()
     torch.set_num_threads(2)
     try:
@@ -126,14 +144,14 @@ def test_video_training_evaluation_and_frozen_raw_comparison(tmp_path, monkeypat
         assert info["scenes"] == 120 and len(info["identities"]) == 240
 
         task_config = deepcopy(config)
-        task_config["experiment_name"] = "E3"
+        task_config["experiment_name"] = "E6"
         task_config["split"] = {"unit": "task", "seed": 42,
                                 "scene_counts": {"test": 120, "val": 50}}
         task_config["loss"]["lambda_intra"] = 0.
         task_config["dataset"].pop("intra_train_augmentations")
-        task_source = tmp_path / "E3.json"
+        task_source = tmp_path / "E6.json"
         write_json(task_source, task_config)
-        task_run = tmp_path / "video/E3"
+        task_run = tmp_path / "video/E6"
         monkeypatch.setattr(sys, "argv", ["train_video", "--config", str(task_source),
                                          "--run-dir", str(task_run)])
         train.main()
@@ -152,13 +170,13 @@ def test_video_training_evaluation_and_frozen_raw_comparison(tmp_path, monkeypat
         evaluate.main()
 
         single_config = deepcopy(config)
-        single_config["experiment_name"] = "E6s"
+        single_config["experiment_name"] = "E4"
         single_config["model"]["encoder_mode"] = "robot_head"
         single_config["split"] = {"unit": "scene", "seed": 43,
                                   "ratios": {"train": .8, "val": .1, "test": .1}}
-        single_source = tmp_path / "E6s.json"
+        single_source = tmp_path / "E4.json"
         write_json(single_source, single_config)
-        single_run = tmp_path / "video/E6s"
+        single_run = tmp_path / "video/E4"
         monkeypatch.setattr(sys, "argv", ["train_video", "--config", str(single_source),
                                          "--run-dir", str(single_run), "--split-manifest",
                                          str(run / "split_manifest.json")])
@@ -174,6 +192,8 @@ def test_video_training_evaluation_and_frozen_raw_comparison(tmp_path, monkeypat
         assert single_info["backbones"][0]["parameters"]["trainable"] == 0
 
         raw = entry("evaluate_raw_video_backbone")
+        from bise.modalities.video import checkpoints
+        monkeypatch.setattr(checkpoints, "resolve_path", lambda path: tmp_path / path)
         monkeypatch.setattr(raw, "build_video_backbone",
                             lambda **kwargs: (local_processor, LocalBackbone()))
         config.update(experiment_name="RawJ", raw_backbone=True)
@@ -188,15 +208,46 @@ def test_video_training_evaluation_and_frozen_raw_comparison(tmp_path, monkeypat
         raw.main()
         raw_split = json.loads((raw_run / "split_manifest.json").read_text())
         assert len(raw_split["test"]) == 240 and len(raw_split["val"]) == 100
-        checkpoint_hash = file_hash(raw_run / "backbone.pth")
+        shared_backbone = checkpoints.raw_backbone_path(config, raw_run)
+        assert shared_backbone.is_file() and not (raw_run / "backbone.pth").exists()
+        checkpoint_hash = file_hash(shared_backbone)
         embedding_hash = file_hash(raw_run / "evaluations/cfg2/human_embeddings.npy")
         raw.main()
-        assert file_hash(raw_run / "backbone.pth") == checkpoint_hash
+        assert file_hash(shared_backbone) == checkpoint_hash
         assert file_hash(raw_run / "evaluations/cfg2/human_embeddings.npy") == embedding_hash
 
+        saved_raw = effective_config(json.loads((raw_run / "params.json").read_text()),
+                                     "video", "cfg2")
+        validate_evaluation(raw_run / "evaluations/cfg2", saved_raw, shared_backbone,
+                            "video", raw_run / "split_manifest.json", run_dir=raw_run)
+        other_run = tmp_path / "another_batch/video/RawJ"
+        monkeypatch.setattr(sys, "argv", [
+            "evaluate_raw_video_backbone", "--config", str(raw_source),
+            "--output-dir", str(other_run), "--final-subdir", "evaluations/cfg2",
+        ])
+        raw.main()
+        assert not (other_run / "backbone.pth").exists()
+        assert file_hash(shared_backbone) == checkpoint_hash
+        assert file_hash(other_run / "evaluations/cfg2/human_embeddings.npy") == embedding_hash
+
+        legacy_config = deepcopy(config)
+        legacy_config.pop("protocol")
+        legacy_source = tmp_path / "legacy_raw.json"
+        write_json(legacy_source, legacy_config)
+        legacy_run = tmp_path / "legacy_raw"
+        monkeypatch.setattr(sys, "argv", [
+            "evaluate_raw_video_backbone", "--config", str(legacy_source),
+            "--output-dir", str(legacy_run), "--split-manifest",
+            str(raw_run / "split_manifest.json"),
+        ])
+        raw.main()
+        assert not (legacy_run / "backbone.pth").exists()
+        assert file_hash(shared_backbone) == checkpoint_hash
+        assert file_hash(legacy_run / "final_test/human_embeddings.npy") == embedding_hash
+
         registry = {"protocol": "retrain_v2", "modality": "video", "batch": "local", "groups": {
-            "E1": {"run_dir": str(run)},
-            "E3": {"run_dir": str(task_run)},
+            "E3": {"run_dir": str(run)},
+            "E6": {"run_dir": str(task_run)},
             "RawJ": {"run_dir": str(raw_run), "raw": True},
         }}
         runs_path = tmp_path / "video/runs.json"
@@ -231,6 +282,10 @@ def test_video_training_evaluation_and_frozen_raw_comparison(tmp_path, monkeypat
         cfg3_data = json.loads((charts / "cfg3.json").read_text())
         assert [item["queries"] for item in cfg3_data["experiments"]] == [4, 4, 4]
         assert (charts / "cfg3.png").is_file() and (charts / "cfg3.csv").is_file()
+        saved_raw_cfg3 = effective_config(json.loads((raw_run / "params.json").read_text()),
+                                          "video", "cfg3")
+        validate_evaluation(raw_run / "evaluations/cfg3", saved_raw_cfg3, shared_backbone,
+                            "video", cfg3, run_dir=raw_run)
         for comparison in (data, cfg3_data):
             for experiment in comparison["experiments"]:
                 for direction in ("human_to_robot", "robot_to_human"):

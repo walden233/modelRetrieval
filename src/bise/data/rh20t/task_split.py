@@ -6,7 +6,9 @@ import numpy as np
 from torch.utils.data import Subset
 
 
-def task_scene_split(available: list[str], config: dict) -> dict[str, list[str]]:
+def task_scene_split(available: list[str], config: dict,
+                     test_task_max: int | None = None) -> dict[str, list[str]]:
+    from .splits import scene_in_test_range
     if config.get("unit") != "task":
         raise ValueError("scene_counts requires unit=task")
     targets = config["scene_counts"]
@@ -32,6 +34,8 @@ def task_scene_split(available: list[str], config: dict) -> dict[str, list[str]]
         for current in list(paths):
             for name, state in (("test", (current[0] + size, current[1])),
                                 ("val", (current[0], current[1] + size))):
+                if name == "test" and not scene_in_test_range(groups[task][0], test_task_max):
+                    continue
                 if (state[0] <= limits[0] and state[1] <= limits[1]
                         and sum(state) < len(scenes) and state not in paths):
                     paths[state] = (current, task, name)
@@ -49,7 +53,8 @@ def task_scene_split(available: list[str], config: dict) -> dict[str, list[str]]
             for name in ("train", "val", "test")}
 
 
-def split_task_dataset(dataset, config: dict, modality: str) -> dict:
+def split_task_dataset(dataset, config: dict, modality: str,
+                       protocol_path: str | Path | None = None) -> dict:
     """Apply scene targets during training; evaluation reuses the saved manifest."""
     if modality == "trajectory":
         identities = [f"{Path(scene.scene_path).parent.name}/{Path(scene.scene_path).name}"
@@ -58,7 +63,13 @@ def split_task_dataset(dataset, config: dict, modality: str) -> dict:
         identities = [sample.scene_id for sample in dataset.samples]
     else:
         raise ValueError(f"Unsupported task split modality: {modality}")
-    mapping = task_scene_split(identities, config)
+    test_task_max = None
+    if protocol_path is not None:
+        from .splits import load_protocol
+        protocol = load_protocol(protocol_path)
+        if protocol["cfg"] == "cfg2":
+            test_task_max = protocol.get("test_task_max")
+    mapping = task_scene_split(identities, config, test_task_max)
     subsets = {}
     for name, scenes in mapping.items():
         selected = set(scenes)

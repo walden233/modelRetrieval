@@ -190,7 +190,8 @@ def main():
             if stage == "prepare":
                 from bise.data.rh20t.splits import prepare_protocols
                 prepare_protocols(config["dataset_root"], config.get("source_dir"),
-                                  runtime["manifest_dir"], config["seed"])
+                                  runtime["manifest_dir"], config["seed"],
+                                  config.get("prepare", {}).get("cfg2_test_first96", True))
                 if "trajectory" in modalities:
                     selected = [entry for key, entry in registries["trajectory"]["groups"].items()
                                 if not args.only or key in args.only]

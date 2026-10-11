@@ -35,7 +35,8 @@ def prepare_training_run(config: dict, modality: str, run: Path,
     split.setdefault("seed", int(config.get("seed", 42)))
     if split.get("scene_counts") and not split.get("manifest_path"):
         from bise.data.rh20t.task_split import split_task_dataset
-        subsets = split_task_dataset(dataset, split, modality)
+        subsets = split_task_dataset(dataset, split, modality,
+                                     config.get("eval_manifests", {}).get("cfg2"))
     else:
         subsets = split_dataset(dataset, split)
     mapping = build_split_manifest(subsets)

@@ -1,5 +1,29 @@
 # RH20T 划分与数据清单
 
+更新时间：2026-10-10。当前 batch 划分规则见下节；后文单列旧共享划分用于历史复现。
+
+## 当前 batch 划分
+
+新 batch 自动生成 `artifacts/manifests/retrain/<batch>/{cfg2,cfg3}/`，每个 cfg 只保存
+`metadata.json`、`data_manifest.json`、`split_manifest_trajectory.json`、
+`split_manifest_video.json`。元数据记录有效库存、划分文件位置和准备策略；
+固定相机编号保存在视频 split 的样本 ID 中。两份 split 与 run 内清单一样，只含 train/val/test 列表。
+轨迹列表按 scene 记录，视频列表将相同 scene 按固定顺序展开为两对相机样本，
+两个模态的 task/scene 划分与顺序一致。
+
+cfg2 共同有效池中固定抽取 test 120 scene、val 50 scene，训练使用余下 scene。
+batch 配置 `prepare.cfg2_test_first96=true` 默认启用，只限制测试抽样来自 task 1–96；
+验证和训练仍使用全部 task。策略保存为 `cfg2/metadata.json:test_task_max`。
+普通实验默认接受固定验证集；单实验 `split.use_fixed_val=false` 可重新随机选择验证集。
+T4 / 视频 E6 保留任务隔离，目标规模接近 test 120 / val 50，并读取相同测试 task 范围策略。
+cfg3 每个 task 采样两个 scene，只用于评估。
+
+已有 batch 使用原冻结文件，修改准备开关不会改写它，包括 s44。
+s44 视频已完成 E0–E7 编号迁移，权重和清单未变，详见
+[迁移记录](RETRAIN.md#s44-视频编号迁移)。cfg2 评估读各 run 自身的
+`split_manifest.json:test`；cfg3 读该 batch 对应模态的清单。
+完整入口与独立准备入口见 [RH20T retrain](RETRAIN.md#batch-划分准备)。
+
 ## 当前子集存储与夹爪来源
 
 cfg2、cfg3 的夹爪数据属于数据集层，供不同 batch 共用：
@@ -66,7 +90,7 @@ python runs/trajectory/prepare_dataset_geometry.py --cfg cfg2 cfg3
 训练、评估及新 batch 准备直接读取 dataset 内的几何文件，不需要 D 盘或 s43 的旧几何缓存。
 batch 仅保存数据清单、元数据和模态划分，数据清单不新增几何哈希字段。
 新 batch 流水线及独立入口见 [s43 模板的新存储入口](trajectory/S43.md#新数据存储结构的入口)，
-批次划分规则见 [RH20T retrain](RETRAIN.md#协议与命名)。
+批次划分规则见 [RH20T retrain](RETRAIN.md#batch-划分准备)。
 
 ## 旧共享划分（历史实验复现）
 

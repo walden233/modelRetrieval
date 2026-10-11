@@ -1,5 +1,29 @@
 # 配置驱动的实验流水线
 
+更新时间：2026-10-10。
+
+## 当前两模态 retrain 入口
+
+当前轨迹 T0–T5、N1–N3 与视频 E0–E7、RawJ/RawM 使用
+`configs/retrain/s43/run.json`（seed 43）或 `configs/retrain/run.json`（seed 42）。
+完整矩阵、划分开关和产物规则见 [RETRAIN.md](RETRAIN.md)。
+
+```bash
+conda activate torch2
+python runs/retrain.py --config configs/retrain/s43/run.json --batch s45
+```
+
+该入口依次准备清单、审计、准备全部 run 元信息、顺序训练、独立评估 cfg2/cfg3，再输出比较图。
+cfg2 评估各 run 自己的测试划分；cfg3 每 task 固定两个 scene。
+`--skip-existing` 只跳过已完成训练，评估仍重新计算；`--stage charts` 只重新汇总已有指标。
+图表依赖记入批次根目录 `plots.json`，`runs/redraw.py --batch <batch>` 可重绘全部图片。
+s44 视频已完成编号迁移，无需为编号调整重训，详见 [映射和复用入口](RETRAIN.md#s44-视频编号迁移)。
+
+## 历史评估编排与论文数据包入口
+
+下文的 `configs/experiments/`、旧 E1–E6 / T1–T5 和 cfg3 all-test 方案保留用于历史复现，
+与当前 retrain 的配置、编号、划分和跳过规则分别解释。
+
 仓库已有 `scripts/evaluate_trajectory.sh`、`scripts/evaluate_video.sh`、
 `scripts/evaluate_retrieval_system.sh`、`scripts/run_retrieval_system_ablation.sh` 和
 `scripts/search_fusion_weights.sh` 等入口，但过去需要手工串联，而且输出目录没有统一登记。

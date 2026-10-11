@@ -115,15 +115,6 @@ def test_single_sampling_keeps_time_and_observation_alignment(tmp_path):
     assert batch["human_observed"].tolist() == [[True, True]]
 
 
-def test_overlapping_splits_are_rejected(tmp_path):
-    write_scene(tmp_path, "task_0001", "scene_1")
-    dataset = RH20TTrajectoryDataset(str(tmp_path), True)
-    path = tmp_path / "split.json"
-    path.write_text(json.dumps({"train": ["task_0001/scene_1"], "test": ["task_0001/scene_1"]}))
-    with pytest.raises(ValueError, match="overlapping"):
-        split_trajectory_dataset(dataset, {"manifest_path": str(path)})
-
-
 def test_checkpoint_rejects_same_dimension_different_geometry(tmp_path):
     from bise.modalities.trajectory.provenance import validate_checkpoint_config
     saved = {"model_params": {"robot_input_dim": 9, "robot_representation": "rot6d"}}

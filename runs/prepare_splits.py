@@ -21,7 +21,8 @@ def main():
         parser.error("--batch must be a single directory name")
     output = Path(config["manifest_dir"]) / batch
     result = prepare_protocols(config["dataset_root"], config.get("source_dir"),
-                               output, config["seed"])
+                               output, config["seed"],
+                               config.get("prepare", {}).get("cfg2_test_first96", True))
     print(json.dumps(result, indent=2))
 
 

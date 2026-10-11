@@ -83,7 +83,8 @@ def main():
         split_config["seed"] = seed
     if split_config.get("scene_counts") and not split_config.get("manifest_path"):
         from bise.data.rh20t.task_split import split_task_dataset
-        split_datasets = split_task_dataset(train_dataset, split_config, "video")
+        split_datasets = split_task_dataset(train_dataset, split_config, "video",
+                                           config.get("eval_manifests", {}).get("cfg2"))
     else:
         split_datasets = split_video_dataset(train_dataset, split_config)
     split_manifest = build_split_manifest(split_datasets)

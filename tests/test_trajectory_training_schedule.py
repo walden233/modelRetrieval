@@ -19,14 +19,14 @@ def trajectory_entry():
     return module
 
 
-def test_cosine_schedule_keeps_initial_rate_and_reaches_minimum_in_epoch_70():
+def test_cosine_schedule_keeps_initial_rate_and_reaches_minimum_in_epoch_65():
     module = trajectory_entry()
     config = json.loads((ROOT / "configs/retrain/trajectory/T1.json").read_text())
     parameter = torch.nn.Parameter(torch.ones(1))
     optimizer = torch.optim.AdamW([parameter], lr=config["learning_rate"])
-    scheduler = module._build_lr_scheduler(optimizer, config, 70)
+    scheduler = module._build_lr_scheduler(optimizer, config, 65)
     rates = []
-    for _ in range(70):
+    for _ in range(65):
         rates.append(optimizer.param_groups[0]["lr"])
         parameter.square().sum().backward()
         optimizer.step()
@@ -54,6 +54,8 @@ def test_training_entry_records_used_rates_in_both_stages(tmp_path, monkeypatch,
     config.pop("protocol")
     config["device"] = "cpu"
     if group == "T3":
+        config["mode"] = "two_stage"
+        config["pretrain_epochs"] = 10
         config["finetune_epochs"] = 2
     source = tmp_path / "config.json"
     source.write_text(json.dumps(config))
@@ -110,4 +112,67 @@ def test_training_entry_records_used_rates_in_both_stages(tmp_path, monkeypatch,
         assert stages == ["pretrain"] * pretrain_count + ["joint"] * (budget - pretrain_count)
         assert history["train_loss"][:pretrain_count] == [None] * pretrain_count
     assert (run / "best_model.pth").is_file()
-    assert (run / "last_model.pth").is_file()
+    assert not (run / "last_model.pth").exists()
+
+
+@pytest.mark.parametrize("losses,epoch", [([.9, .73, .72, .6], 3),
+                                         ([.9, .8, .73, .74], None)])
+def test_loss_checkpoint_saves_first_strict_threshold_crossing_only(
+        tmp_path, monkeypatch, losses, epoch):
+    module = trajectory_entry()
+    config = json.loads((ROOT / "configs/retrain/s43/trajectory/T0.json").read_text())
+    config["device"] = "cpu"
+    config["num_epochs"] = len(losses)
+    config["model_params"]["use_gripper"] = False
+    source = tmp_path / "config.json"
+    source.write_text(json.dumps(config))
+    run = tmp_path / "run"
+    dataset = torch.utils.data.TensorDataset(torch.ones(2, 1))
+    dataset.manifest = {}
+    dataset.scenes = [SimpleNamespace(scene_path=f"/data/task_0001/scene_{i}")
+                      for i in range(2)]
+    split = tmp_path / "split.json"
+    split.write_text(json.dumps({"train": ["task_0001/scene_0"], "val": [],
+                                 "test": ["task_0001/scene_1"]}))
+    model = torch.nn.Linear(1, 1)
+    steps, saved = [], []
+    save = torch.save
+
+    def train(model, loader, optimizer, *args, **kwargs):
+        optimizer.zero_grad()
+        model(torch.ones(1, 1)).square().mean().backward()
+        optimizer.step()
+        steps.append(len(steps) + 1)
+        with torch.no_grad():
+            model.weight.fill_(steps[-1])
+        return losses[len(steps) - 1]
+
+    def record_save(state, path):
+        saved.append(Path(path).name)
+        save(state, path)
+
+    monkeypatch.setattr(module, "build_trajectory_dataset", lambda _: dataset)
+    monkeypatch.setattr(module, "build_trajectory_model", lambda *args: model)
+    monkeypatch.setattr(module, "train_trajectory_epoch", train)
+    monkeypatch.setattr(module.torch, "save", record_save)
+    monkeypatch.setattr("bise.common.evaluation.bind_protocols", lambda *args: None)
+    monkeypatch.setattr(sys, "argv", ["train_trajectory", "--config", str(source),
+                                     "--run-dir", str(run), "--split-manifest", str(split)])
+    threads = torch.get_num_threads()
+    try:
+        module.main()
+    finally:
+        torch.set_num_threads(threads)
+    assert (run / "best_model.pth").is_file()
+    assert not (run / "last_model.pth").exists()
+    status = json.loads((run / "status.json").read_text())
+    if epoch is None:
+        assert "loss_model.pth" not in saved
+        assert not (run / "loss_model.pth").exists()
+        assert "loss_checkpoint" not in status
+    else:
+        assert saved.count("loss_model.pth") == 1
+        assert status["loss_checkpoint"] == {"epoch": epoch, "train_loss": .72,
+                                             "threshold": .73}
+        state = torch.load(run / "loss_model.pth", weights_only=True)
+        torch.testing.assert_close(state["weight"], torch.full_like(state["weight"], epoch))

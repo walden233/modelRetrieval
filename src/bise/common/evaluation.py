@@ -83,9 +83,10 @@ def effective_config(config: dict, modality: str, cfg: str) -> dict:
 
 
 def evaluation_inputs(config: dict, checkpoint: str | Path, modality: str,
-                      manifest_path: str | Path, split: str = "test") -> dict:
+                      manifest_path: str | Path, split: str = "test", *,
+                      run_dir: str | Path | None = None) -> dict:
     checkpoint = Path(checkpoint).resolve()
-    run = checkpoint.parent
+    run = resolve_path(run_dir) if run_dir is not None else checkpoint.parent
     root = resolve_path(config["data_root"] if modality == "trajectory"
                         else config["dataset"]["root_dir"])
     cfg = root.name.removeprefix("RH20T_")
@@ -196,8 +197,9 @@ def check_artifacts(output: Path, inputs: dict) -> dict:
 
 
 def stamp_evaluation(output: Path, config: dict, checkpoint: str | Path,
-                      modality: str, manifest_path: str | Path, split: str = "test") -> None:
-    inputs = evaluation_inputs(config, checkpoint, modality, manifest_path, split)
+                      modality: str, manifest_path: str | Path, split: str = "test", *,
+                      run_dir: str | Path | None = None) -> None:
+    inputs = evaluation_inputs(config, checkpoint, modality, manifest_path, split, run_dir=run_dir)
     write_json(output / "data_manifest.json", inputs.pop("data_manifest"))
     artifacts = check_artifacts(output, inputs)
     path = output / "run_info.json"
@@ -207,8 +209,9 @@ def stamp_evaluation(output: Path, config: dict, checkpoint: str | Path,
 
 
 def validate_evaluation(output: Path, config: dict, checkpoint: str | Path,
-                         modality: str, manifest_path: str | Path) -> dict:
-    inputs = evaluation_inputs(config, checkpoint, modality, manifest_path)
+                         modality: str, manifest_path: str | Path, *,
+                         run_dir: str | Path | None = None) -> dict:
+    inputs = evaluation_inputs(config, checkpoint, modality, manifest_path, run_dir=run_dir)
     inputs.pop("data_manifest")
     info = json.loads((output / "run_info.json").read_text()).get("evaluation")
     if info is None or any(info.get(key) != value for key, value in inputs.items()):

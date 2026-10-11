@@ -1,8 +1,45 @@
 # 视频编码器训练与实验安排表
 
-更新时间：2026-04-29
+更新时间：2026-10-10
 
-本文档面向当前 `src/bise/modalities/video` 与 `runs/video` 代码，目标是整理视频单模态训练与实验计划。`WHIRL debug` 已完成链路验证，因此不再列入正式实验。下面实验仅覆盖视频编码器，不涉及轨迹、语义或多模态融合。
+## 当前训练安排
+
+当前配置在 `configs/retrain/video/`，由 `configs/retrain/s43/run.json` 或默认 retrain 配置注册。
+统一 batch 4、5 epoch，以验证集 human→robot task MRR 选择 `best_model.pth`，不保存 last 权重。
+
+| 编号 | 跨域损失 | 模态内增强 | 模型/划分 |
+|---|---|---|---|
+| E0 | 一对一 | 无 | 冻结 V-JEPA2＋双适配头 |
+| E1 | task 多正样本 | 无 | 同 E0 |
+| E2 | 一对一 | 有 | 同 E0 |
+| E3 | task 多正样本 | 有 | 冻结 V-JEPA2＋双适配头；基线 |
+| E4 | 同 E3 | 有 | 冻结骨干＋机器人单适配头，共享最终投影仍训练 |
+| E5 | 同 E3 | 有 | 微调 V-JEPA2 最后两个 block＋双适配头 |
+| E6 | 同 E3 | 有 | task-held-out |
+| E7 | 同 E3 | 有 | 冻结 VideoMAE＋双适配头 |
+| RawJ / RawM | 不训练 | 无 | 原始 V-JEPA2 / VideoMAE |
+
+cfg2 读取每个 run 的测试划分，cfg3 每个 task 固定两个 scene；E6 纳入 cfg2 主图并标记任务划分。
+新 batch 的测试 task 范围、全部入口和产物规则见 [retrain](../RETRAIN.md)。
+s44 已完成编号迁移和重绘，旧→新映射见 [迁移记录](../RETRAIN.md#s44-视频编号迁移)。
+跨相机扩展及语义监督是 [后续两个实验](CROSS_VIEW.md)，尚未加入当前矩阵。
+
+```bash
+# 完整新 batch：准备、审计、训练、cfg2/cfg3 评估及比较图。
+python runs/retrain.py --config configs/retrain/s43/run.json --batch s45 --modality video
+
+# s44 按新编号完整重评，再更新图表；--only 可限定所选 run。
+python runs/compare.py --runs artifacts/runs/retrain/s44/video/runs.json
+
+# 只从已有评估数据重新汇总绘图。
+python runs/compare.py --runs artifacts/runs/retrain/s44/video/runs.json --charts-only
+```
+
+## 历史安排（2026-04-29）
+
+以下原文对应 `configs/video/` 与旧实验脚本，保留用于复现。编号属于当时方案：
+旧 E3 是任务划分、旧 E4 是模态内增强、旧 E7 是最终导出；这些含义不用于当前 retrain E0–E7。
+旧文中的 batch、数据规模、代码检查结论和测试状态均为当时记录。
 
 ## 1. 当前代码检查结论
 
