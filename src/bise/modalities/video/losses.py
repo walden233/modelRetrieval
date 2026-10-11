@@ -2,6 +2,8 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+from bise.common.losses import multi_positive_intra_modal_loss as intra_domain_consistency_loss
+
 
 class InfoNCELoss(nn.Module):
     # 最基础的一对一对比损失：假设 batch 内第 i 个 human 只和第 i 个 robot 匹配。
@@ -38,13 +40,3 @@ def multi_positive_video_contrastive_loss(
     loss_human = F.kl_div(F.log_softmax(logits_per_human, dim=1), target_human, reduction="batchmean")
     loss_robot = F.kl_div(F.log_softmax(logits_per_robot, dim=1), target_robot, reduction="batchmean")
     return (loss_human + loss_robot) / 2.0
-
-
-def intra_domain_consistency_loss(z1: torch.Tensor, z2: torch.Tensor, logit_scale: torch.Tensor) -> torch.Tensor:
-    # 模态内一致性损失：同一个视频经过两次不同增强后，编码结果应尽量接近。
-    if z1.shape[0] == 0:
-        return torch.tensor(0.0, device=z1.device)
-    logits_a = logit_scale * (z1 @ z2.t())
-    logits_b = logits_a.t()
-    labels = torch.arange(z1.shape[0], device=z1.device)
-    return (F.cross_entropy(logits_a, labels) + F.cross_entropy(logits_b, labels)) / 2.0

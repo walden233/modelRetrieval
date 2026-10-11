@@ -42,6 +42,8 @@ def train_video_epoch(
                 robot_videos=robot_videos,
                 logit_scale=outputs["logit_scale_intra"],
                 transform_config=intra_transform_config or loss_config.get("intra_transform"),
+                scene_labels=batch["scene_indices"],
+                task_labels=batch["task_indices"],
             )
             total = inter_loss + float(loss_config.get("lambda_intra", 0.0)) * intra_loss
             scaled_loss = total / max(gradient_accumulation_steps, 1)
@@ -100,7 +102,9 @@ def _compute_inter_loss(outputs, labels, loss_config):
     )
 
 
-def _compute_intra_loss(model, human_videos, robot_videos, logit_scale, transform_config):
+def _compute_intra_loss(
+    model, human_videos, robot_videos, logit_scale, transform_config, scene_labels, task_labels,
+):
     # 只有配置里显式打开增强一致性时，才计算这一路损失。
     if not transform_config:
         return torch.tensor(0.0, device=human_videos.device)
@@ -113,11 +117,15 @@ def _compute_intra_loss(model, human_videos, robot_videos, logit_scale, transfor
         model.encode_human(human_view1),
         model.encode_human(human_view2),
         logit_scale,
+        scene_labels,
+        task_labels,
     )
     robot_loss = intra_domain_consistency_loss(
         model.encode_robot(robot_view1),
         model.encode_robot(robot_view2),
         logit_scale,
+        scene_labels,
+        task_labels,
     )
     return (human_loss + robot_loss) / 2.0
 

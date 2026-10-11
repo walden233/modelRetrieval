@@ -100,7 +100,7 @@ def pretrain_intra_modal_epoch(
     dataloader,
     optimizer,
     device,
-    intra_task_positive_weight: float = 0.0,
+    intra_task_positive_weight: float = 0.25,
     augmentation_noise_std: float = 0.005,
     augmentation_max_rotation_degrees: float = 10.0,
 ):
@@ -156,7 +156,7 @@ def train_augmented_trajectory_epoch(
     device,
     intra_loss_weight: float,
     use_task_labels: bool = False,
-    intra_task_positive_weight: float = 0.0,
+    intra_task_positive_weight: float = 0.25,
     augmentation_noise_std: float = 0.005,
     augmentation_max_rotation_degrees: float = 10.0,
 ):

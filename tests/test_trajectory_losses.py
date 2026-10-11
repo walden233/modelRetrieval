@@ -3,11 +3,49 @@ from pathlib import Path
 
 import torch
 import torch.nn.functional as F
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from bise.modalities.trajectory.augmentations import augment_human_poses_rotation, augment_robot_tcp_rotation
 from bise.modalities.trajectory.losses import multi_positive_intra_modal_loss
+from bise.modalities.video.losses import intra_domain_consistency_loss
+
+
+@pytest.mark.parametrize("loss_fn", [multi_positive_intra_modal_loss, intra_domain_consistency_loss])
+def test_intra_loss_uses_weighted_scene_task_targets_and_gradients(loss_fn):
+    scenes = torch.tensor([0, 0, 1, 2])
+    tasks = torch.tensor([0, 0, 0, 1])
+    weights = torch.tensor([[1.0, 0.5, 0.25, 0.0],
+                            [0.5, 1.0, 0.25, 0.0],
+                            [0.25, 0.25, 1.0, 0.0],
+                            [0.0, 0.0, 0.0, 1.0]])
+    targets = weights / weights.sum(dim=1, keepdim=True)
+    logits = torch.tensor([[1.0, 0.8, 0.2, -0.1],
+                           [0.6, 1.2, 0.1, 0.0],
+                           [0.3, 0.2, 0.9, -0.2],
+                           [-0.1, 0.0, -0.3, 1.0]], requires_grad=True)
+    loss = loss_fn(torch.eye(4), logits.t(), torch.tensor(1.0), scenes, tasks)
+    loss.backward()
+
+    expected_gradient = ((logits.detach().softmax(1) - targets)
+                         + (logits.detach().t().softmax(1) - targets).t()) / 8
+    torch.testing.assert_close(logits.grad, expected_gradient)
+    entropy_term = (targets * targets.clamp_min(1e-12).log()).sum() / 4
+    expected_loss = -(targets * (F.log_softmax(logits, 1)
+                                + F.log_softmax(logits.t(), 1))).sum() / 8 + entropy_term
+    torch.testing.assert_close(loss, expected_loss)
+
+
+@pytest.mark.parametrize("loss_fn", [multi_positive_intra_modal_loss, intra_domain_consistency_loss])
+def test_intra_loss_with_distinct_tasks_preserves_diagonal_contrastive_loss(loss_fn):
+    z1 = torch.tensor([[1.0, 0.0], [0.6, 0.8]])
+    z2 = torch.tensor([[0.8, 0.6], [0.0, 1.0]])
+    labels = torch.arange(2)
+    loss = loss_fn(z1, z2, torch.tensor(3.0), labels, labels)
+    logits = 3.0 * (z1 @ z2.t())
+    expected = (F.cross_entropy(logits, labels) + F.cross_entropy(logits.t(), labels)) / 2
+    torch.testing.assert_close(loss, expected)
 
 
 def test_multi_positive_intra_modal_loss_rewards_same_scene_matches():

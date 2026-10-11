@@ -184,7 +184,7 @@ def main():
                 train_loader,
                 optimizer,
                 device,
-                intra_task_positive_weight=config.get("intra_task_positive_weight", 0.0),
+                intra_task_positive_weight=config.get("intra_task_positive_weight", 0.25),
                 augmentation_noise_std=config.get("augmentation_noise_std", 0.005),
                 augmentation_max_rotation_degrees=config.get("augmentation_max_rotation_degrees", 10.0),
             )
@@ -212,7 +212,7 @@ def main():
                 device,
                 config.get("intra_loss_weight", 1.0),
                 use_task_labels=config.get("train_task_positives", False),
-                intra_task_positive_weight=config.get("intra_task_positive_weight", 0.0),
+                intra_task_positive_weight=config.get("intra_task_positive_weight", 0.25),
                 augmentation_noise_std=config.get("augmentation_noise_std", 0.005),
                 augmentation_max_rotation_degrees=config.get("augmentation_max_rotation_degrees", 10.0),
             )
