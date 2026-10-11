@@ -80,7 +80,7 @@
     "ndcg_weight": 0.0
   },
   "device": "cuda",
-  "loss_checkpoint_threshold": 0.73,
+  "loss_checkpoint_threshold": 0.74,
   "intra_loss_weight": 0.3,
   "intra_task_positive_weight": 0.25,
   "augmentation_noise_std": 0.005,

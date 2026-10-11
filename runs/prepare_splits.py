@@ -22,7 +22,7 @@ def main():
     output = Path(config["manifest_dir"]) / batch
     result = prepare_protocols(config["dataset_root"], config.get("source_dir"),
                                output, config["seed"],
-                               config.get("prepare", {}).get("cfg2_test_first96", True))
+                               config.get("prepare", {}).get("cfg2_test_limit", 98))
     print(json.dumps(result, indent=2))
 
 

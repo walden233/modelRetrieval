@@ -148,26 +148,27 @@ def test_current_configs_control_ablations_and_share_budgets():
     root = Path(__file__).resolve().parents[1] / "configs/retrain"
     for filename in (root / "s43/run.json",):
         registry = json.loads(filename.read_text())
-        assert registry["prepare"] == {"cfg2_test_first96": True}
+        assert registry["prepare"] == {"cfg2_test_limit": 98}
         assert list(registry["trajectory"]) == ["T0", "T1", "T2", "T3", "T4", "T5",
-                                                  "N1", "N2", "N3"]
+                                                  "N1", "N2", "N3", "N4"]
         for name, entry in registry["trajectory"].items():
             config = json.loads((root.parents[1] / entry["config"]).read_text())
             assert config["num_epochs"] == 65
-            assert config["loss_checkpoint_threshold"] == .73
+            assert config["loss_checkpoint_threshold"] == .74
             assert config["learning_rate"] == (1e-4 if name == "T0" else 2e-4)
             assert config["lr_schedule"] == {
                 "name": "cosine", "hold_epochs": 8 if name == "T0" else 10,
                 "min_lr": 1e-5 if name == "T0" else 2e-5,
             }
             assert config["mode"] == ("standard" if name in ("T0", "T1") else "augment")
-            assert config["model_params"]["shared_transformer"] == (name in ("T0", "T2"))
+            assert config["model_params"]["shared_transformer"] == (
+                name in ("T0", "T2", "N3", "N4"))
             assert config["model_params"]["dual_adapters"]
             assert config["model_params"]["human_input_dim"] == (
-                63 if name == "T5" else 42 if name in ("N2", "N3") else 33)
+                63 if name == "T5" else 42 if name in ("N2", "N3", "N4") else 33)
             assert config["split"]["unit"] == ("task" if name == "T4" else "scene")
-            assert "cfg2_test_first96" not in config
-            assert "cfg2_test_first96" not in config["split"]
+            assert "cfg2_test_limit" not in config
+            assert "cfg2_test_limit" not in config["split"]
         assert list(registry["video"]) == ["E0", "E1", "E2", "E3", "E4", "E5",
                                              "E6", "E7", "RawJ", "RawM"]
     for name in (f"E{i}" for i in range(8)):

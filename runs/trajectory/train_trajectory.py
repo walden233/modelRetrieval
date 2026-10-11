@@ -70,7 +70,7 @@ def main():
     config = merge_overrides(config, {"data_root": args.data_root, "output_dir": args.output_dir})
     if args.seed is not None:
         config["seed"] = args.seed
-    config.setdefault("loss_checkpoint_threshold", 0.73)
+    config.setdefault("loss_checkpoint_threshold", 0.74)
     if args.epochs is not None:
         if args.epochs < 1:
             raise ValueError("--epochs must be positive")

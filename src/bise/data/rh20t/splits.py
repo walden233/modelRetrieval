@@ -232,9 +232,11 @@ def _video_pairs(root: Path, hand_entries: dict) -> dict:
 
 def prepare_protocols(dataset_root: str | Path, source_dir: str | Path | None,
                       output_dir: str | Path,
-                      seed: int = 42, cfg2_test_first96: bool = True) -> dict:
-    if not isinstance(cfg2_test_first96, bool):
-        raise ValueError("prepare.cfg2_test_first96 must be a boolean")
+                      seed: int = 42, cfg2_test_limit: int | None = 98) -> dict:
+    if cfg2_test_limit is not None and (
+            isinstance(cfg2_test_limit, bool) or not isinstance(cfg2_test_limit, int)
+            or cfg2_test_limit < 1):
+        raise ValueError("prepare.cfg2_test_limit must be a positive integer or null")
     dataset_root = resolve_path(dataset_root)
     source_dir = resolve_path(source_dir) if source_dir is not None else None
     output_dir = resolve_path(output_dir)
@@ -274,7 +276,7 @@ def prepare_protocols(dataset_root: str | Path, source_dir: str | Path | None,
             if len(eligible) <= 170:
                 raise ValueError("cfg2 needs more than 170 shared valid scenes")
             shuffled = rng.permutation(eligible).tolist()
-            task_max = 96 if cfg2_test_first96 else None
+            task_max = cfg2_test_limit
             test_pool = [identity for identity in shuffled
                          if scene_in_test_range(identity, task_max)]
             if len(test_pool) < 120:

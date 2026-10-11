@@ -11,7 +11,7 @@
 ```text
 configs/retrain/s43/
   run.json             # 两模态流水线入口；--batch 指定实际产物批次
-  trajectory/          # T0–T5、N1–N3
+  trajectory/          # T0–T5、N1–N4
   video/               # E0–E7、RawJ、RawM
   grippers.json        # 几何数据准备入口使用的夹爪参数与来源
 ```
@@ -24,7 +24,7 @@ configs/retrain/s43/
 
 轨迹统一 65 epoch、batch 8、双残差适配头与共享检索投影。
 单/双指 Transformer 数量；T3 为双 Transformer＋增强基线。
-除 T5 使用 21 点（63 维）外，人手使用 11 点；N2/N3 再增加运动分支。
+除 T5 使用 21 点（63 维）外，人手使用 11 点；N2–N4 再增加运动分支。
 
 | 实验 | 相对设置 |
 |---|---|
@@ -36,12 +36,13 @@ configs/retrain/s43/
 | T5 | T3＋21 点人手 |
 | N1 | T3＋初始掌部平移、旋转归一化 |
 | N2 | T3＋运动/手形分离，人类运动＋局部手形，机器人运动＋虚拟两指 |
-| N3 | N1＋N2 |
+| N3 | N2＋共享单 Transformer |
+| N4 | N1＋N3：运动/手形分离＋共享单 Transformer＋初始掌部归一化 |
 
 T0 初始学习率 1e-4，前 8 epoch 保持，随后余弦下降到 1e-5；
 其余轨迹组初始学习率 2e-4，前 10 epoch 保持，随后余弦下降到 2e-5。
 `best_model.pth` 仍按验证集 human→robot task MRR 选择。
-每个 run 的 epoch 平均总训练 loss 首次严格低于 `loss_checkpoint_threshold=0.73` 时，
+每个 run 的 epoch 平均总训练 loss 首次严格低于 `loss_checkpoint_threshold=0.74` 时，
 额外保存一次 `loss_model.pth`，不覆盖它；对应 epoch/loss 记录在日志及 `status.json:loss_checkpoint`。
 未达到阈值则不生成该文件。轨迹、视频均不再保存 `last_model.pth`，已有历史文件不自动删除。
 
@@ -81,8 +82,8 @@ E4 仍训练共享最终投影。所有增强组沿用现有增强和损失；
 目录、配置快照、`params.json`、评估来源记录、注册表、日志文件名和绘图依赖已同步。
 八组均为 5 epoch、batch 4；RawJ/RawM 保留。权重、划分、训练曲线数据、评估指标及
 特征数组经文件指纹校验保持不变，cfg2/cfg3 对比图和汇总曲线已按新编号重绘。
-本次只调整视频实验身份，s44 继续使用原冻结清单，不应用新 batch 的 task 1–96 限制。
-s44 轨迹仍是此前八组 70 epoch 的训练设置；当前九组轨迹矩阵应在新 batch 上运行。
+本次只调整视频实验身份，s44 继续使用原冻结清单。
+s44 轨迹仍是此前八组 70 epoch 的训练设置；当前十组轨迹矩阵应在新 batch 上运行。
 
 迁移映射和元数据备份路径记入
 [s44/pipeline.json](../artifacts/runs/retrain/s44/pipeline.json) 的 `rename_video` 步骤。
@@ -105,16 +106,17 @@ python runs/compare.py --runs artifacts/runs/retrain/s44/video/runs.json --chart
 
 ```json
 "prepare": {
-  "cfg2_test_first96": true
+  "cfg2_test_limit": 98
 }
 ```
 
-此开关属于 batch 清单准备，不属于单个实验配置。默认开启：新 batch 的 cfg2
-固定测试集从 task_0001–task_0096 的共同有效 scene 中随机选择 120 个；
+此选项属于 batch 清单准备，不属于单个实验配置。默认值 98：新 batch 的 cfg2
+固定测试集从 task_0001–task_0098 的共同有效 scene 中随机选择 120 个；
 验证集仍从剩余全部 task 中选择 50 个，训练使用其余 scene。
-关闭后，测试抽样不限制 task。不会把 task 97 之后的 scene 从整个数据集移除。
+可设为其它正整数；设为 `null` 时测试抽样不限制 task。
+该限制不会把范围之外的 scene 从整个数据集移除。
 
-策略记入该 batch 的 `cfg2/metadata.json:test_task_max`（96 或 null），
+策略记入该 batch 的 `cfg2/metadata.json:test_task_max`（默认 98，不限制时为 null），
 轨迹、视频共用同一 scene 划分和顺序；视频每个 scene 展开两对固定相机。
 T4/E6 仍按完整 task 隔离、接近 test 120 / val 50，自动读取冻结策略限制可选测试 task，
 不改为共享 scene 测试集。三个集合保留 task 隔离，训练和验证 task 不受此范围限制。
@@ -129,12 +131,12 @@ split_manifest_video.json
 ```
 
 两份 split 仅含 train/val/test 列表，与 run 内格式一致，scene 集合和顺序一致。
-cfg3 不受 task 范围开关影响，仍为每个 task 两个评估 scene。
+cfg3 不受 task 范围选项影响，仍为每个 task 两个评估 scene。
 准备时只检查视频文件存在，不解码、不计算视频文件哈希。
 本次不新增数据清单哈希字段。
 
-已有 batch 优先复用冻结文件，即使准备开关改变，也不会改写已有清单，包括 s44。
-要应用新开关和新矩阵，使用新的 batch，例如：
+已有 batch 优先复用冻结文件，即使准备选项改变，也不会改写已有清单，包括 s44。
+要应用新限制和新矩阵，使用新的 batch，例如：
 
 ```bash
 conda activate torch2
@@ -272,7 +274,7 @@ python runs/redraw.py --batch s45
 # 只补齐/更新图表依赖清单，不重绘。
 python runs/redraw.py --batch s45 --index-only
 
-# N1–N3 的独立人手变换稳健性评估，使用相同冻结查询/候选。
+# N1–N4 的独立人手变换稳健性评估，使用相同冻结查询/候选。
 python runs/retrain.py --batch s45 --stage robust --modality trajectory
 ```
 
@@ -335,7 +337,7 @@ artifacts/runs/retrain/s45/
     runs.json
     summary.json
     logs/
-    T0/ ... T5/ N1/ N2/ N3/
+    T0/ ... T5/ N1/ N2/ N3/ N4/
       params.json
       data_manifest.json
       split_manifest.json
@@ -344,7 +346,7 @@ artifacts/runs/retrain/s45/
       checkpoint_info.json
       status.json
       best_model.pth
-      loss_model.pth            # 轨迹首次 train loss < 0.73 时保存
+      loss_model.pth            # 轨迹首次 train loss < 0.74 时保存
       trainable.json            # 仅视频：实际可训练参数和 block
       curves.json / curves.png
       evaluations/cfg2/ ...

@@ -12,13 +12,14 @@
 两个模态的 task/scene 划分与顺序一致。
 
 cfg2 共同有效池中固定抽取 test 120 scene、val 50 scene，训练使用余下 scene。
-batch 配置 `prepare.cfg2_test_first96=true` 默认启用，只限制测试抽样来自 task 1–96；
+批次选项 `prepare.cfg2_test_limit` 默认 98，测试 scene 只从 task 1–98 中抽样；
+可设为其它正整数，`null` 表示不限制测试 task。
 验证和训练仍使用全部 task。策略保存为 `cfg2/metadata.json:test_task_max`。
 普通实验默认接受固定验证集；单实验 `split.use_fixed_val=false` 可重新随机选择验证集。
 T4 / 视频 E6 保留任务隔离，目标规模接近 test 120 / val 50，并读取相同测试 task 范围策略。
 cfg3 每个 task 采样两个 scene，只用于评估。
 
-已有 batch 使用原冻结文件，修改准备开关不会改写它，包括 s44。
+已有 batch 使用原冻结文件，修改准备选项不会改写它，包括 s44。
 s44 视频已完成 E0–E7 编号迁移，权重和清单未变，详见
 [迁移记录](RETRAIN.md#s44-视频编号迁移)。cfg2 评估读各 run 自身的
 `split_manifest.json:test`；cfg3 读该 batch 对应模态的清单。

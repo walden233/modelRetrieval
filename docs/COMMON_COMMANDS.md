@@ -28,9 +28,8 @@ PYTHON_BIN=/home/ttt/miniconda3/envs/torch2/bin/python
 
 ## 0.1 当前 retrain 批次
 
-轨迹 T0–T5、N1–N3：65 epoch、batch 8，以 T3 为基线。
+轨迹 T0–T5、N1–N4：65 epoch、batch 8，以 T3 为基线。
 视频 E0–E7：5 epoch、batch 4，以 E3 为基线；RawJ/RawM 不训练。
-新 batch 默认将 cfg2 测试抽样限制在 task 1–96，已有清单继续复用。
 
 ```bash
 # 新 batch 完整流水线；--dry-run 只显示计划。

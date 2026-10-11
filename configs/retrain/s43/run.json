@@ -41,6 +41,10 @@
     "N3": {
       "config": "configs/retrain/s43/trajectory/N3.json",
       "label": "N3"
+    },
+    "N4": {
+      "config": "configs/retrain/s43/trajectory/N4.json",
+      "label": "N4"
     }
   },
   "video": {
@@ -96,6 +100,6 @@
     }
   },
   "prepare": {
-    "cfg2_test_first96": true
+    "cfg2_test_limit": 98
   }
 }

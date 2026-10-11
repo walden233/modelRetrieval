@@ -148,10 +148,11 @@ def test_new_batches_create_separate_metadata_and_aligned_splits(tmp_path, monke
             "train", "val", "test"}
         load_protocol(path)
     assert load_protocol(first["cfg2"])["test"] != load_protocol(second["cfg2"])["test"]
+    assert load_protocol(first["cfg2"])["test_task_max"] == 98
 
 
-@pytest.mark.parametrize("restricted", [True, False])
-def test_preparation_freezes_cfg2_task_range_for_both_modalities(tmp_path, restricted):
+@pytest.mark.parametrize("limit", [98, 50, None])
+def test_preparation_freezes_cfg2_task_range_for_both_modalities(tmp_path, limit):
     from bise.data.rh20t.task_split import split_task_dataset
     source = tmp_path / "source"
     for cfg, count in (("cfg2", 432), ("cfg3", 2)):
@@ -166,13 +167,16 @@ def test_preparation_freezes_cfg2_task_range_for_both_modalities(tmp_path, restr
         write_json(source / f"{cfg}_valid.json", data)
     directory = tmp_path / "manifests/new"
     result = prepare_protocols(tmp_path, source, directory,
-                               cfg2_test_first96=restricted)
+                               cfg2_test_limit=limit)
     protocol = load_protocol(result["cfg2"])
-    assert protocol["test_task_max"] == (96 if restricted else None)
+    assert protocol["test_task_max"] == limit
     assert len(protocol["test"]) == 120 and len(protocol["val"]) == 50
     assert sum(len(protocol[name]) for name in ("train", "val", "test")) == 432
     tasks = {int(scene.split('/')[0].removeprefix("task_")) for scene in protocol["test"]}
-    assert (all(1 <= task <= 96 for task in tasks)) == restricted
+    if limit is not None:
+        assert all(1 <= task <= limit for task in tasks)
+    else:
+        assert any(task > 98 for task in tasks)
     assert "test_task_max" not in load_protocol(result["cfg3"])
     video = load_split_map(protocol["split_manifests"]["video"])
     assert ["/".join(sample.split("::")[1:3]) for sample in video["test"][::2]] == (
@@ -196,16 +200,17 @@ def test_preparation_freezes_cfg2_task_range_for_both_modalities(tmp_path, restr
                  for name, scenes in traj.items()}
     assert not task_sets["test"] & (task_sets["train"] | task_sets["val"])
     assert not task_sets["train"] & task_sets["val"]
-    if restricted:
-        assert all(1 <= int(task.removeprefix("task_")) <= 96 for task in task_sets["test"])
+    if limit is not None:
+        assert all(1 <= int(task.removeprefix("task_")) <= limit
+                   for task in task_sets["test"])
 
     # Existing batches retain their original files even if the preparation option changes.
     before = {path: path.read_bytes() for path in directory.rglob("*.json")}
-    prepare_protocols(tmp_path, source, directory, cfg2_test_first96=not restricted)
+    prepare_protocols(tmp_path, source, directory, cfg2_test_limit=None if limit else 98)
     assert all(path.read_bytes() == value for path, value in before.items())
-    if not restricted:
+    if limit is None:
         metadata = json.loads(Path(result["cfg2"]).read_text())
-        metadata["test_task_max"] = 96
+        metadata["test_task_max"] = 98
         write_json(result["cfg2"], metadata)
         with pytest.raises(ValueError, match="outside the frozen task range"):
             load_protocol(result["cfg2"])
