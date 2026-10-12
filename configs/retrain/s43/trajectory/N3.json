@@ -38,7 +38,7 @@
     "robot_representation": "relative_rot6d",
     "quaternion_order": "wxyz",
     "temporal_features": true,
-    "shared_transformer": true,
+    "shared_transformer": false,
     "dual_adapters": true,
     "grasp_geometry": true,
     "use_gripper": true,
@@ -67,7 +67,7 @@
   },
   "data_params": {
     "human_source": "hand_3d_base",
-    "human_representation": "base_xyz",
+    "human_representation": "palm_relative",
     "max_human_frames": 256,
     "max_robot_frames": 256,
     "preserve_timing": true,

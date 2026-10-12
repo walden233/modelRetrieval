@@ -45,6 +45,10 @@
     "N4": {
       "config": "configs/retrain/s43/trajectory/N4.json",
       "label": "N4"
+    },
+    "N5": {
+      "config": "configs/retrain/s43/trajectory/N5.json",
+      "label": "N5"
     }
   },
   "video": {

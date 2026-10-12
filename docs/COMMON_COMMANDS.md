@@ -28,7 +28,7 @@ PYTHON_BIN=/home/ttt/miniconda3/envs/torch2/bin/python
 
 ## 0.1 当前 retrain 批次
 
-轨迹 T0–T5、N1–N4：65 epoch、batch 8，以 T3 为基线。
+轨迹 T0–T5、N1–N5：65 epoch、batch 8，以 T3 为基线；N1–N5 均为双 Transformer，N3=N1＋N2，N4 仅平移归一化，N5=N4＋N2。
 视频 E0–E7：5 epoch、batch 4，以 E3 为基线；RawJ/RawM 不训练。
 
 ```bash

@@ -45,15 +45,15 @@ def hand():
 
 def test_s43_matrix_and_keypoint_only_ablation():
     configs = {name: config(name) for name in
-               ("T0", "T1", "T2", "T3", "T4", "T5", "N1", "N2", "N3", "N4")}
+               ("T0", "T1", "T2", "T3", "T4", "T5", "N1", "N2", "N3", "N4", "N5")}
     assert all(c["seed"] == 43 and not c["use_6_keypoints"] for c in configs.values())
     assert all(c["num_epochs"] == 65 and c["loss_checkpoint_threshold"] == .74
                and "max_train_batches" not in c
                for c in configs.values())
     for name, c in configs.items():
         assert c["model_params"]["use_gripper"]
-        assert c["model_params"]["robot_input_dim"] == (15 if name in ("N2", "N3", "N4") else 10)
-        expected_dim = 63 if name == "T5" else (42 if name in ("N2", "N3", "N4") else 33)
+        assert c["model_params"]["robot_input_dim"] == (15 if name in ("N2", "N3", "N5") else 10)
+        expected_dim = 63 if name == "T5" else (42 if name in ("N2", "N3", "N5") else 33)
         assert c["model_params"]["human_input_dim"] == expected_dim
         assert c["model_params"].get("human_keypoint_indices") == (
             None if name == "T5" else HAND_11)
@@ -62,15 +62,16 @@ def test_s43_matrix_and_keypoint_only_ablation():
     assert not configs["T3"]["model_params"]["shared_transformer"]
     assert configs["T3"]["model_params"]["dual_adapters"]
     assert all(c["model_params"]["dual_adapters"] for c in configs.values())
-    assert all(c["model_params"]["shared_transformer"] == (name in ("T0", "T2", "N3", "N4"))
+    assert all(c["model_params"]["shared_transformer"] == (name in ("T0", "T2"))
                for name, c in configs.items())
     assert all(c["mode"] == ("standard" if name in ("T0", "T1") else "augment")
                for name, c in configs.items())
-    for name in ("N1", "N4"):
+    for name in ("N1", "N3"):
         assert configs[name]["data_params"]["human_representation"] == "palm_relative"
-    for name in ("N2", "N3"):
-        assert configs[name]["data_params"]["human_representation"] == "base_xyz"
-    for name in ("N2", "N3", "N4"):
+    assert configs["N2"]["data_params"]["human_representation"] == "base_xyz"
+    for name in ("N4", "N5"):
+        assert configs[name]["data_params"]["human_representation"] == "wrist_relative"
+    for name in ("N2", "N3", "N5"):
         assert configs[name]["model_params"]["grasp_geometry"]
     t3, t5 = copy.deepcopy(configs["T3"]), copy.deepcopy(configs["T5"])
     for c in (t3, t5):
@@ -147,7 +148,7 @@ def test_training_batch_limit_preserves_dataset_and_counts_actual_steps():
             module.LimitedBatches(loader, invalid)
 
 
-@pytest.mark.parametrize("name", ["T1", "T2", "T3", "T4", "T5", "N1", "N2", "N3", "N4"])
+@pytest.mark.parametrize("name", ["T1", "T2", "T3", "T4", "T5", "N1", "N2", "N3", "N4", "N5"])
 def test_keypoints_are_selected_after_common_augmentation_source(name):
     cfg = config(name)
     cfg["model_params"].update(d_model=16, nhead=4, num_layers=1,
@@ -318,7 +319,7 @@ def test_aligned_tcp_proxy_preserves_motion_and_records_virtual_geometry(tmp_pat
         validate_profile(bad)
 
 
-@pytest.mark.parametrize("name", ["T2", "T5", "N1", "N2", "N3", "N4"])
+@pytest.mark.parametrize("name", ["T2", "T5", "N1", "N2", "N3", "N4", "N5"])
 @pytest.mark.parametrize("storage", ["legacy", "dataset"])
 def test_geometry_dataset_joint_training_roundtrip_and_source_binding(tmp_path, name, storage):
     manifests, settings = prepared_fixture(tmp_path)
@@ -374,7 +375,7 @@ def test_geometry_dataset_joint_training_roundtrip_and_source_binding(tmp_path, 
     transform = np.eye(4)
     transform[:3, 3] = [.1, -.2, .3]
     shifted = dataset.with_human_transform(transform)[0]
-    if name in ("N1", "N4"):
+    if name in ("N1", "N3", "N4", "N5"):
         torch.testing.assert_close(item["human_poses"][0], shifted["human_poses"][0])
     else:
         assert not torch.allclose(item["human_poses"][0], shifted["human_poses"][0])
@@ -409,7 +410,7 @@ def test_runtime_batch_binds_geometry_paths_and_one_epoch_t3(tmp_path):
         source, tmp_path / "runs/s44", ["trajectory"], 43,
         {"trajectory": 1, "video": None}, device="cpu")
     assert list(registries["trajectory"]["groups"]) == ["T0", "T1", "T2", "T3", "T4",
-                                                        "T5", "N1", "N2", "N3", "N4"]
+                                                        "T5", "N1", "N2", "N3", "N4", "N5"]
     t3 = json.loads(Path(runtime["trajectory"]["T3"]["config"]).read_text())
     assert t3["mode"] == "augment" and t3["num_epochs"] == 1
     n3 = json.loads(Path(runtime["trajectory"]["N3"]["config"]).read_text())

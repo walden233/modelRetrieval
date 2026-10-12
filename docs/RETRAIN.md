@@ -1,6 +1,6 @@
 # RH20T retrain
 
-更新时间：2026-10-11。本文为当前实验编号、流水线和产物规则的主说明。
+更新时间：2026-10-12。本文为当前实验编号、流水线和产物规则的主说明。
 
 配置位于 `configs/retrain/`，产物位于
 `artifacts/runs/retrain/<batch>/{trajectory,video}/<group>/`。
@@ -11,7 +11,7 @@
 ```text
 configs/retrain/s43/
   run.json             # 两模态流水线入口；--batch 指定实际产物批次
-  trajectory/          # T0–T5、N1–N4
+  trajectory/          # T0–T5、N1–N5
   video/               # E0–E7、RawJ、RawM
   grippers.json        # 几何数据准备入口使用的夹爪参数与来源
 ```
@@ -24,7 +24,7 @@ configs/retrain/s43/
 
 轨迹统一 65 epoch、batch 8、双残差适配头与共享检索投影。
 单/双指 Transformer 数量；T3 为双 Transformer＋增强基线。
-除 T5 使用 21 点（63 维）外，人手使用 11 点；N2–N4 再增加运动分支。
+除 T5 使用 21 点（63 维）外，人手使用 11 点；N2/N3/N5 再增加运动分支。
 
 | 实验 | 相对设置 |
 |---|---|
@@ -36,11 +36,12 @@ configs/retrain/s43/
 | T5 | T3＋21 点人手 |
 | N1 | T3＋初始掌部平移、旋转归一化 |
 | N2 | T3＋运动/手形分离，人类运动＋局部手形，机器人运动＋虚拟两指 |
-| N3 | N2＋共享单 Transformer |
-| N4 | N1＋N3：运动/手形分离＋共享单 Transformer＋初始掌部归一化 |
+| N3 | N1＋N2：运动/手形分离＋初始掌部归一化，双 Transformer |
+| N4 | T3＋仅平移归一化：减去首个有效帧腕点，不消除旋转 |
+| N5 | N4＋N2：仅平移归一化＋运动/手形分离，双 Transformer |
 
-T0 初始学习率 1e-4，前 8 epoch 保持，随后余弦下降到 1e-5；
-其余轨迹组初始学习率 2e-4，前 10 epoch 保持，随后余弦下降到 2e-5。
+T0/T1 初始学习率 1e-4，随后余弦下降到 1e-5；其余轨迹组为 2e-4，下降到 2e-5。
+T0 前 8 epoch 保持初始学习率，其余组前 10 epoch 保持。N1–N5 均使用双 Transformer。
 `best_model.pth` 仍按验证集 human→robot task MRR 选择。
 每个 run 的 epoch 平均总训练 loss 首次严格低于 `loss_checkpoint_threshold=0.74` 时，
 额外保存一次 `loss_model.pth`，不覆盖它；对应 epoch/loss 记录在日志及 `status.json:loss_checkpoint`。
@@ -95,7 +96,7 @@ E4 仍训练共享最终投影。2026-10-11 起，轨迹和视频共用加权模
 八组均为 5 epoch、batch 4；RawJ/RawM 保留。权重、划分、训练曲线数据、评估指标及
 特征数组经文件指纹校验保持不变，cfg2/cfg3 对比图和汇总曲线已按新编号重绘。
 本次只调整视频实验身份，s44 继续使用原冻结清单。
-s44 轨迹仍是此前八组 70 epoch 的训练设置；当前十组轨迹矩阵应在新 batch 上运行。
+s44 轨迹仍是此前八组 70 epoch 的训练设置；当前十一组轨迹矩阵应在新 batch 上运行。
 
 迁移映射和元数据备份路径记入
 [s44/pipeline.json](../artifacts/runs/retrain/s44/pipeline.json) 的 `rename_video` 步骤。
@@ -286,7 +287,7 @@ python runs/redraw.py --batch s45
 # 只补齐/更新图表依赖清单，不重绘。
 python runs/redraw.py --batch s45 --index-only
 
-# N1–N4 的独立人手变换稳健性评估，使用相同冻结查询/候选。
+# N1–N5 的独立人手变换稳健性评估，使用相同冻结查询/候选。
 python runs/retrain.py --batch s45 --stage robust --modality trajectory
 ```
 
@@ -349,7 +350,7 @@ artifacts/runs/retrain/s45/
     runs.json
     summary.json
     logs/
-    T0/ ... T5/ N1/ N2/ N3/ N4/
+    T0/ ... T5/ N1/ N2/ N3/ N4/ N5/
       params.json
       data_manifest.json
       split_manifest.json

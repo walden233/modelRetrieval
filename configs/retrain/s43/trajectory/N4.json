@@ -26,8 +26,8 @@
   "augmentation_noise_std": 0.005,
   "augmentation_max_rotation_degrees": 10.0,
   "model_params": {
-    "human_input_dim": 42,
-    "robot_input_dim": 15,
+    "human_input_dim": 33,
+    "robot_input_dim": 10,
     "d_model": 128,
     "nhead": 8,
     "num_layers": 5,
@@ -38,9 +38,9 @@
     "robot_representation": "relative_rot6d",
     "quaternion_order": "wxyz",
     "temporal_features": true,
-    "shared_transformer": true,
+    "shared_transformer": false,
     "dual_adapters": true,
-    "grasp_geometry": true,
+    "grasp_geometry": false,
     "use_gripper": true,
     "human_keypoint_indices": [
       0,
@@ -67,7 +67,7 @@
   },
   "data_params": {
     "human_source": "hand_3d_base",
-    "human_representation": "palm_relative",
+    "human_representation": "wrist_relative",
     "max_human_frames": 256,
     "max_robot_frames": 256,
     "preserve_timing": true,

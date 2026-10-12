@@ -4,7 +4,7 @@
 
 ## 当前两模态 retrain 入口
 
-当前轨迹 T0–T5、N1–N4 与视频 E0–E7、RawJ/RawM 使用
+当前轨迹 T0–T5、N1–N5 与视频 E0–E7、RawJ/RawM 使用
 唯一模板 `configs/retrain/s43/run.json`（seed 43），两模态配置分别位于其 `trajectory/`、`video/`。
 完整矩阵、划分开关和产物规则见 [RETRAIN.md](RETRAIN.md)。
 
