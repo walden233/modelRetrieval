@@ -49,6 +49,23 @@ def test_mpr_all_weights_queries_equally_and_skips_missing_positives():
     # Query a has rank 1 (25%); query b has ranks 2/3/4 (75%).
     assert metrics["MPR-all"] == pytest.approx(50.0)
     assert metrics["valid_queries"] == 2
+    assert metrics["gallery_size"] == 4
+
+
+def test_gallery_size_tracks_direction_in_rectangular_retrieval():
+    scores = np.array([[.9, .8, .1, .0], [.1, .0, .8, .9], [.2, .3, .4, .5]])
+    query_labels = ["a", "b", "missing"]
+    gallery_labels = ["a", "a", "b", "b"]
+
+    forward = calculate_label_retrieval_metrics(scores, query_labels, gallery_labels)
+    reverse = calculate_label_retrieval_metrics(scores.T, gallery_labels, query_labels)
+
+    assert forward["gallery_size"] == 4
+    assert forward["valid_queries"] == 2
+    assert reverse["gallery_size"] == 3
+    assert reverse["valid_queries"] == 4
+    assert forward["Mean Percentage Rank"] == pytest.approx(forward["Mean Rank"] / 4)
+    assert reverse["Mean Percentage Rank"] == pytest.approx(reverse["Mean Rank"] / 3)
 
 
 def test_mpr_all_matches_best_rank_for_one_positive():
@@ -68,3 +85,4 @@ def test_mpr_all_is_nan_without_valid_queries(scores, query_labels, gallery_labe
 
     assert np.isnan(metrics["MPR-all"])
     assert metrics["valid_queries"] == 0
+    assert metrics["gallery_size"] == np.asarray(scores).shape[1]

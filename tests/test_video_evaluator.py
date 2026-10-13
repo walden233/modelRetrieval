@@ -53,3 +53,4 @@ def test_evaluate_video_retrieval_reports_bidirectional_metrics():
     for direction in ("human_to_robot", "robot_to_human"):
         for level in ("task", "scene"):
             assert result["metrics"][direction][level]["MPR-all"] == 75.0
+            assert result["metrics"][direction][level]["gallery_size"] == 2

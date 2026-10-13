@@ -14,8 +14,8 @@
   "learning_rate": 0.0002,
   "lr_schedule": {
     "name": "cosine",
-    "hold_epochs": 10,
-    "min_lr": 2e-05
+    "hold_epochs": 8,
+    "min_lr": 3e-05
   },
   "seed": 43,
   "train_task_positives": true,
@@ -26,7 +26,7 @@
   "augmentation_noise_std": 0.005,
   "augmentation_max_rotation_degrees": 10.0,
   "model_params": {
-    "human_input_dim": 42,
+    "human_input_dim": 60,
     "robot_input_dim": 15,
     "d_model": 128,
     "nhead": 8,
@@ -53,7 +53,8 @@
       13,
       16,
       17,
-      20
+      20,
+      1,3,6,7,15,18
     ]
   },
   "protocol": "retrain_v2",
@@ -82,5 +83,5 @@
     "ndcg_weight": 0.0
   },
   "device": "cuda",
-  "loss_checkpoint_threshold": 0.82
+  "loss_checkpoint_threshold": 0.84
 }

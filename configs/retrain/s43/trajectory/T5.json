@@ -14,8 +14,8 @@
   "learning_rate": 0.0002,
   "lr_schedule": {
     "name": "cosine",
-    "hold_epochs": 10,
-    "min_lr": 2e-05
+    "hold_epochs": 7,
+    "min_lr": 1e-05
   },
   "seed": 43,
   "train_task_positives": true,
@@ -69,5 +69,5 @@
     "ndcg_weight": 0.0
   },
   "device": "cuda",
-  "loss_checkpoint_threshold": 0.75
+  "loss_checkpoint_threshold": 0.79
 }

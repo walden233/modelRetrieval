@@ -73,6 +73,8 @@ def calculate_label_retrieval_metrics(
 
     MPR-all averages all positive 1-based ranks divided by gallery size within
     each query, then averages across queries with positives. Lower is better.
+    gallery_size counts all candidate columns; valid_queries counts query rows
+    whose label has at least one positive in that gallery.
     """
     similarity_matrix = np.asarray(similarity_matrix)
     query_labels = np.asarray(query_labels)
@@ -85,6 +87,7 @@ def calculate_label_retrieval_metrics(
     if similarity_matrix.shape[1] != len(gallery_labels):
         raise ValueError("The number of gallery labels must match the number of gallery columns.")
 
+    gallery_size = int(similarity_matrix.shape[1])
     valid_ranks = []
     all_positive_percentages = []
     ndcg_scores = []
@@ -132,6 +135,7 @@ def calculate_label_retrieval_metrics(
             "MPR-all": float("nan"),
             "NDCG@10": float("nan"),
             "valid_queries": 0,
+            "gallery_size": gallery_size,
         }
 
     ranks = np.asarray(valid_ranks, dtype=float)
@@ -144,4 +148,5 @@ def calculate_label_retrieval_metrics(
     metrics["MPR-all"] = float(np.mean(all_positive_percentages))
     metrics[f"NDCG@{ndcg_k}"] = float(np.mean(ndcg_scores)) if ndcg_scores else float("nan")
     metrics["valid_queries"] = int(valid_queries)
+    metrics["gallery_size"] = gallery_size
     return metrics

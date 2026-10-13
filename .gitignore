@@ -5,6 +5,7 @@ dataset/
 results/
 model_weight/
 artifacts/
+analysis/
 **/__pycache__
 *.egg-info/
 dist/
