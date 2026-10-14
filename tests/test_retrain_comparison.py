@@ -97,6 +97,20 @@ def test_cache_rejects_checkpoint_change(tmp_path):
     assert not (runs.parent / "charts").exists()
 
 
+def test_evaluation_accepts_legacy_run_inventory_after_manifest_hash_cleanup(tmp_path):
+    _, registry, protocol = batch_fixture(tmp_path, keys=("T1",))
+    run = Path(registry["groups"]["T1"]["run_dir"])
+    snapshot = run / "data_manifest.json"
+    data = json.loads(snapshot.read_text())
+    data["scenes"][0].update(human_sha256="legacy human", robot_sha256="legacy robot")
+    write_json(snapshot, data)
+    config = json.loads((run / "params.json").read_text())
+    inputs = evaluation_inputs(config, run / "best_model.pth", "trajectory",
+                               run / "split_manifest.json")
+    assert not {"human_sha256", "robot_sha256"} & inputs["data_manifest"]["scenes"][0].keys()
+    assert inputs["scenes"] == 120
+
+
 def test_cache_rejects_wrong_order_and_modified_metrics(tmp_path):
     runs, registry, protocol = batch_fixture(tmp_path)
     run = Path(registry["groups"]["T1"]["run_dir"])

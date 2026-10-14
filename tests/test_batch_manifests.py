@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from bise.common.evaluation import bind_protocols
-from bise.common.fingerprints import file_hash, write_json
+from bise.common.fingerprints import file_hash, without_sha256, write_json
 from bise.data.rh20t.splits import (
     load_protocol, load_split_map, prepare_protocols, protocol_hash, shared_scene_split,
 )
@@ -41,6 +41,38 @@ def batch_protocol(tmp_path, cfg="cfg2", count=180):
     path = directory / "metadata.json"
     write_json(path, metadata)
     return path, metadata, mapping
+
+
+def test_cleanup_preserves_manifest_order_and_matching_run_bindings(tmp_path):
+    path, metadata, _ = batch_protocol(tmp_path)
+    data_path = Path(metadata["data_manifest"])
+    data = json.loads(data_path.read_text())
+    data["scenes"][0].update(human_sha256="old human digest", robot_sha256="old robot digest")
+    data["scenes"][0]["cameras"]["0"]["sha256"] = "old nested digest"
+    write_json(data_path, data)
+    before = load_protocol(path)
+    root = path.parent.parent.parent
+    original = {source: source.read_bytes() for source in root.rglob("*.json")}
+    run = tmp_path / "runs/T1"
+    config = {"protocol": "retrain_v2", "eval_manifests": {"cfg2": str(path)}}
+    bind_protocols(run, config)
+    write_json(run / "data_manifest.json", data)
+    snapshot = (run / "data_manifest.json").read_bytes()
+    stale = tmp_path / "runs/stale/protocols.json"
+    write_json(stale, {"cfg2": {"path": str(path), "sha256": "unrelated old protocol"}})
+    stale_bytes = stale.read_bytes()
+    cleaner = load_entry("clean_manifests")
+    assert cleaner.clean_manifests(root, tmp_path / "runs", check=True) == {
+        "manifests": 2, "protocol_bindings": 1, "check": True}
+    assert all(source.read_bytes() == content for source, content in original.items())
+    assert cleaner.clean_manifests(root, tmp_path / "runs") == {
+        "manifests": 2, "protocol_bindings": 1, "check": False}
+    assert json.loads(data_path.read_text()) == without_sha256(data)
+    assert load_protocol(path) == without_sha256(before)
+    bind_protocols(run, config)
+    assert (run / "data_manifest.json").read_bytes() == snapshot
+    assert stale.read_bytes() == stale_bytes
+    assert cleaner.clean_manifests(root, tmp_path / "runs")["manifests"] == 0
 
 
 def test_batch_splits_keep_modality_scene_and_camera_order(tmp_path):
@@ -132,7 +164,8 @@ def test_new_batches_create_separate_metadata_and_aligned_splits(tmp_path, monke
         write_json(source / f"{cfg}_valid.json", data)
     from bise.data.rh20t import splits
     def no_video_hash(path):
-        assert Path(path).suffix != ".mp4", "Preparation must not read video contents"
+        assert Path(path).suffix not in (".mp4", ".npy"), "Preparation must not hash source data"
+        assert Path(path).name != "data_manifest.json", "Preparation must not hash inventories"
         return file_hash(path)
     monkeypatch.setattr(splits, "file_hash", no_video_hash)
     monkeypatch.setitem(sys.modules, "decord", SimpleNamespace(
@@ -142,6 +175,9 @@ def test_new_batches_create_separate_metadata_and_aligned_splits(tmp_path, monke
     for cfg, path in first.items():
         metadata = json.loads(Path(path).read_text())
         assert metadata["schema_version"] == 3
+        assert metadata == without_sha256(metadata)
+        inventory = json.loads(Path(metadata["data_manifest"]).read_text())
+        assert inventory == without_sha256(inventory)
         assert not {"train", "val", "test", "video_pairs"} & metadata.keys()
         assert set(metadata["split_manifests"]) == {"trajectory", "video"}
         assert set(load_split_map(metadata["split_manifests"]["trajectory"])) == {
@@ -304,7 +340,7 @@ def test_file_audit_checks_video_existence_without_hashing(tmp_path, monkeypatch
         write_json(path, metadata)
     module = load_entry("audit_splits")
     def no_video_hash(path):
-        assert Path(path).suffix != ".mp4", "Audit must not read video contents"
+        assert Path(path).suffix not in (".mp4", ".npy"), "Audit must not hash source data"
         return file_hash(path)
     monkeypatch.setattr(splits, "file_hash", no_video_hash)
     monkeypatch.setattr(module, "file_hash", no_video_hash)

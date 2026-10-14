@@ -8,6 +8,8 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
+from bise.common.fingerprints import without_sha256
+
 from .scanner import SceneRecord
 from .human_representation import HUMAN_REPRESENTATIONS, hand_xyz_features, validate_global_transform
 from .trajectory_dataset import _sample_indices
@@ -81,8 +83,8 @@ def build_hand_3d_trajectory_manifest(root_dir: str) -> dict:
             continue
         scene_id = f"{path.parent.name}/{path.name}"
         try:
-            human, human_hash = load_trajectory_file(path / "human_hand_3d.npy")
-            robot, robot_hash = load_trajectory_file(path / "tcp_base.npy")
+            human = load_trajectory_file(path / "human_hand_3d.npy")
+            robot = load_trajectory_file(path / "tcp_base.npy")
             if human.get("schema_version") != 2 or human.get("landmark_count") != 21 or human.get("max_hands") != 2:
                 raise ValueError("unsupported human_hand_3d.npy schema")
             if not isinstance(human.get("cameras"), dict) or not isinstance(robot, dict):
@@ -100,7 +102,6 @@ def build_hand_3d_trajectory_manifest(root_dir: str) -> dict:
             exclusions.append({"scene_id": scene_id, "reason": "no valid paired camera"})
             continue
         entries.append({"scene_id": scene_id, "task_id": path.parent.name,
-                        "human_sha256": human_hash, "robot_sha256": robot_hash,
                         "cameras": cameras})
     return {"schema_version": MANIFEST_SCHEMA_VERSION, "human_source": HUMAN_SOURCE,
             "data_root": str(root.resolve()), "human_time_unit": "seconds_from_rgb_timestamp_ms",
@@ -152,8 +153,8 @@ class RH20THand3DTrajectoryDataset(Dataset):
         self.max_human_frames = max_human_frames
         self.max_robot_frames = max_robot_frames
         self.preserve_timing = preserve_timing
-        self.manifest = (json.loads(Path(manifest_path).read_text()) if manifest_path
-                         else build_hand_3d_trajectory_manifest(root_dir))
+        self.manifest = without_sha256(json.loads(Path(manifest_path).read_text()) if manifest_path
+                                      else build_hand_3d_trajectory_manifest(root_dir))
         if (self.manifest.get("schema_version") != MANIFEST_SCHEMA_VERSION
                 or self.manifest.get("human_source") != HUMAN_SOURCE):
             raise ValueError("Unsupported hand_3d_base trajectory manifest")
@@ -205,17 +206,15 @@ class RH20THand3DTrajectoryDataset(Dataset):
         scene = self.scenes[idx]
         scene_id = f"{Path(scene.scene_path).parent.name}/{Path(scene.scene_path).name}"
         entry = self.entries[scene_id]
-        human, _ = load_trajectory_file(scene.human_pose_path, entry["human_sha256"])
-        robot, _ = load_trajectory_file(scene.tcp_base_path, entry["robot_sha256"])
+        human = load_trajectory_file(scene.human_pose_path)
+        robot = load_trajectory_file(scene.tcp_base_path)
         grasp = None
         if self.geometry is not None:
             if self.dataset_geometry:
-                grasp, _ = load_trajectory_file(Path(scene.scene_path) / "geometry.npy")
+                grasp = load_trajectory_file(Path(scene.scene_path) / "geometry.npy")
             else:
                 prepared = self.geometry["scenes"][scene_id]
-                if prepared["robot_sha256"] != entry["robot_sha256"]:
-                    raise ValueError(f"Grasp geometry belongs to a different TCP sequence: {scene_id}")
-                grasp, _ = load_trajectory_file(prepared["path"], prepared["sha256"])
+                grasp = load_trajectory_file(prepared["path"])
         result = {key: [] for key in ("human_poses", "tcp_bases", "camera_ids", "human_times",
                                      "robot_times", "human_observed", "human_frame_indices")}
         for camera_id, camera_entry in sorted(entry["cameras"].items()):

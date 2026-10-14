@@ -89,7 +89,10 @@ python runs/trajectory/prepare_dataset_geometry.py --cfg cfg2 cfg3
 新 batch 的人手/视频共同有效池为 cfg2 428、cfg3 252 个 scene。
 
 训练、评估及新 batch 准备直接读取 dataset 内的几何文件，不需要 D 盘或 s43 的旧几何缓存。
-batch 仅保存数据清单、元数据和模态划分，数据清单不新增几何哈希字段。
+batch 仅保存数据清单、元数据和模态划分。2026-10-14 起，数据清单不再生成或校验
+`human_sha256`、`robot_sha256` 等 SHA256 字段，元数据不再保存数据清单摘要；
+加载器兼容旧快照，格式、质量和划分校验保留。旧字段清理使用
+`python runs/clean_manifests.py --runs-root artifacts/runs/retrain`，不修改原始数据。
 新 batch 流水线及独立入口见 [s43 模板的新存储入口](trajectory/S43.md#新数据存储结构的入口)，
 批次划分规则见 [RH20T retrain](RETRAIN.md#batch-划分准备)。
 
@@ -119,10 +122,12 @@ artifacts/manifests/
 - 数据根目录与 schema/坐标语义；
 - 每个可用 scene 和 camera；
 - 选中的手 track、有效帧数、覆盖率和质量统计；
-- `human_hand_3d.npy` 与 `tcp_base.npy` 的 SHA-256；
+- 旧版本还记录 `human_hand_3d.npy` 与 `tcp_base.npy` 的 SHA-256，现已停止生成和校验；
 - 被排除的 scene/camera 及原因。
 
-加载器先用该库存确定哪些输入有效，并在每次读取时校验哈希，防止源 NPY 变化后静默改变实验。之后才应用共享固定 test 和动态 train/val。视频模态不读取这个文件，因为视频有自己的样本扫描与有效性条件。
+加载器先用该库存确定哪些输入有效，再应用共享固定 test 和动态 train/val。
+现行读取保留数据格式和质量校验，不再执行源 NPY 哈希校验。
+视频模态不读取这个文件，因为视频有自己的样本扫描与有效性条件。
 
 当前 scene 数量不同是预期行为：旧轨迹数据可用 429 个 scene，新 3D 手轨迹可用 428 个，视频可用 434 个；它们共享同一组 43 个固定测试 scene，但剩余训练池大小分别由各模态的数据有效性决定。
 

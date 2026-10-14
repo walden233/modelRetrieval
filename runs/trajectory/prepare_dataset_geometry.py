@@ -35,8 +35,8 @@ def add_file(path, content, check):
 
 
 def scene_geometry(scene, feedback_path, profile, max_gap_ms):
-    robot, _ = load_trajectory_file(scene / "tcp_base.npy")
-    feedback, _ = load_trajectory_file(feedback_path)
+    robot = load_trajectory_file(scene / "tcp_base.npy")
+    feedback = load_trajectory_file(feedback_path)
     cameras = {}
     for camera, frames in robot.items():
         if not len(frames):

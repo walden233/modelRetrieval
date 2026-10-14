@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
-from bise.common.fingerprints import file_hash, object_hash, write_json
+from bise.common.fingerprints import file_hash, object_hash, without_sha256, write_json
 from bise.common.paths import project_root, resolve_path
 from bise.data.rh20t.splits import (
     PROTOCOL, load_protocol, load_split_map, protocol_hash, scene_id, validate_split,
@@ -115,10 +115,10 @@ def evaluation_inputs(config: dict, checkpoint: str | Path, modality: str,
                                   else saved["dataset"]["root_dir"])
     if modality == "trajectory":
         snapshot = run / "data_manifest.json"
-        data = json.loads(snapshot.read_text()) if snapshot.is_file() else None
+        data = without_sha256(json.loads(snapshot.read_text())) if snapshot.is_file() else None
         if data is None or resolve_path(data["data_root"]) != root:
-            data = json.loads(resolve_path(payload["data_manifest"]).read_text())
-        canonical = json.loads(resolve_path(payload["data_manifest"]).read_text())
+            data = without_sha256(json.loads(resolve_path(payload["data_manifest"]).read_text()))
+        canonical = without_sha256(json.loads(resolve_path(payload["data_manifest"]).read_text()))
         if object_hash(data) != object_hash(canonical):
             raise ValueError("Run trajectory inventory differs from the bound evaluation protocol")
         entries = {x["scene_id"]: x for x in data["scenes"]}

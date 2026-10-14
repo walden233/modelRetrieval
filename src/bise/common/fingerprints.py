@@ -17,6 +17,16 @@ def object_hash(value) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
 
+def without_sha256(value):
+    """Remove obsolete checksum fields while preserving manifest identities and order."""
+    if isinstance(value, dict):
+        return {key: without_sha256(item) for key, item in value.items()
+                if "sha256" not in key.lower()}
+    if isinstance(value, list):
+        return [without_sha256(item) for item in value]
+    return value
+
+
 def write_json(path: str | Path, value) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

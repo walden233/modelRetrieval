@@ -149,11 +149,13 @@ def prepare_grasp_geometry(config, manifest_dir):
                 raise ValueError(f"Calibration differs from frozen geometry: {path}")
             if frozen["max_gap_ms"] != config.get("max_gap_ms", 250):
                 raise ValueError(f"Feedback timing policy differs from frozen geometry: {path}")
-            if frozen["data_manifest_sha256"] != file_hash(path.parent / "data_manifest.json"):
+            inventory = json.loads((path.parent / "data_manifest.json").read_text())
+            if (resolve_path(frozen["data_root"]) != resolve_path(inventory["data_root"])
+                    or set(frozen["scenes"]) != {entry["scene_id"] for entry in inventory["scenes"]}):
                 raise ValueError(f"Geometry belongs to a different trajectory inventory: {path}")
             for entry in frozen["scenes"].values():
-                if file_hash(resolve_path(entry["path"])) != entry["sha256"]:
-                    raise ValueError(f"Prepared grasp trajectory changed: {entry['path']}")
+                if not resolve_path(entry["path"]).is_file():
+                    raise FileNotFoundError(f"Prepared grasp trajectory missing: {entry['path']}")
             outputs[path.parent.name] = str(path)
     if len(outputs) == 2:
         return outputs
@@ -171,9 +173,9 @@ def prepare_grasp_geometry(config, manifest_dir):
         for row in rows:
             entry = row["entry"]
             profile = config["profiles"][row["source_cfg"]]
-            feedback, source_hash = load_trajectory_file(row["source"])
+            feedback = load_trajectory_file(row["source"])
             robot_path = Path(row["root"]) / entry["scene_id"] / "tcp_base.npy"
-            robot, _ = load_trajectory_file(robot_path, entry["robot_sha256"])
+            robot = load_trajectory_file(robot_path)
             cameras = {}
             for camera in entry["cameras"]:
                 if camera not in feedback:
@@ -188,10 +190,8 @@ def prepare_grasp_geometry(config, manifest_dir):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(buffer.getvalue())
             prepared[entry["scene_id"]] = {
-                "path": str(path), "sha256": file_hash(path),
-                "robot_sha256": entry["robot_sha256"], "source_scene": row["source_scene"],
+                "path": str(path), "source_scene": row["source_scene"],
                 "source_cfg": row["source_cfg"], "feedback_source": str(row["source"]),
-                "feedback_sha256": source_hash,
             }
         references = {key: config["profiles"][key].get("reference", "calibrated_grasp")
                       for key in report["source_cfg_counts"][cfg]}
@@ -202,7 +202,6 @@ def prepare_grasp_geometry(config, manifest_dir):
         description = ("aligned TCP proxy with virtual jaw points and measured opening" if proxy
                        else "calibrated parallel-jaw contact-plane approximation")
         write_json(target, {"schema_version": 1, "data_root": data["data_root"],
-                            "data_manifest_sha256": file_hash(target.parent / "data_manifest.json"),
                             "profiles": config["profiles"], "scenes": prepared,
                             "source_cfg_counts": report["source_cfg_counts"][cfg],
                             "source_overlap": report["source_overlap"],
@@ -241,8 +240,8 @@ def geometry_digest(config, selected):
         return object_hash({"parameters": file_hash(path), "scenes": hashes})
     for identity in selected:
         entry = data["scenes"][identity]
-        if file_hash(resolve_path(entry["path"])) != entry["sha256"]:
-            raise ValueError(f"Prepared grasp trajectory changed: {entry['path']}")
+        if not resolve_path(entry["path"]).is_file():
+            raise FileNotFoundError(f"Prepared grasp trajectory missing: {entry['path']}")
     return file_hash(path)
 
 

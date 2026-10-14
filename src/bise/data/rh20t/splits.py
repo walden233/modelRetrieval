@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 
 from bise.common.paths import resolve_path
-from bise.common.fingerprints import file_hash, object_hash, write_json
+from bise.common.fingerprints import file_hash, object_hash, without_sha256, write_json
 
 
 SPLITS = ("train", "val", "test")
@@ -105,8 +105,7 @@ def _batch_protocol(metadata: dict) -> dict:
                         raise FileNotFoundError(f"Frozen video file missing: {source}")
             pairs[identity] = scene_pairs
     return {**metadata, **trajectory, "video_pairs": pairs,
-            "eligible_scenes": sorted(entries.keys() & pairs.keys()),
-            "inventory_sha256": object_hash(pairs)}
+            "eligible_scenes": sorted(entries.keys() & pairs.keys())}
 
 
 def load_protocol(path: str | Path, data_root: str | Path | None = None,
@@ -122,14 +121,10 @@ def load_protocol(path: str | Path, data_root: str | Path | None = None,
     if data_root is not None and resolve_path(data_root) != resolve_path(payload["data_root"]):
         raise ValueError(f"Manifest belongs to a different data root: {path}")
     data_path = resolve_path(payload["data_manifest"])
-    if file_hash(data_path) != payload["data_sha256"]:
-        raise ValueError(f"Frozen trajectory inventory changed: {data_path}")
     data = json.loads(data_path.read_text())
     if (data.get("human_source") != "hand_3d_base"
             or resolve_path(data["data_root"]) != resolve_path(payload["data_root"])):
         raise ValueError(f"Invalid frozen trajectory inventory: {data_path}")
-    if object_hash(payload["video_pairs"]) != payload["inventory_sha256"]:
-        raise ValueError(f"Frozen video inventory changed: {path}")
     eligible = payload["eligible_scenes"]
     if len(set(eligible)) != len(eligible):
         raise ValueError("Duplicate eligible scenes")
@@ -172,8 +167,6 @@ def load_protocol(path: str | Path, data_root: str | Path | None = None,
                     key = f"{domain}_sha256"
                     if key not in pair:
                         pair[key] = file_hash(root / pair[f"{domain}_path"])
-        if payload["schema_version"] == 3:
-            payload["inventory_sha256"] = object_hash(payload["video_pairs"])
     return payload
 
 
@@ -259,14 +252,15 @@ def prepare_protocols(dataset_root: str | Path, source_dir: str | Path | None,
         else:
             from .hand_3d_trajectory_dataset import build_hand_3d_trajectory_manifest
             data = build_hand_3d_trajectory_manifest(str(root))
+        data = without_sha256(data)
         if data.get("human_source") != "hand_3d_base" or resolve_path(data["data_root"]) != root:
             raise ValueError(f"Wrong trajectory inventory for {cfg}")
         entries = {entry["scene_id"]: entry for entry in data["scenes"]}
-        for identity, entry in entries.items():
-            for name, key in (("human_hand_3d.npy", "human_sha256"),
-                              ("tcp_base.npy", "robot_sha256")):
-                if file_hash(root / identity / name) != entry[key]:
-                    raise ValueError(f"Trajectory source changed: {root / identity / name}")
+        for identity in entries:
+            for name in ("human_hand_3d.npy", "tcp_base.npy"):
+                source = root / identity / name
+                if not source.is_file():
+                    raise FileNotFoundError(f"Trajectory source missing: {source}")
         if not data_path.exists():
             write_json(data_path, data)
         pairs = _video_pairs(root, entries)
@@ -303,7 +297,6 @@ def prepare_protocols(dataset_root: str | Path, source_dir: str | Path | None,
             write_json(path, split)
         payload = {"schema_version": 3, "protocol": PROTOCOL, "cfg": cfg, "seed": seed,
                    "data_root": str(root), "data_manifest": str(data_path),
-                   "data_sha256": file_hash(data_path),
                    "split_manifests": {"trajectory": str(trajectory_path),
                                        "video": str(video_path)}}
         if cfg == "cfg3":

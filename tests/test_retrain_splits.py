@@ -75,15 +75,15 @@ def test_random_val_preserves_test_and_is_reproducible(tmp_path):
     validate_split(first)
 
 
-def test_shared_protocol_rejects_missing_scene_changed_inventory_and_task_unit(tmp_path):
+def test_shared_protocol_rejects_missing_scene_invalid_camera_and_task_unit(tmp_path):
     path, payload, identities = frozen_protocol(tmp_path)
     with pytest.raises(ValueError, match="missing"):
         shared_scene_split(identities[1:], {"shared_manifest_path": str(path)})
     with pytest.raises(ValueError, match="unit=scene"):
         shared_scene_split(identities, {"shared_manifest_path": str(path), "unit": "task"})
-    payload["video_pairs"][identities[0]].reverse()
+    payload["video_pairs"][identities[0]][0]["camera_id"] = "invalid"
     write_json(path, payload)
-    with pytest.raises(ValueError, match="video inventory changed"):
+    with pytest.raises(ValueError, match="Inconsistent video sample identity"):
         load_protocol(path)
 
 

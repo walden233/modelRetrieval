@@ -83,5 +83,5 @@
     "ndcg_weight": 0.0
   },
   "device": "cuda",
-  "loss_checkpoint_threshold": 0.84
+  "loss_checkpoint_threshold": 0.85
 }

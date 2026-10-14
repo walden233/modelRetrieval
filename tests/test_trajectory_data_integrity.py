@@ -35,8 +35,8 @@ def test_invalid_scenes_removed_before_split_and_no_identity_fallback(tmp_path):
     assert len(dataset) == 1
     assert dataset[0]["scene_id"] == "task_0001/scene_2"
     assert any(e["reason"] == "no valid paired camera" for e in dataset.manifest["exclusions"])
-    (tmp_path / "task_0001/scene_2/human_pose.npy").write_bytes(b"changed")
-    with pytest.raises(ValueError, match="changed since manifest"):
+    (tmp_path / "task_0001/scene_2/human_pose.npy").unlink()
+    with pytest.raises(FileNotFoundError):
         dataset[0]
 
 

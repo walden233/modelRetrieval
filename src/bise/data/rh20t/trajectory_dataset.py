@@ -5,6 +5,8 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
+from bise.common.fingerprints import without_sha256
+
 from .scanner import SceneRecord, scan_valid_trajectory_scenes
 from .trajectory_manifest import SCHEMA_VERSION, build_trajectory_manifest, load_trajectory_file
 
@@ -38,8 +40,8 @@ class RH20TTrajectoryDataset(Dataset):
         for limit in (max_human_frames, max_robot_frames):
             if limit is not None and limit < 2:
                 raise ValueError("Frame limits must be at least two")
-        self.manifest = (json.loads(Path(manifest_path).read_text()) if manifest_path
-                         else build_trajectory_manifest(root_dir))
+        self.manifest = without_sha256(json.loads(Path(manifest_path).read_text()) if manifest_path
+                                      else build_trajectory_manifest(root_dir))
         if self.manifest["schema_version"] != SCHEMA_VERSION:
             raise ValueError("Unsupported trajectory manifest schema")
         if Path(self.manifest["data_root"]).resolve() != Path(root_dir).resolve():
@@ -60,9 +62,8 @@ class RH20TTrajectoryDataset(Dataset):
     def __getitem__(self, idx: int) -> dict:
         scene: SceneRecord = self.scenes[idx]
         entry = self.entries[self._scene_id(scene)]
-        # Hash-check every read so a saved split cannot silently change its inputs.
-        human, _ = load_trajectory_file(scene.human_pose_path, entry["human_sha256"])
-        robot, _ = load_trajectory_file(scene.tcp_base_path, entry["robot_sha256"])
+        human = load_trajectory_file(scene.human_pose_path)
+        robot = load_trajectory_file(scene.tcp_base_path)
         result = {key: [] for key in ("human_poses", "tcp_bases", "camera_ids", "human_times",
                                      "robot_times", "human_observed", "human_frame_indices")}
         for camera in sorted(entry["cameras"]):

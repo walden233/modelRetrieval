@@ -68,9 +68,11 @@ def test_track_identity_missing_frame_and_real_time(tmp_path):
     assert trajectory_context(batch, "human", "cpu")[0, 3, 1].item() == pytest.approx(np.log1p(.8))
 
 
-def test_manifest_source_hash_and_sampling(tmp_path):
+def test_manifest_without_source_hashes_keeps_sampling_and_reads_current_data(tmp_path):
     scene = _write_scene(tmp_path)
     manifest = build_hand_3d_trajectory_manifest(str(tmp_path))
+    assert not {"human_sha256", "robot_sha256"} & manifest["scenes"][0].keys()
+    manifest["scenes"][0].update(human_sha256="obsolete", robot_sha256="obsolete")
     path = tmp_path / "manifest.json"
     path.write_text(json.dumps(manifest))
     config = {"data_root": str(tmp_path), "use_6_keypoints": True,
@@ -90,8 +92,8 @@ def test_manifest_source_hash_and_sampling(tmp_path):
     data["cameras"]["cam"]["timestamp_ms"][1] += 1
     np.save(scene / "human_hand_3d.npy", data)
     frozen = RH20THand3DTrajectoryDataset(str(tmp_path), manifest_path=str(path))
-    with pytest.raises(ValueError, match="changed since manifest"):
-        frozen[0]
+    assert not {"human_sha256", "robot_sha256"} & frozen.manifest["scenes"][0].keys()
+    assert frozen[0]["human_times"][0][1].item() == pytest.approx(.101)
 
 
 def test_invalid_scene_excluded_without_sample_substitution(tmp_path):

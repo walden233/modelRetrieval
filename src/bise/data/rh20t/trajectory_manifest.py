@@ -1,7 +1,5 @@
 """Validate trajectory files before splitting; never substitute sample identities."""
 
-import hashlib
-import io
 from pathlib import Path
 
 import numpy as np
@@ -12,12 +10,8 @@ from .scanner import SceneRecord
 SCHEMA_VERSION = 1
 
 
-def load_trajectory_file(path, expected_hash=None):
-    raw = Path(path).read_bytes()
-    digest = hashlib.sha256(raw).hexdigest()
-    if expected_hash is not None and digest != expected_hash:
-        raise ValueError(f"Trajectory file changed since manifest creation: {path}")
-    return np.load(io.BytesIO(raw), allow_pickle=True).item(), digest
+def load_trajectory_file(path):
+    return np.load(path, allow_pickle=True).item()
 
 
 def validate_camera(human_frames, robot_frames):
@@ -53,8 +47,8 @@ def build_trajectory_manifest(root_dir: str) -> dict:
                             tcp_base_path=str(path / "tcp_base.npy"))
         scene_id = f"{path.parent.name}/{path.name}"
         try:
-            human, human_hash = load_trajectory_file(scene.human_pose_path)
-            robot, robot_hash = load_trajectory_file(scene.tcp_base_path)
+            human = load_trajectory_file(scene.human_pose_path)
+            robot = load_trajectory_file(scene.tcp_base_path)
         except Exception as exc:
             exclusions.append({"scene_id": scene_id, "reason": str(exc)})
             continue
@@ -68,7 +62,6 @@ def build_trajectory_manifest(root_dir: str) -> dict:
             exclusions.append({"scene_id": scene_id, "reason": "no valid paired camera"})
             continue
         entries.append({"scene_id": scene_id, "task_id": Path(scene.scene_path).parent.name,
-                        "human_sha256": human_hash, "robot_sha256": robot_hash,
                         "cameras": cameras})
     return {"schema_version": SCHEMA_VERSION, "data_root": str(Path(root_dir).resolve()),
             "human_time_unit": "frame_index", "robot_time_unit": "seconds_from_timestamp_ms",

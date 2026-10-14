@@ -1,6 +1,6 @@
 # RH20T retrain
 
-更新时间：2026-10-12。本文为当前实验编号、流水线和产物规则的主说明。
+更新时间：2026-10-14。本文为当前实验编号、流水线和产物规则的主说明。
 
 配置位于 `configs/retrain/`，产物位于
 `artifacts/runs/retrain/<batch>/{trajectory,video}/<group>/`。
@@ -146,7 +146,19 @@ split_manifest_video.json
 两份 split 仅含 train/val/test 列表，与 run 内格式一致，scene 集合和顺序一致。
 cfg3 不受 task 范围选项影响，仍为每个 task 两个评估 scene。
 准备时只检查视频文件存在，不解码、不计算视频文件哈希。
-本次不新增数据清单哈希字段。
+数据清单不再生成或校验 `human_sha256`、`robot_sha256` 等源数据摘要，
+`metadata.json` 也不再保存 `data_sha256`。读取仍校验 schema、数据根目录、scene/camera、
+时间戳、观测质量与划分格式；准备和文件审计检查源文件存在。
+
+清理旧清单中的 SHA256 字段（已对现有 `artifacts/manifests` 执行）：
+
+```bash
+python runs/clean_manifests.py --root artifacts/manifests --runs-root artifacts/runs/retrain
+```
+
+脚本递归清理 JSON 字段，保留其它元数据和列表顺序，可加 `--check` 预览。
+`--runs-root` 仅同步原摘要准确匹配的 `protocols.json` 绑定，避免清理元数据后旧 run 绑定失效；
+不改模型、训练配置、划分或评估结果。旧 run 的带哈希清单快照由加载器兼容读取。
 
 已有 batch 优先复用冻结文件，即使准备选项改变，也不会改写已有清单，包括 s44。
 要应用新限制和新矩阵，使用新的 batch，例如：
@@ -171,7 +183,7 @@ cfg2 评估继续使用每个 run 自己的 `split_manifest.json:test`；cfg3 �
 输入来自 `dataset/RH20T_subset/RH20T_cfg2`、`RH20T_cfg3` 的人手、TCP、视频及
 `gripper.npy` / `geometry.npy` / `geometry.json`，结构见
 [数据存储说明](RH20T_SPLIT_AND_MANIFESTS.md#当前子集存储与夹爪来源)。
-准备阶段直接从 dataset 构建有效库存，核验既有 NPY 指纹，并冻结当前视频配对；
+准备阶段直接从 dataset 构建有效库存，检查源文件存在，并冻结当前视频配对；
 无需预建 batch 清单、旧 `source/` 或额外的几何索引。
 
 ```bash
@@ -265,7 +277,7 @@ python runs/retrain.py --batch s45 --stage eval --only T4 E6
 # 只准备共享清单和数据库存快照。
 python runs/prepare_splits.py --batch s45
 
-# 只审计；--files 校验轨迹文件哈希及视频文件存在。
+# 只审计；--files 检查源文件存在及几何数据格式，不校验轨迹源文件哈希。
 python runs/audit_splits.py --files --output artifacts/runs/retrain/audit.json
 
 # 只训练；也可选择部分组。--traj-epochs 可覆盖轨迹预算。
