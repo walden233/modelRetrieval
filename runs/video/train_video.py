@@ -45,7 +45,8 @@ def main():
     config = load_json_config(args.config)
     config = merge_overrides(config, {"output_dir": args.output_dir})
     if args.seed is not None:
-        config["seed"] = args.seed
+        from bise.common.config import override_seed
+        override_seed(config, args.seed)
     if args.epochs is not None:
         if args.epochs < 1:
             raise ValueError("--epochs must be positive")

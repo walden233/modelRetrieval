@@ -69,7 +69,8 @@ def main():
     config = load_json_config(args.config)
     config = merge_overrides(config, {"data_root": args.data_root, "output_dir": args.output_dir})
     if args.seed is not None:
-        config["seed"] = args.seed
+        from bise.common.config import override_seed
+        override_seed(config, args.seed)
     config.setdefault("loss_checkpoint_threshold", 0.74)
     if args.epochs is not None:
         if args.epochs < 1:

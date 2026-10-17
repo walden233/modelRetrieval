@@ -15,3 +15,12 @@ def merge_overrides(config: Dict[str, Any], overrides: Dict[str, Any]) -> Dict[s
         if value is not None:
             merged[key] = value
     return merged
+
+
+def override_seed(config: Dict[str, Any], seed: int) -> None:
+    """Apply one effective seed to training, dynamic splits and dataset sampling."""
+    config["seed"] = seed
+    if "split" in config:
+        config["split"]["seed"] = seed
+    if "dataset" in config:
+        config["dataset"]["seed"] = seed

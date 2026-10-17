@@ -114,9 +114,11 @@ def test_video_training_evaluation_and_frozen_raw_comparison(tmp_path, monkeypat
         validate_prepared_run(run)
         prepared_split = (run / "split_manifest.json").read_bytes()
         monkeypatch.setattr(sys, "argv", ["train_video", "--config", str(run / "params.json"),
-                                         "--run-dir", str(run), "--prepared"])
+                                         "--run-dir", str(run), "--prepared", "--seed", "57"])
         train.main()
         assert (run / "split_manifest.json").read_bytes() == prepared_split
+        saved = json.loads((run / "params.json").read_text())
+        assert saved["seed"] == saved["split"]["seed"] == saved["dataset"]["seed"] == 57
         with pytest.raises(ValueError, match="untrained prepared"):
             validate_prepared_run(run)
         assert json.loads((run / "status.json").read_text())["state"] == "complete"

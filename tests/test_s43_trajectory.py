@@ -279,9 +279,11 @@ def test_prepared_trajectory_entry_trains_one_batch_without_changing_split(tmp_p
     split = (run / "split_manifest.json").read_bytes()
     module = load_entry("trajectory/train_trajectory")
     monkeypatch.setattr(sys, "argv", ["train_trajectory", "--config", str(run / "params.json"),
-                                     "--run-dir", str(run), "--prepared"])
+                                     "--run-dir", str(run), "--prepared", "--seed", "57"])
     module.main()
     assert (run / "split_manifest.json").read_bytes() == split
+    saved = json.loads((run / "params.json").read_text())
+    assert saved["seed"] == saved["split"]["seed"] == 57
     assert (run / "best_model.pth").is_file()
     status = json.loads((run / "status.json").read_text())
     assert status["state"] == "complete" and status["train_batches"] == 1

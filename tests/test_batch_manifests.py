@@ -146,8 +146,8 @@ def test_prepare_reuses_supplied_batch_files_without_rewriting(tmp_path):
     result = prepare_protocols(tmp_path, tmp_path / "unused", directory)
     assert result == {cfg: str(path) for cfg, path in zip(("cfg2", "cfg3"), paths)}
     assert all(path.read_bytes() == value for path, value in before.items())
-    with pytest.raises(ValueError, match="different seed"):
-        prepare_protocols(tmp_path, tmp_path / "unused", directory, seed=43)
+    assert prepare_protocols(tmp_path, tmp_path / "unused", directory, seed=43) == result
+    assert all(path.read_bytes() == value for path, value in before.items())
 
 
 def test_new_batches_create_separate_metadata_and_aligned_splits(tmp_path, monkeypatch):
@@ -367,8 +367,7 @@ def test_runtime_paths_follow_batch_and_preserve_task_configs(tmp_path):
                 assert current["eval_manifests"][cfg] == str(
                     manifests / cfg / f"split_manifest_{modality}.json")
             if key in ("T4", "E6"):
-                source = json.loads((ROOT / config[modality][key]["config"]).read_text())
-                assert current["split"] == {"unit": "task", "seed": source["split"]["seed"],
+                assert current["split"] == {"unit": "task", "seed": 43,
                                             "scene_counts": {"test": 120, "val": 50}}
             else:
                 assert current["split"]["shared_manifest_path"] == current["eval_manifests"]["cfg2"]

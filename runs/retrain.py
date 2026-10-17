@@ -12,6 +12,7 @@ from _bootstrap import bootstrap
 bootstrap()
 
 from bise.common.fingerprints import write_json
+from bise.common.config import override_seed
 from bise.common.paths import project_root, resolve_path
 from bise.common.process import run_logged
 from bise.data.rh20t.splits import PROTOCOL
@@ -40,6 +41,7 @@ def prepare_batch(config: dict, root: Path, modalities: list[str], seed: int,
                   budgets: dict, dry_run: bool = False,
                   device: str | None = None) -> tuple[dict, dict]:
     registries, runtime = {}, copy.deepcopy(config)
+    runtime["seed"] = seed
     manifest_dir = resolve_path(config["manifest_dir"]) / root.name
     runtime["manifest_dir"] = str(manifest_dir)
     runtime["eval_manifests"] = {
@@ -50,7 +52,7 @@ def prepare_batch(config: dict, root: Path, modalities: list[str], seed: int,
         for key, entry in config[modality].items():
             source = resolve_path(entry["config"])
             current = epoch_budget(json.loads(source.read_text()), modality, budgets[modality])
-            current["seed"] = seed
+            override_seed(current, seed)
             current["eval_manifests"] = {
                 cfg: str(manifest_dir / cfg / f"split_manifest_{modality}.json")
                 for cfg in ("cfg2", "cfg3")
@@ -75,7 +77,6 @@ def prepare_batch(config: dict, root: Path, modalities: list[str], seed: int,
                 current["split"]["shared_manifest_path"] = current["eval_manifests"]["cfg2"]
             if device:
                 current["device"] = device
-            current["split"].setdefault("seed", seed)
             split_manifest = root / modality / key / "split_manifest.json"
             if split_manifest.is_file():
                 current["split"]["manifest_path"] = str(split_manifest)
@@ -129,7 +130,7 @@ def main():
                         default=["trajectory", "video"])
     parser.add_argument("--only", nargs="+", help="Selected training/evaluation groups")
     parser.add_argument("--seed", type=int,
-                        help="Training seed; the shared protocol seed stays fixed")
+                        help="Override all config seeds for new splits and training; reuse saved splits")
     parser.add_argument("--traj-epochs", type=int)
     parser.add_argument("--video-epochs", type=int)
     parser.add_argument("--device", choices=("cuda", "cpu"),
@@ -145,7 +146,7 @@ def main():
     if config.get("protocol") != PROTOCOL:
         raise ValueError(f"Expected protocol {PROTOCOL!r} in {args.config}")
     os.chdir(project_root())
-    seed = config["seed"] if args.seed is None else args.seed
+    seed = int(config.get("seed", 42) if args.seed is None else args.seed)
     batch = args.batch or (config["batch"] if args.seed is None else f"s{seed}")
     if Path(batch).name != batch or batch in (".", ".."):
         raise ValueError("--batch must be a single directory name")
@@ -166,7 +167,8 @@ def main():
     stages = ["prepare", "audit", "train", "eval"] if args.stage == "all" else [args.stage]
     if args.dry_run:
         for stage in stages:
-            print(f"{stage}: batch={batch}, modalities={modalities}, groups={args.only or 'all'}")
+            print(f"{stage}: batch={batch}, seed={seed}, modalities={modalities}, "
+                  f"groups={args.only or 'all'}")
         for modality in modalities:
             for key, entry in config[modality].items():
                 if args.only and key not in args.only:
@@ -176,6 +178,7 @@ def main():
             print(f"Replace selected runs; archive under {root.parent / 'archive' / batch}")
         return
     budgets = {"trajectory": args.traj_epochs, "video": args.video_epochs}
+    print(f"Batch {batch}: effective seed={seed}", flush=True)
     registries, runtime = prepare_batch(config, root, modalities, seed, budgets, device=args.device)
     backup = (root.parent / "archive" / batch
               / datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f"))
@@ -190,7 +193,7 @@ def main():
             if stage == "prepare":
                 from bise.data.rh20t.splits import prepare_protocols
                 prepare_protocols(config["dataset_root"], config.get("source_dir"),
-                                  runtime["manifest_dir"], config["seed"],
+                                  runtime["manifest_dir"], seed,
                                   config.get("prepare", {}).get("cfg2_test_limit", 98))
                 if "trajectory" in modalities:
                     selected = [entry for key, entry in registries["trajectory"]["groups"].items()
@@ -263,7 +266,7 @@ def main():
                 for modality, key, run in training:
                     script = f"runs/{modality}/train_{modality}.py"
                     command = [sys.executable, script, "--config", run / "params.json",
-                               "--run-dir", run, "--prepared"]
+                               "--run-dir", run, "--prepared", "--seed", str(seed)]
                     run_logged(command,
                                root / modality / "logs" / f"{key}_train.log")
             elif stage in ("eval", "charts"):

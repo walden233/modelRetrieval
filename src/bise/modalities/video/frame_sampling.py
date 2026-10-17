@@ -42,7 +42,6 @@ def select_frame_indices(
     if num_frames <= 0:
         raise ValueError("num_frames must be positive.")
 
-    rng = np.random.default_rng(seed)
     strategy = str(strategy).strip().lower()
 
     if total_frames == 1:
@@ -70,6 +69,8 @@ def select_frame_indices(
         return padded.astype(int)
 
     if strategy == "segment_random":
+        sampling_seed = seed if seed is not None else int(np.random.randint(0, 2**32))
+        rng = np.random.default_rng(sampling_seed)
         # 训练时常用：把整段视频切成 num_frames 个时间段，每段随机抽一帧。
         # 这样既覆盖全局时间范围，又引入轻量时序扰动。
         segment_edges = np.linspace(0, total_frames, num_frames + 1, dtype=int)

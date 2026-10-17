@@ -13,9 +13,9 @@ def apply_video_transforms(
         return pixel_values
 
     transformed, layout = _to_tchw(pixel_values)
-    generator = torch.Generator(device=transformed.device)
+    generator = None
     if seed is not None:
-        generator.manual_seed(seed)
+        generator = torch.Generator(device=transformed.device).manual_seed(seed)
 
     brightness_jitter = float(config.get("brightness_jitter", 0.0))
     if brightness_jitter > 0:

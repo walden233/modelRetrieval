@@ -240,7 +240,8 @@ def prepare_protocols(dataset_root: str | Path, source_dir: str | Path | None,
         if target.exists():
             frozen = load_protocol(target, dataset_root / f"RH20T_{cfg}")
             if frozen["seed"] != seed:
-                raise ValueError("Existing batch protocol has a different seed; use a new batch")
+                print(f"Reuse frozen {cfg} split: seed={frozen['seed']}, requested seed={seed}",
+                      flush=True)
             result[cfg] = str(target)
             continue
         root = dataset_root / f"RH20T_{cfg}"

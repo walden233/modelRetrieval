@@ -201,7 +201,8 @@ python runs/retrain.py --batch s45 --skip-existing
 # 只跑某一模态。
 python runs/retrain.py --batch s45 --modality trajectory
 
-# 固定划分种子来自 run.json；--seed 只覆盖训练和动态验证划分种子。
+# --seed 最高优先级，覆盖新清单、训练、动态划分及视频数据采样 seed。
+# 已有 batch 清单和 run 划分继续复用；想更换固定测试集需使用新 batch。
 python runs/retrain.py --seed 43 --batch s43
 ```
 
@@ -209,6 +210,36 @@ python runs/retrain.py --seed 43 --batch s43
 配置修改后可直接在原 batch 重跑，不检查批次配置或注册表是否变化。
 批次 `configs/` 每次更新到源配置；已有 run 的 `params.json` 保留真实训练设置，
 只有实际重训时才更新，独立评估继续读取该文件。
+
+seed 优先级：流水线为 `--seed > run.json:seed > 默认 42`，各实验配置的顶层、
+`split.seed` 和视频 `dataset.seed` 都使用这一个有效值。
+独立轨迹/视频训练入口也支持 `--seed`，优先于其配置中的对应字段；未指定时沿用各自配置。
+实际生效值写入批次配置快照及训练 run 的 `params.json`，源配置不改写。
+
+| seed 控制内容 | 生效条件 |
+|---|---|
+| 模型/适配头初始化、DataLoader 打乱、Dropout、随机增强 | 实际启动训练时 |
+| cfg2 固定 test/val 抽样、cfg3 每 task 两个 scene 抽样 | 新 batch 清单生成时 |
+| T4/E6 task 划分、随机验证集及其它动态划分 | 尚无可复用划分时 |
+| 视频随机抽帧、随机增强；评估时按 dataset seed＋样本编号取随机值 | 相应随机策略启用时；均匀抽帧不依赖 seed |
+
+视频无显式局部 seed 的增强使用全局 PyTorch 随机状态，随机抽帧使用全局 NumPy
+随机状态派生种子；两次增强不会因反复新建未播种生成器而固定为同一扰动。
+相同 seed 仍不保证不同硬件或非确定性 CUDA 算法的逐位一致。
+
+```bash
+# 新 batch：共享划分和全部训练均使用 57。
+python runs/retrain.py --config configs/retrain/s43/run.json --batch s57 --seed 57
+
+# 独立准备入口使用同一参数。
+python runs/prepare_splits.py --config configs/retrain/s43/run.json --batch s57 --seed 57
+
+# 原 batch 重训所选组：训练用 57，已冻结划分保持不变。
+python runs/retrain.py --config configs/retrain/s43/run.json --batch s44 --seed 57 --modality trajectory --only N1 --stage train
+```
+
+更改 seed 不会修改已经训练的模型；`--skip-existing` 仍复用完整 run，评估沿用 run 的
+实际训练参数。已有清单即使记录的生成 seed 与当前请求不同，也直接复用并打印实际 seed。
 
 `--skip-existing` 是流水线复用，不是恢复中断训练的 optimizer 状态。
 该参数仅跳过已完成的训练，评估阶段始终重新计算所选 run 的 cfg2/cfg3 结果。

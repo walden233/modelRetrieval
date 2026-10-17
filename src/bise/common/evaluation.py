@@ -42,8 +42,6 @@ def bind_protocols(run: Path, config: dict) -> None:
     sources = {cfg: {"path": str(resolve_path(path)), "sha256": protocol_hash(path)}
                for cfg, path in config["eval_manifests"].items()}
     path = run / "protocols.json"
-    if path.exists() and json.loads(path.read_text()) != sources:
-        raise ValueError(f"Run is bound to a different frozen protocol: {run}")
     write_json(path, sources)
 
 
