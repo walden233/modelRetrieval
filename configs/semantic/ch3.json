@@ -1,0 +1,151 @@
+{
+  "schema_version": 3,
+  "root": "artifacts/semantic/v2",
+  "sources": {
+    "cfg2": "artifacts/manifests/retrain/s44/cfg2/split_manifest_video.json",
+    "cfg3": "artifacts/manifests/retrain/s44/cfg3/split_manifest_video.json"
+  },
+  "representations": [
+    "S0",
+    "S1",
+    "S2",
+    "S3",
+    "S4",
+    "S5"
+  ],
+  "cfgs": [
+    "cfg2",
+    "cfg3"
+  ],
+  "video_prompt": "configs/semantic/prompts/video.md",
+  "scene_prompt": "configs/semantic/prompts/scene.md",
+  "taxonomy": {
+    "capability_tags": [
+      "grasp",
+      "transport",
+      "place",
+      "insert",
+      "rotate",
+      "pour",
+      "press",
+      "open",
+      "close",
+      "cut"
+    ],
+    "task_complexity": [
+      "low",
+      "medium",
+      "high",
+      "unknown"
+    ],
+    "environment_tags": [
+      "obstacles_present",
+      "no_obstacles",
+      "dynamic_environment",
+      "unknown"
+    ],
+    "scene_category": [
+      "industrial",
+      "household",
+      "medical",
+      "outdoor",
+      "unknown"
+    ]
+  },
+  "annotation": {
+    "provider": "glm",
+    "frames": 20,
+    "max_side": 640,
+    "jpeg_quality": 85,
+    "concurrency": 4,
+    "timeout_seconds": 240,
+    "max_attempts": 3,
+    "backoff_seconds": 2
+  },
+  "providers": {
+    "glm": {
+      "model": "glm-5.3-flash",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "api_key_env": [
+        "ZHIPU_API_KEY",
+        "GLM_API_KEY"
+      ],
+      "send_request_id": true,
+      "request": {
+        "temperature": 1,
+        "thinking": {
+          "type": "enabled"
+        },
+        "reasoning_effort": "low",
+        "max_tokens": 12288,
+        "response_format": {
+          "type": "json_object"
+        }
+      },
+      "price": {
+        "currency": "CNY",
+        "date": "2026-10-17",
+        "input": 0.8,
+        "cached_input": 0.23,
+        "output": 2.8
+      }
+    },
+    "qwen": {
+      "model": "qwen3.7-plus-2026-05-26",
+      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "api_key_env": [
+        "DASHSCOPE_API_KEY"
+      ],
+      "send_request_id": false,
+      "request": {
+        "temperature": 0.1,
+        "enable_thinking": false,
+        "max_tokens": 12288,
+        "response_format": {
+          "type": "json_object"
+        }
+      },
+      "price": {
+        "currency": "CNY",
+        "date": "2026-10-17",
+        "input": 2,
+        "cached_input": 0.4,
+        "output": 8
+      }
+    }
+  },
+  "embedding": {
+    "provider_name": "transformers",
+    "model_name": "BAAI/bge-m3",
+    "revision": "5617a9f61b028005a4858fdac845db406aefb181",
+    "pooling": "cls",
+    "device": "auto",
+    "max_length": 2048,
+    "batch_size": 8,
+    "local_files_only": true
+  },
+  "evaluation": {
+    "split": "test",
+    "top_k": 10,
+    "seed": 44
+  },
+  "cost": {
+    "cfg": "cfg2",
+    "split": "test",
+    "tasks": 55,
+    "seed": 44,
+    "frames": [
+      32,
+      16,
+      8
+    ],
+    "provider_frames": 16,
+    "providers": [
+      "glm"
+    ]
+  },
+  "scene": {
+    "provider": "glm",
+    "source": "S5"
+  }
+}

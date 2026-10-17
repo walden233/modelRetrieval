@@ -147,6 +147,16 @@ def index_plots(root: str | Path) -> dict:
     from bise.modalities.video.figures import keep_first_camera_per_scene
 
     root = resolve_path(root).resolve()
+    if (root / 'scope.json').exists() and (root / 'params.json').exists():
+        params = json.loads((root / 'params.json').read_text())
+        if params.get('schema_version') == 3:
+            from bise.modalities.semantic.figures import prepare_figures
+            recipes = {}
+            for source, upstream in prepare_figures(root):
+                recipes[_relative(root, source.with_suffix('.png'))] = _entry(
+                    root, 'semantic', [source], {}, upstream)
+            write_json(root / 'plots.json', recipes)
+            return recipes
     manifest = root / "plots.json"
     recipes = _read_recipes(manifest)
     plots = {}
@@ -202,6 +212,10 @@ def index_plots(root: str | Path) -> dict:
                     "first_camera": first_camera,
                 })
 
+    from bise.modalities.semantic.figures import prepare_figures
+    for source, upstream in prepare_figures(root / "semantic"):
+        add(source.with_suffix(".png"), "semantic", [source], upstream=upstream)
+
     unknown = sorted(_relative(root, path) for path in root.rglob("*.png")
                      if _relative(root, path) not in plots)
     if unknown:
@@ -246,6 +260,9 @@ def redraw_plots(root: str | Path) -> dict:
                 plot_sorted_similarity_heatmap(matrix, metadata, path, **args)
             else:
                 plot_similarity_heatmap(matrix, path, **args)
+        elif entry["kind"] == "semantic":
+            from bise.modalities.semantic.figures import render_figure
+            render_figure(inputs[0], path)
         else:
             raise ValueError(f"Unknown plot kind: {entry['kind']}")
     return payload

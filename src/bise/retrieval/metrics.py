@@ -68,6 +68,7 @@ def calculate_label_retrieval_metrics(
     gallery_labels,
     k_values=(1, 5, 10),
     ndcg_k: int = 10,
+    stable_sort: bool = False,
 ):
     """Report label retrieval metrics, including query-averaged MPR-all in percent.
 
@@ -103,7 +104,7 @@ def calculate_label_retrieval_metrics(
 
         valid_queries += 1
         scores = similarity_matrix[query_index]
-        ranked_indices = np.argsort(-scores)
+        ranked_indices = np.argsort(-scores, kind="stable" if stable_sort else "quicksort")
         ranked_positive_flags = positive_mask[ranked_indices]
         first_positive_rank = int(np.argmax(ranked_positive_flags)) + 1
         valid_ranks.append(first_positive_rank)

@@ -28,17 +28,25 @@ class HashTextEmbedder(TextEmbedder):
 
 
 class TransformersTextEmbedder(TextEmbedder):
-    def __init__(self, model_name: str, device: str = "cpu", max_length: int = 256):
+    def __init__(self, model_name: str, device: str = "cpu", max_length: int = 256,
+                 pooling: str = "mean", local_files_only: bool = False,
+                 revision: str | None = None):
         from transformers import AutoModel, AutoTokenizer
         import torch
 
         self.torch = torch
         resolved_device = _resolve_device(torch, device)
         self.device = torch.device(resolved_device)
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = AutoModel.from_pretrained(model_name).to(self.device)
+        options = {"local_files_only": local_files_only}
+        if revision:
+            options["revision"] = revision
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name, **options)
+        self.model = AutoModel.from_pretrained(model_name, **options).to(self.device)
         self.model.eval()
         self.max_length = max_length
+        if pooling not in ("mean", "cls"):
+            raise ValueError("pooling must be mean or cls")
+        self.pooling = pooling
 
     def encode_texts(self, texts: List[str]) -> np.ndarray:
         if not texts:
@@ -55,10 +63,13 @@ class TransformersTextEmbedder(TextEmbedder):
             encoded = {key: value.to(self.device) for key, value in encoded.items()}
             outputs = self.model(**encoded)
             hidden = outputs.last_hidden_state
-            mask = encoded["attention_mask"].unsqueeze(-1)
-            summed = (hidden * mask).sum(dim=1)
-            counts = mask.sum(dim=1).clamp(min=1)
-            pooled = summed / counts
+            if self.pooling == "cls":
+                pooled = hidden[:, 0]
+            else:
+                mask = encoded["attention_mask"].unsqueeze(-1)
+                summed = (hidden * mask).sum(dim=1)
+                counts = mask.sum(dim=1).clamp(min=1)
+                pooled = summed / counts
             pooled = self.torch.nn.functional.normalize(pooled, dim=1)
         return pooled.cpu().numpy().astype("float32")
 
@@ -80,6 +91,9 @@ def build_text_embedder(config: Dict[str, Any]) -> TextEmbedder:
             model_name=str(config["model_name"]),
             device=str(config.get("device", "auto")),
             max_length=int(config.get("max_length", 256)),
+            pooling=str(config.get("pooling", "mean")),
+            local_files_only=bool(config.get("local_files_only", False)),
+            revision=config.get("revision"),
         )
     raise ValueError(f"Unsupported text embedder provider: {provider_name}")
 
