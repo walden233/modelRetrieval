@@ -8,6 +8,7 @@ import math
 import os
 import threading
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import numpy as np
 
@@ -217,7 +218,26 @@ class RequestStore:
         return summary
 
 
-def account_usage(raw: dict, price: dict) -> dict:
+def account_usage(raw: dict, price: dict, timestamp: float | None = None) -> dict:
+    schedule = price.get('schedule')
+    if schedule:
+        # Preserve the effective tariff with each response, including the time basis.
+        moment = raw.get('created', timestamp)
+        moment = dt.datetime.fromtimestamp(moment, dt.timezone.utc) if isinstance(
+            moment, (int, float)) else dt.datetime.now(dt.timezone.utc)
+        local = moment.astimezone(ZoneInfo(schedule['timezone']))
+        day = local.date().isoformat()
+        known_calendar = local.year in schedule['calendar_years']
+        holiday = any(start <= day <= end for start, end in schedule['holidays'])
+        clock = local.strftime('%H:%M')
+        peak = (not known_calendar or (local.weekday() < 5 and not holiday and any(
+            start <= clock < end for start, end in schedule['peak_hours'])))
+        period = 'peak' if peak else 'off_peak'
+        price = {**{key: value for key, value in price.items() if key != 'schedule'},
+                 **schedule[period], 'period': period, 'priced_at': moment.isoformat(),
+                 'time_basis': 'response_created' if isinstance(raw.get('created'), (int, float))
+                 else 'request_started' if timestamp is not None else 'accounting_time',
+                 'calendar_known': known_calendar}
     usage = raw.get("usage") or {}
     inputs = usage.get("prompt_tokens", usage.get("input_tokens"))
     outputs = usage.get("completion_tokens", usage.get("output_tokens"))

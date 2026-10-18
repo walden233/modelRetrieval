@@ -155,6 +155,9 @@ def index_plots(root: str | Path) -> dict:
             for source, upstream in prepare_figures(root):
                 recipes[_relative(root, source.with_suffix('.png'))] = _entry(
                     root, 'semantic', [source], {}, upstream)
+            cost = root / 'cost/summary.json'
+            if cost.is_file():
+                recipes['cost/overview.png'] = _entry(root, 'semantic', [cost], {}, [])
             write_json(root / 'plots.json', recipes)
             return recipes
     manifest = root / "plots.json"

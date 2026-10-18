@@ -50,8 +50,8 @@ def export_report(directory: Path) -> Path:
                         'annotation', data['engineering'].get('coverage_rate', 0) < 1)
         add_engineering(data['last_execution'], 'main', Path(data['job']).name,
                         signature['provider'], signature['model'], signature.get('frames', 0),
-                        'last_execution', data['last_execution']['selected'] < sum(
-                            count for splits in params['counts'].values() for count in splits.values()))
+                        'last_execution', data.get('selection', {}).get('partial', False) or
+                        data['last_execution']['selected'] < params.get('annotation_target_videos', 0))
     if engineering:
         sections.append('<h2>Annotation timing and cost</h2><pre>' +
                         esc(json.dumps(engineering, indent=2)) + '</pre>')
@@ -79,6 +79,7 @@ def export_report(directory: Path) -> Path:
         cost = json.loads(cost_path.read_text())
         sections.append(f"<h2>Cost subset</h2><p>Coverage: {cost['common_videos']}/{cost['target_videos']}. "
                         "One scene per task: task and scene positives coincide. "
+                        "<a href='cost/index.html'>Interactive comparison</a> · "
                         "<a href='cost/summary.json'>Raw metrics and engineering data</a></p>")
         if (directory / 'charts/cost.png').is_file():
             sections.append("<img src='charts/cost.png' alt='cost and latency'>")

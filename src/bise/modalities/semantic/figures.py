@@ -109,6 +109,8 @@ def render_figure(source: Path, target: Path, dpi: int = 150) -> None:
     import matplotlib.pyplot as plt
 
     payload = json.loads(source.read_text())
+    if 'kind' not in payload and 'variants' in payload:
+        payload = {'kind': 'cost', 'data': payload}
     data, kind = payload["data"], payload["kind"]
     if kind == "retrieval":
         figure, axes = plt.subplots(1, 2, figsize=(15, 5), constrained_layout=True)
@@ -130,29 +132,9 @@ def render_figure(source: Path, target: Path, dpi: int = 150) -> None:
         status = " / PARTIAL" if data.get("partial") else ""
         figure.suptitle(f"Semantic / {data['cfg']} / {data['split']} / human to robot{status}")
     elif kind == "cost":
-        figure, axes = plt.subplots(1, 2, figsize=(13, 5), constrained_layout=True)
-        cost_rep = next((rep for rep in REPRESENTATIONS if rep in data["variants"][0]["metrics"].get("human_to_robot", {}).get("task", {})), "S1")
-        for row in data["variants"]:
-            metric = row.get("metrics", {}).get("human_to_robot", {}).get("task", {}).get(cost_rep, {})
-            engineering = row["engineering"]
-            cost = engineering.get("known_cost_per_video")
-            score = metric.get("MRR")
-            if cost is not None and score is not None:
-                axes[0].scatter(cost, score)
-                axes[0].annotate(row["name"], (cost, score), xytext=(3, 4), textcoords="offset points", fontsize=8)
-        axes[0].set(xlabel="Known API cost / selected video (CNY)", ylabel=f"{cost_rep} task MRR", ylim=(0, 1.05))
-        rows = data["variants"]
-        x = np.arange(len(rows))
-        for offset, field, label in ((-0.2, "request_seconds_p50", "P50"),
-                                      (0.2, "request_seconds_p95", "P95")):
-            values = [row["engineering"].get(field) or 0 for row in rows]
-            axes[1].bar(x + offset, values, 0.4, label=label)
-        axes[1].set_xticks(x, [row["name"] for row in rows], rotation=20)
-        axes[1].set_ylabel("API request seconds (cache reads excluded)")
-        axes[1].legend()
-        status = (f" / PARTIAL {data['common_videos']}/{data['target_videos']}" if
-                  data.get('common_videos') != data.get('target_videos') else '')
-        figure.suptitle(f"Cost subset / fixed videos / {cost_rep} shown; selected groups in raw data" + status)
+        from bise.modalities.semantic.cost_report import draw_cost_overview
+        draw_cost_overview(data, target, dpi)
+        return
     elif kind == "views":
         cfgs = sorted({row["cfg"] for row in data["views"]})
         figure, axes = plt.subplots(1, len(cfgs), figsize=(7 * len(cfgs), 5), squeeze=False,
@@ -222,4 +204,6 @@ def plot_all(directory: Path, overwrite: bool = True) -> list[str]:
         render_figure(source, path)
         outputs.append(str(path))
     write_json(directory / 'plots.json', index)
+    from bise.modalities.semantic.cost_report import export_cost_report
+    outputs.extend(str(path) for path in export_cost_report(directory) if path.suffix == '.png')
     return outputs

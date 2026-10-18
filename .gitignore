@@ -12,3 +12,5 @@ dist/
 build/
 tmp/
 .pytest_cache/
+/configs/semantic/keys.local.json*
+/configs/semantic/*.keys.local.json*

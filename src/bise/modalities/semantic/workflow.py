@@ -1,4 +1,4 @@
-"""Centralized semantic experiments with independent S0–S5 artifacts."""
+"""Centralized semantic experiments with independent description and label encodings."""
 
 import copy
 import csv
@@ -25,7 +25,7 @@ from bise.modalities.semantic.manifest import (
     balanced_limit, expand_split, explicit_videos, relative_path, sample_cost,
 )
 from bise.modalities.semantic.report import export_report
-from bise.modalities.semantic.representations import REPRESENTATIONS
+from bise.modalities.semantic.representations import REPRESENTATIONS, validate_scene
 from bise.modalities.semantic.store import (
     RequestStore, file_lock, item_key, read_jsonl, utc_now, write_json, write_npz,
 )
@@ -36,7 +36,7 @@ def load_config(path: str | Path) -> dict:
     if config.get('schema_version') != 3:
         raise ValueError('Semantic config requires schema_version=3')
     if not config['representations'] or not set(config['representations']) <= set(REPRESENTATIONS):
-        raise ValueError('Configure representations using S0,S1,S2,S3,S4,S5')
+        raise ValueError('Configure representations using ' + ','.join(REPRESENTATIONS))
     for provider in config['providers'].values():
         if 'api_key' in provider:
             raise ValueError('Use api_key_env, not a literal API key')
@@ -50,14 +50,42 @@ def update_params(directory: Path, **values) -> None:
     write_json(path, data)
 
 
+def annotation_records(config: dict, records: list[dict]) -> list[dict]:
+    splits = config['annotation']['splits']
+    return [row for row in records if row['split'] in splits[row['cfg']]]
+
+
 def prepare(config: dict, cfgs: list[str]) -> tuple[Path, list[dict], dict]:
     root = resolve_path(config['root'])
     migrate(root, config['sources'])
+    path = root / 'params.json'
+    previous = json.loads(path.read_text()) if path.exists() else {}
+    if any(rep not in REPRESENTATIONS for rep in previous.get('comparison_representations', [])):
+        update_params(root, comparison_representations=config['representations'])
     records, scope = scope_records(config, config['cfgs'])
-    if 'cost' not in scope:
+    cost_settings = {key: config['cost'][key] for key in ('cfg', 'split', 'tasks', 'seed')}
+    frozen = scope.get('cost')
+    previous_settings = ({key: frozen.get(key, len(frozen.get('scene_ids', []))
+                                         if key == 'tasks' else None)
+                          for key in cost_settings} if frozen else None)
+    if previous_settings != cost_settings:
         cost = sample_cost(records, config)
-        scope['cost'] = {'seed': config['cost']['seed'], 'cfg': config['cost']['cfg'],
-                         'split': config['cost']['split'],
+        old_paths = [root / 'cost', root / 'charts/cost.json', root / 'charts/cost.png']
+        if frozen and any(item.exists() for item in old_paths):
+            archive = root / 'history' / f'cost-{time.time_ns()}'
+            write_json(archive / 'scope.json', frozen)
+            for item in old_paths:
+                if item.exists():
+                    destination = archive / item.relative_to(root)
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(item), str(destination))
+            plots = root / 'plots.json'
+            if plots.exists():
+                index = json.loads(plots.read_text())
+                index.pop('charts/cost.png', None)
+                write_json(plots, index)
+            print(f'Archived cost results for previous scope: {archive}', flush=True)
+        scope['cost'] = {**cost_settings,
                          'scene_ids': list(dict.fromkeys(row['scene_id'] for row in cost)),
                          'sample_ids': [row['sample_id'] for row in cost]}
     write_json(root / 'scope.json', scope)
@@ -71,6 +99,7 @@ def prepare(config: dict, cfgs: list[str]) -> tuple[Path, list[dict], dict]:
                                      for key in sorted(inventory)))
         temporary.replace(root / 'videos.jsonl')
     update_params(root, schema_version=3, config=config, prepared_utc=utc_now(),
+                  annotation_target_videos=len(annotation_records(config, records)),
                   counts={cfg: {split: sum(row['cfg'] == cfg and row['split'] == split
                                           for row in records) for split in ('train', 'val', 'test')}
                           for cfg in config['cfgs']})
@@ -103,12 +132,23 @@ def embedding_loader(config: dict):
     return load
 
 
+def evaluation_scope(config: dict, records: list[dict], cfgs: list[str],
+                     override: str | None = None) -> tuple[list[dict], dict[str, str]]:
+    setting = config['evaluation']['split']
+    splits = {cfg: override or (setting.get(cfg, 'test') if isinstance(setting, dict) else setting)
+              for cfg in cfgs}
+    if any(split not in ('all', 'train', 'val', 'test') for split in splits.values()):
+        raise ValueError('Evaluation split must be all, train, val, or test')
+    return [row for row in records if row['cfg'] in splits and
+            (splits[row['cfg']] == 'all' or row['split'] == splits[row['cfg']])], splits
+
+
 def annotate_groups(config: dict, root: Path, selected: list[dict], records: list[dict],
                     representations: list[str], args) -> dict:
     provider, frames = config['annotation']['provider'], config['annotation']['frames']
     job, summary = annotate(config, selected, provider, frames,
                             force=args.force, retry_unknown=args.retry_unknown,
-                            allow_failures=True)
+                            allow_failures=True, retry_failed=True)
     counts = materialize(config, job, records, representations, root)
     return {'video': {'job': relative_path(job), 'materialized': counts,
                       'selection': summary['selection'],
@@ -162,9 +202,10 @@ def collect_analysis(config: dict, root: Path, representations: list[str]) -> di
         if not path.exists():
             continue
         data = json.loads(path.read_text())
+        payload.setdefault('splits', {}).update(data.get('splits', {}))
         payload['views'].extend(data['views'])
         payload['missing'].extend(data['missing'])
-        if data['labels']['distributions'] and rep == 'S2':
+        if data['labels']['distributions'] and rep in ('S2c', 'S2w'):
             payload['labels'] = data['labels']
         for key, example in data['examples'].items():
             existing = payload['examples'].setdefault(key, {**example, 'texts': {}})
@@ -186,9 +227,10 @@ def collect_analysis(config: dict, root: Path, representations: list[str]) -> di
     payload['rank_changes'] = []
     for key, row in indexed.items():
         baseline = indexed.get((*key[:-1], 'S1'))
-        if key[-1] == 'S2' and baseline:
+        if key[-1] in ('S2c', 'S2w') and baseline:
             payload['rank_changes'].append({'query_id': row['query_id'], 'level': row['level'],
-                                            'S1': baseline['best_rank'], 'S2': row['best_rank']})
+                                            'representation': key[-1],
+                                            'S1': baseline['best_rank'], key[-1]: row['best_rank']})
     if reviews:
         with review_path.open('w', encoding='utf-8-sig', newline='') as handle:
             writer = csv.DictWriter(handle, fieldnames=list(reviews[0]))
@@ -198,14 +240,63 @@ def collect_analysis(config: dict, root: Path, representations: list[str]) -> di
     return payload
 
 
+def _repair_scene_cache(config: dict, root: Path, records: list[dict], extra: list[str]) -> list[dict]:
+    job = make_job(config, config['scene']['provider'], 0, kind='scene')
+    signature = json.loads((job / 'params.json').read_text())['signature']
+    comparable = lambda sig: {k: v for k, v in sig.items()
+                              if k not in ('prompt', 'validation_policy')}
+    previous = []
+    for path in sorted((root / 'jobs').glob('scene-*'),
+                       key=lambda p: p.stat().st_mtime_ns, reverse=True):
+        if path == job or not (path / 'params.json').exists():
+            continue
+        old = json.loads((path / 'params.json').read_text())['signature']
+        if comparable(old) == comparable(signature):
+            previous.append((path, RequestStore(path).annotations()))
+    unknown = set(extra) - {row['scene_id'] for row in records}
+    if unknown:
+        raise ValueError(f'Repair scene IDs outside selected scope: {sorted(unknown)}')
+    pending, reused = [], 0
+    store = RequestStore(job)
+    with file_lock(job / '.lock'):
+        current = store.annotations()
+        for record in records:
+            key = item_key(record)
+            origin, row = job, current.get(key)
+            if row is None:
+                for path, annotations in previous:
+                    if key in annotations:
+                        origin, row = path, annotations[key]
+                        break
+            text = None
+            if row is not None and row.get('observations') == record['observations']:
+                try:
+                    text = validate_scene({'description': row['description']},
+                                          record['observations'])['description']
+                except ValueError:
+                    pass
+            if not text or record['scene_id'] in extra:
+                pending.append(record)
+            elif key not in current:
+                provenance = row.get('reused_from', {
+                    'job': relative_path(origin), 'attempt_id': row['attempt_id']})
+                store.accept(record, {'description': text, 'reused_from': provenance},
+                             row['attempt_id'])
+                store.event({'event': 'reused', 'item_key': key, **provenance})
+                reused += 1
+    print(f'Scene repair: {len(pending)} regenerate, {reused} reused, '
+          f'{len(records) - len(pending) - reused} current cache.', flush=True)
+    return pending
+
+
 def export_scene(config: dict, root: Path, records: list[dict], scope: dict, args) -> dict:
     source_rep = args.source or config['scene']['source']
     if source_rep not in REPRESENTATIONS:
-        raise ValueError('Scene source must be one of S0–S5')
+        raise ValueError('Scene source must be one of ' + ','.join(REPRESENTATIONS))
     config = copy.deepcopy(config)
     config['scene']['source'] = source_rep
     annotations = RequestStore(root / source_rep).annotations()
-    selected = records
+    selected = annotation_records(config, records)
     if args.run:
         mapping = json.loads((resolve_path(args.run) / 'split_manifest.json').read_text())
         pairs = set(mapping['train'])
@@ -229,7 +320,8 @@ def export_scene(config: dict, root: Path, records: list[dict], scope: dict, arg
             annotation = annotations.get(item_key(row))
             if annotation is None:
                 raise ValueError(f'Missing {source_rep} task text: {row["sample_id"]}; '
-                                 f'run annotate --only {source_rep}')
+                                 f'run --stage annotate --cfg {row["cfg"]} '
+                                 f'--split {row["split"]} --only {source_rep}')
             letter = 'H' if row['role'] == 'human' else 'R'
             number = sum(value['role'] == row['role'] for value in observations.values()) + 1
             local_id = f'{letter}_{number}'
@@ -239,10 +331,21 @@ def export_scene(config: dict, root: Path, records: list[dict], scope: dict, arg
         scene_records.append({'sample_id': scene, 'scene_id': scene,
                               'source': {'representation': source_rep, 'observations': sources},
                               'observations': observations})
-    job, summary = annotate(config, scene_records, config['scene']['provider'], 0, kind='scene',
-                            force=args.force, retry_unknown=args.retry_unknown)
+    repair = getattr(args, 'repair', False)
+    pending = (_repair_scene_cache(config, root, scene_records, getattr(args, 'scene_ids', None) or [])
+               if repair else scene_records)
+    job, summary = annotate(config, pending, config['scene']['provider'], 0, kind='scene',
+                            force=args.force or repair, retry_unknown=args.retry_unknown,
+                            retry_failed=True)
     accepted = RequestStore(job).annotations()
-    texts = [accepted[item_key(row)]['description'] for row in scene_records]
+    texts = []
+    for row in scene_records:
+        try:
+            text = validate_scene({'description': accepted[item_key(row)]['description']},
+                                  row['observations'])['description']
+        except (KeyError, ValueError):
+            text = None
+        texts.append(text)
     usable = [bool(text) for text in texts]
     nonempty = [text for text in texts if text]
     preflight_embedding(config)
@@ -259,7 +362,8 @@ def export_scene(config: dict, root: Path, records: list[dict], scope: dict, arg
         vectors[np.asarray(usable)] = encoded
     files = []
     for cfg in sorted({scene.split('/')[0] for scene in scenes}):
-        indices = [i for i, scene in enumerate(scenes) if scene.startswith(cfg + '/')]
+        cfg_indices = [i for i, scene in enumerate(scenes) if scene.startswith(cfg + '/')]
+        indices = [i for i in cfg_indices if usable[i]]
         name = cfg
         if args.run:
             run = resolve_path(args.run)
@@ -268,6 +372,8 @@ def export_scene(config: dict, root: Path, records: list[dict], scope: dict, arg
         metadata = {'scene_job': relative_path(job), 'run': args.run, 'cfg': cfg,
                     'split': 'train' if args.run else 'all', 'source_representation': source_rep,
                     'partial': len(scenes) != len(groups), 'target_scenes': len(groups),
+                    'usable_scenes': len(indices),
+                    'excluded_scenes': [scenes[i] for i in cfg_indices if not usable[i]],
                     'embedding': config['embedding'], 'scope': scope['sources'][cfg]}
         write_npz(path, scene_ids=np.asarray([scenes[i] for i in indices]),
                   texts=np.asarray([texts[i] or '' for i in indices]), vectors=vectors[indices],
@@ -282,10 +388,14 @@ def run_cost(config: dict, root: Path, records: list[dict], scope: dict,
              representations: list[str], args) -> dict:
     providers = args.providers or config['cost']['providers']
     main = config['annotation']['provider']
+    enabled = set(providers) if args.providers is not None else {main, *providers}
+    if not enabled <= config['providers'].keys():
+        raise ValueError('Unknown cost provider selection')
+    comparison_providers = list(dict.fromkeys([*config['cost']['providers'], *providers]))
     plans = list(dict.fromkeys(
         [(main, frames) for frames in config['cost']['frames']] +
-        [(provider, config['cost']['provider_frames']) for provider in providers]))
-    for provider, _ in plans:
+        [(provider, config['cost']['provider_frames']) for provider in comparison_providers]))
+    for provider in enabled:
         provider_key(config['providers'][provider])
     preflight_embedding(config)
     indexed = {row['sample_id']: row for row in records}
@@ -293,17 +403,28 @@ def run_cost(config: dict, root: Path, records: list[dict], scope: dict,
         raise ValueError('Cost stage requires the complete frozen cfg2 scope')
     target = [indexed[sample] for sample in scope['cost']['sample_ids']]
     selected = balanced_limit(target, args.limit)
-    variants, failures = [], []
+    variants, failures, skipped = [], [], []
     load_embedder = embedding_loader(config)
     # Use the same six-output extraction protocol for every cost variant.
     reps = representations
     for provider, frames in plans:
         job = make_job(config, provider, frames)
         output = root / 'cost' / job.name
+        if provider not in enabled:
+            accepted = RequestStore(job).annotations()
+            missing = sum(item_key(row) not in accepted for row in target)
+            if missing:
+                skipped.append({'job': job.name, 'missing': missing,
+                                'reason': 'provider not selected; incomplete cache'})
+                print(f'Skip {job.name}: API disabled, {missing} videos missing from cache.',
+                      flush=True)
+                continue
+            print(f'Use {job.name} from cache; API calls disabled.', flush=True)
         try:
-            annotate(config, selected, provider, frames,
-                     force=args.force or args.fresh_benchmark, retry_unknown=args.retry_unknown,
-                     allow_failures=True)
+            if provider in enabled:
+                annotate(config, selected, provider, frames,
+                         force=args.force or args.fresh_benchmark, retry_unknown=args.retry_unknown,
+                         allow_failures=True, retry_failed=True)
             materialize(config, job, target, reps, output)
             for rep in reps:
                 encode(config, output / rep, target, embedder=load_embedder)
@@ -325,9 +446,12 @@ def run_cost(config: dict, root: Path, records: list[dict], scope: dict,
         print(f'Cost comparison: using {len(common)}/{len(target)} common videos; '
               'missing annotations remain available for retry.', flush=True)
     rows = [row for row in target if row['sample_id'] in common]
-    summary = {'cfg': config['cost']['cfg'], 'target_videos': len(target),
+    summary = {'cfg': config['cost']['cfg'], 'split': config['cost']['split'],
+               'tasks': config['cost']['tasks'], 'target_videos': len(target),
                'common_videos': len(rows), 'sample_ids': [row['sample_id'] for row in rows],
-               'representations': reps, 'task_scene_positives_identical': True, 'variants': []}
+               'representations': reps, 'task_scene_positives_identical': True,
+               'annotation_providers': sorted(enabled), 'skipped_variants': skipped,
+               'variants': []}
     for provider, frames, job, output in variants:
         evaluated = evaluate_groups(config, output, rows, reps, [config['cost']['cfg']],
                                     config['cost']['split'], False)
@@ -340,6 +464,7 @@ def run_cost(config: dict, root: Path, records: list[dict], scope: dict,
             write_json(output / rep / 'evaluations' / config['cost']['cfg'] / 'metrics.json', value)
         payload = aggregate(output, reps, [config['cost']['cfg']])[config['cost']['cfg']]
         summary['variants'].append({'name': job.name, 'provider': provider, 'frames': frames,
+                                    'annotation_mode': 'resume' if provider in enabled else 'cache_only',
                                     'model': config['providers'][provider]['model'],
                                     'partial': len(rows) != len(target),
                                     'metrics': payload['metrics'],
@@ -358,6 +483,8 @@ def _run(config: dict, args) -> dict:
         config['annotation']['frames'] = args.frames
     if args.concurrency is not None:
         config['annotation']['concurrency'] = args.concurrency
+        for provider in config['providers'].values():
+            provider['concurrency'] = args.concurrency
     if config['annotation']['frames'] <= 0 or config['annotation']['concurrency'] <= 0:
         raise ValueError('frames and concurrency must be positive')
     root, records, scope = prepare(config, cfgs)
@@ -382,9 +509,10 @@ def _run(config: dict, args) -> dict:
                                          for key in sorted(inventory)))
             temporary.replace(root / 'videos.jsonl')
     all_records = list({row['sample_id']: row for row in records + scope['extras']}.values())
-    selected = extras if (args.videos or args.add_manifest) else records
+    selected = extras if (args.videos or args.add_manifest) else annotation_records(config, records)
     if args.split and args.stage == 'annotate':
-        selected = [row for row in selected if row['split'] == args.split]
+        pool = extras if (args.videos or args.add_manifest) else records
+        selected = [row for row in pool if args.split == 'all' or row['split'] == args.split]
     selected = balanced_limit(selected, args.limit)
     preview = {'root': relative_path(root), 'scope_videos': len(records),
                'selected_videos': len(selected), 'representations': requested,
@@ -394,13 +522,13 @@ def _run(config: dict, args) -> dict:
         return preview
     stages = (['annotate', 'encode', 'eval', 'analyze', 'plot', 'report']
               if args.stage == 'all' else [args.stage])
-    if 'annotate' in stages or 'cost' in stages:
+    if 'annotate' in stages:
         provider_key(config['providers'][config['annotation']['provider']])
-        if 'cost' in stages:
-            for provider in args.providers or config['cost']['providers']:
-                provider_key(config['providers'][provider])
-        if 'encode' in stages or 'cost' in stages:
-            preflight_embedding(config)
+    if 'cost' in stages:
+        for provider in args.providers or config['cost']['providers']:
+            provider_key(config['providers'][provider])
+    if ('annotate' in stages and 'encode' in stages) or 'cost' in stages:
+        preflight_embedding(config)
     results = {}
     for stage in stages:
         started = time.perf_counter()
@@ -418,21 +546,26 @@ def _run(config: dict, args) -> dict:
                                              embedder=load_embedder)[1] for rep in requested}
                 update_params(root, encoding_engineering=results[stage])
             elif stage == 'eval':
-                split = args.split or config['evaluation']['split']
-                rows = [row for row in records if row['split'] == split]
-                results[stage] = evaluate_groups(config, root, rows, requested, cfgs,
-                                                 split, True)
+                rows, splits = evaluation_scope(config, records, cfgs, args.split)
+                results[stage] = {}
+                for cfg, split in splits.items():
+                    values = evaluate_groups(config, root, [row for row in rows if row['cfg'] == cfg],
+                                             requested, [cfg], split, True)
+                    for rep, payloads in values.items():
+                        results[stage].setdefault(rep, {}).update(payloads)
                 active = active_representations(config, root)
                 aggregate(root, active, cfgs)
             elif stage == 'analyze':
-                split = args.split or config['evaluation']['split']
-                rows = [row for row in records if row['split'] == split]
+                rows, splits = evaluation_scope(config, records, cfgs, args.split)
+                split = next(iter(splits.values())) if len(set(splits.values())) == 1 else 'mixed'
                 active = active_representations(config, root, args.only)
                 aggregate(root, active, cfgs)
                 for rep in active:
-                    analyze(config, root / rep, matching_embeddings(config, root / rep), rows,
-                            root / rep, split=split, video_run=args.video_run,
-                            trajectory_run=args.trajectory_run)
+                    payload = analyze(config, root / rep, matching_embeddings(config, root / rep),
+                                      rows, root / rep, split=split, video_run=args.video_run,
+                                      trajectory_run=args.trajectory_run)
+                    payload['splits'] = splits
+                    write_json(root / rep / 'analysis.json', payload)
                 results[stage] = collect_analysis(config, root, active)
             elif stage == 'scene':
                 results[stage] = export_scene(config, root, records, scope, args)

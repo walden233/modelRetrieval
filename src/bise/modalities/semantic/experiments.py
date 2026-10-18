@@ -54,6 +54,7 @@ def evaluate(config: dict, directory: Path, embedding_file: Path, records: list[
     protocol = {"ids": [r["sample_id"] for r in rows],
                 "attempts": [str(vectors["attempt_ids"][positions[r["sample_id"]]]) for r in rows],
                 "embedding": vectors["metadata"]["config"], "job": directory.name,
+                'representation_encoding': vectors['metadata'].get('composition', {}),
                 "split": split, "seed": config["evaluation"]["seed"]}
     signature = json.loads((directory / 'params.json').read_text())['signature']
     protocol['extraction_controls'] = {key: signature[key] for key in (
@@ -171,13 +172,14 @@ def analyze(config: dict, directory: Path, embedding_file: Path, records: list[d
                 failure_candidates.setdefault(row['query_id'], []).append({
                     'representation':row['representation'], 'level':row['level'],
                     'best_rank':row['best_rank'], 'top1':row['top_k'][0]['sample_id']})
-            if key[-1] != "S2":
+            if key[-1] not in ("S2c", "S2w"):
                 continue
             baseline = indexed.get((*key[:-1], "S1"))
             if baseline:
                 changes.append({"cfg": row["cfg"], "direction": row["direction"],
                                 "level": row["level"], "query_id": row["query_id"],
-                                "S1": baseline["best_rank"], "S2": row["best_rank"]})
+                                'representation': key[-1],
+                                "S1": baseline["best_rank"], key[-1]: row["best_rank"]})
     examples = {}
     for row in rows:
         key = f"{row['cfg']}_{row['role']}"

@@ -8,13 +8,9 @@ from bise.common.paths import resolve_path
 from bise.modalities.semantic.parser import _extract_json_object
 
 
-REPRESENTATIONS = ("S0", "S1", "S2", "S3", "S4", "S5")
-# "Orange" also names a manipulated fruit; do not reject that task noun lexically.
-COLORS = (r'\b(red|green|blue|yellow|white|black|purple|pink|brown|grey|gray|'
-          r'colorful|multicolored)\b')
+REPRESENTATIONS = ("S1", "S2c", "S2w", "S3", "S4", "S5")
 LABEL_FIELDS = ("capability_tags", "task_complexity", "environment_tags", "scene_category")
 VIDEO_SCHEMA = {
-    "baseline_description": "string: one concise task sentence without incidental appearance",
     "description": "string",
     "labels": {"capability_tags": ["enum"], "task_complexity": "enum",
                "environment_tags": ["enum"], "scene_category": "enum"},
@@ -78,10 +74,11 @@ def validate_video(content: str | dict, taxonomy: dict, role: str | None = None)
     data = _extract_json_object(content) if isinstance(content, str) else content
     if not isinstance(data, dict) or set(data) != set(VIDEO_SCHEMA):
         raise ValueError(f"Response requires exactly {list(VIDEO_SCHEMA)}")
-    data['baseline_description'] = validate_description(
-        {'description': data['baseline_description']}, no_colors=True)['description']
     for key in ("description", "object_action_text", "action_focus_text"):
         data[key] = task_text(data[key], key)
+    if any(field in data['description'] for field in LABEL_FIELDS) or re.search(
+            r'\blabels\s*:', data['description'], re.I):
+        raise ValueError('Keep labels in the labels object, outside description')
     for key in ("object_action_text", "action_focus_text"):
         if not all(section in data[key].lower() for section in ("objects:", "operations:")):
             raise ValueError(f"{key} needs Objects: and Operations: sections")
@@ -142,16 +139,20 @@ def validate_video(content: str | dict, taxonomy: dict, role: str | None = None)
     return data
 
 
-def representation_texts(annotation: dict, taxonomy: dict) -> dict[str, str]:
-    if 'representation' in annotation:
-        return {annotation['representation']: annotation['text']}
-    labels = annotation["labels"]
+def label_text(labels: dict, taxonomy: dict) -> str:
     parts = []
     for key in LABEL_FIELDS:
         value = labels[key]
         if isinstance(value, list):
             value = ", ".join(x for x in taxonomy[key] if x in value) or "unknown"
         parts.append(f"{key}: {value}")
+    return "; ".join(parts)
+
+
+def representation_texts(annotation: dict, taxonomy: dict) -> dict[str, str]:
+    if 'representation' in annotation:
+        return {annotation['representation']: annotation['text']}
+    combined = annotation['description'] + '\nLabels: ' + label_text(annotation['labels'], taxonomy)
     structure = annotation["structured"]
     ordered = {
         "objects": [{key: obj[key] for key in ("id", "name", "role")}
@@ -161,25 +162,37 @@ def representation_texts(annotation: dict, taxonomy: dict) -> dict[str, str]:
         "result": structure["result"],
     }
     return {
-        "S0": annotation["baseline_description"],
         "S1": annotation["description"],
-        "S2": annotation["description"] + "\nLabels: " + "; ".join(parts),
+        "S2c": combined,
+        "S2w": combined,
         "S3": annotation["object_action_text"],
         "S4": annotation["action_focus_text"],
         "S5": json.dumps(ordered, ensure_ascii=False, separators=(",", ":")),
     }
 
 
-def validate_description(content: str | dict, nullable: bool = False,
-                         no_colors: bool = False) -> dict:
+def validate_description(content: str | dict, nullable: bool = False) -> dict:
     data = _extract_json_object(content) if isinstance(content, str) else content
     if not isinstance(data, dict) or set(data) != {'description'}:
         raise ValueError('Response requires description only')
     data['description'] = task_text(data['description'], 'description', nullable)
-    if no_colors and re.search(COLORS, data['description'], re.I):
-        raise ValueError('description contains color; return the concise task without color words')
     return data
 
 
 def validate_scene(content: str | dict, observations: dict) -> dict:
-    return validate_description(content, nullable=True)
+    data = validate_description(content, nullable=True)
+    text = data['description']
+    if text is None:
+        return data
+    if text.casefold() in ('null', 'none', 'n/a', 'unknown'):
+        raise ValueError('Use JSON null for an unavailable teacher, not a placeholder string')
+    if re.search(
+            r'\b(observations?|viewpoints?|footage|possibly|probably|perhaps|'
+            r'seems|appears|shared (?:manipulation|operation|outcome))\b|'
+            r'\b(?:human|person) or robot\b|\b(?:human|robot)\s*:|'
+            r'\b(?:human|robot) (?:side|case)\b|\breliably observed\b|'
+            r'\b(?:person|human) and (?:a |the )?robot(?: arm)? (?:each|both)\b|'
+            r'\bthe human\b.*\b(?:while|and) the robot\b|'
+            r'\bthe robot performs the same\b', text, re.I):
+        raise ValueError('Teacher must contain task content only; omit source comparisons and guesses')
+    return data

@@ -89,7 +89,8 @@ def sample_cost(records: list[dict], config: dict) -> list[dict]:
     settings = config["cost"]
     groups = defaultdict(lambda: defaultdict(list))
     for row in records:
-        if row["cfg"] == settings["cfg"] and row["split"] == settings["split"]:
+        if (row["cfg"] == settings["cfg"] and
+                (settings["split"] == 'all' or row["split"] == settings["split"])):
             groups[row["task_id"]][row["scene_id"]].append(row)
     count = settings["tasks"]
     if len(groups) < count:

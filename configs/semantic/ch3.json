@@ -6,9 +6,9 @@
     "cfg3": "artifacts/manifests/retrain/s44/cfg3/split_manifest_video.json"
   },
   "representations": [
-    "S0",
     "S1",
-    "S2",
+    "S2c",
+    "S2w",
     "S3",
     "S4",
     "S5"
@@ -54,18 +54,32 @@
   },
   "annotation": {
     "provider": "glm",
-    "frames": 20,
+    "frames": 16,
     "max_side": 640,
     "jpeg_quality": 85,
-    "concurrency": 4,
+    "concurrency": 48,
     "timeout_seconds": 240,
     "max_attempts": 3,
-    "backoff_seconds": 2
+    "backoff_seconds": 2,
+    "splits": {
+      "cfg2": [
+        "train",
+        "val",
+        "test"
+      ],
+      "cfg3": [
+        "train",
+        "val",
+        "test"
+      ]
+    },
+    "decode_concurrency": 4
   },
   "providers": {
     "glm": {
       "model": "glm-5.3-flash",
       "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "key_pool": "configs/semantic/keys.local.json",
       "api_key_env": [
         "ZHIPU_API_KEY",
         "GLM_API_KEY"
@@ -92,7 +106,7 @@
     },
     "qwen": {
       "model": "qwen3.7-plus-2026-05-26",
-      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "base_url": "https://llm-rgdqstg3ghvg6ayi.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
       "api_key_env": [
         "DASHSCOPE_API_KEY"
       ],
@@ -111,7 +125,103 @@
         "input": 2,
         "cached_input": 0.4,
         "output": 8
-      }
+      },
+      "key_pool": "configs/semantic/qwen.keys.local.json",
+      "overdue_codes": [
+        "Arrearage",
+        "PrepaidBillOverdue",
+        "PostpaidBillOverdue"
+      ],
+      "concurrency": 64,
+      "requests_per_second": 2.5
+    },
+    "deepseek": {
+      "model": "deepseek-flash",
+      "base_url": "https://api.deepseek.com",
+      "key_pool": "configs/semantic/deepseek.keys.local.json",
+      "api_key_env": [
+        "DEEPSEEK_API_KEY"
+      ],
+      "overdue_codes": [],
+      "overdue_statuses": [
+        402
+      ],
+      "send_request_id": false,
+      "request": {
+        "temperature": 0.1,
+        "thinking": {
+          "type": "disabled"
+        },
+        "max_tokens": 12288,
+        "response_format": {
+          "type": "json_object"
+        }
+      },
+      "price": {
+        "currency": "CNY",
+        "date": "2026-10-18",
+        "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+        "input": 2,
+        "cached_input": 0.04,
+        "output": 8,
+        "schedule": {
+          "timezone": "Asia/Shanghai",
+          "calendar_years": [
+            2026
+          ],
+          "peak_hours": [
+            [
+              "09:00",
+              "12:00"
+            ],
+            [
+              "14:00",
+              "18:00"
+            ]
+          ],
+          "holidays": [
+            [
+              "2026-01-01",
+              "2026-01-03"
+            ],
+            [
+              "2026-02-15",
+              "2026-02-23"
+            ],
+            [
+              "2026-04-04",
+              "2026-04-06"
+            ],
+            [
+              "2026-05-01",
+              "2026-05-05"
+            ],
+            [
+              "2026-06-19",
+              "2026-06-21"
+            ],
+            [
+              "2026-09-25",
+              "2026-09-27"
+            ],
+            [
+              "2026-10-01",
+              "2026-10-07"
+            ]
+          ],
+          "peak": {
+            "input": 2,
+            "cached_input": 0.04,
+            "output": 8
+          },
+          "off_peak": {
+            "input": 1,
+            "cached_input": 0.02,
+            "output": 4
+          }
+        }
+      },
+      "concurrency": 2500
     }
   },
   "embedding": {
@@ -125,14 +235,17 @@
     "local_files_only": true
   },
   "evaluation": {
-    "split": "test",
+    "split": {
+      "cfg2": "all",
+      "cfg3": "test"
+    },
     "top_k": 10,
     "seed": 44
   },
   "cost": {
     "cfg": "cfg2",
-    "split": "test",
-    "tasks": 55,
+    "split": "all",
+    "tasks": 60,
     "seed": 44,
     "frames": [
       32,
@@ -141,11 +254,17 @@
     ],
     "provider_frames": 16,
     "providers": [
-      "glm"
+      "glm",
+      "qwen",
+      "deepseek"
     ]
   },
   "scene": {
     "provider": "glm",
     "source": "S5"
+  },
+  "label_fusion": {
+    "description_weight": 0.7,
+    "label_weight": 0.3
   }
 }

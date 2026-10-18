@@ -21,12 +21,13 @@ from bise.modalities.semantic.representations import (
     representation_texts, validate_scene, validate_video, video_prompt,
 )
 from bise.modalities.semantic.store import RequestStore, account_usage, item_key, read_jsonl, write_json
-from bise.modalities.semantic.workflow import export_scene, load_config, prepare, run_cost
+from bise.modalities.semantic.workflow import (
+    annotation_records, evaluation_scope, export_scene, load_config, prepare, run_cost,
+)
 
 
 def sample_response():
     return {
-        'baseline_description': 'Move the block onto its support.',
         'description': 'The demonstrator moves a red block onto a support.',
         'labels': {'capability_tags': ['transport', 'place'], 'task_complexity': 'low',
                    'environment_tags': ['unknown'], 'scene_category': 'unknown'},
@@ -42,12 +43,14 @@ def config_and_records(tmp_path):
     config = load_config(ROOT / 'configs/semantic/ch3.json')
     config['root'] = str(tmp_path / 'semantic/v2')
     config['sources'] = {}
-    config['annotation'].update(concurrency=2, max_attempts=2, backoff_seconds=0)
+    config['annotation'].update(concurrency=2, max_attempts=2, backoff_seconds=0,
+                                splits={'cfg2': ['test'], 'cfg3': ['train', 'val', 'test']})
+    config['evaluation']['split'] = 'test'
     config['embedding'] = {'provider_name': 'hash', 'dimension': 16, 'batch_size': 8, 'max_length': 2048}
     config['providers']['glm'] = {'model': 'stub-model', 'stub': True,
                                 'stub_response': sample_response(),
                                 'price': {'currency': 'CNY', 'input': 1, 'output': 2}}
-    config['cost'].update(tasks=2)
+    config['cost'].update(tasks=2, split='test', providers=['glm'])
     for cfg in ['cfg2', 'cfg3']:
         root = tmp_path / 'data' / cfg
         mapping = {'train': [], 'val': [], 'test': []}
@@ -91,6 +94,72 @@ def test_prepare_frozen_pairs_cross_cfg_identity_and_balanced_smoke(tmp_path, mo
     assert all('split' not in row for row in read_jsonl(Path(config['root']) / 'videos.jsonl'))
 
 
+def test_cfg_specific_evaluation_scopes_and_explicit_override(tmp_path):
+    config, records = config_and_records(tmp_path)
+    config['evaluation']['split'] = {'cfg2': 'all', 'cfg3': 'test'}
+    rows, splits = evaluation_scope(config, records, config['cfgs'])
+    assert splits == {'cfg2': 'all', 'cfg3': 'test'}
+    assert sum(r['cfg'] == 'cfg2' for r in rows) == 16
+    assert sum(r['cfg'] == 'cfg3' for r in rows) == 8
+    rows, splits = evaluation_scope(config, records, config['cfgs'], 'test')
+    assert len(rows) == 16 and all(r['split'] == 'test' for r in rows)
+    rows, _ = evaluation_scope(config, records, config['cfgs'], 'all')
+    assert len(rows) == 32
+
+
+def test_changed_cost_scope_archives_results_and_keeps_request_cache(tmp_path):
+    config, records = config_and_records(tmp_path)
+    config['cost'].update(split='all', tasks=1)
+    root, _, scope = prepare(config, config['cfgs'])
+    previous = copy.deepcopy(scope['cost'])
+    assert len(previous['sample_ids']) == 4
+    write_json(root / 'cost/summary.json', {'target_videos': 4})
+    write_json(root / 'charts/cost.json', {'old': True})
+    (root / 'charts/cost.png').write_bytes(b'old figure')
+    write_json(root / 'plots.json', {'charts/cost.png': {}, 'charts/cfg3.png': {}})
+    (root / 'jobs').mkdir()
+    (root / 'jobs/keep.txt').write_text('accepted requests')
+    config['cost']['tasks'] = 2
+    _, _, updated = prepare(config, config['cfgs'])
+    assert len(updated['cost']['sample_ids']) == 8
+    assert updated['cost']['tasks'] == 2 and updated['cost']['split'] == 'all'
+    assert len(updated['cost']['scene_ids']) == 2
+    assert (root / 'jobs/keep.txt').read_text() == 'accepted requests'
+    archive, = (root / 'history').glob('cost-*')
+    assert json.loads((archive / 'scope.json').read_text()) == previous
+    assert (archive / 'cost/summary.json').is_file()
+    assert (archive / 'charts/cost.png').read_bytes() == b'old figure'
+    assert not (root / 'cost').exists() and not (root / 'charts/cost.json').exists()
+    assert json.loads((root / 'plots.json').read_text()) == {'charts/cfg3.png': {}}
+    config['cost']['frames'] = [16]
+    _, _, unchanged = prepare(config, config['cfgs'])
+    assert unchanged['cost'] == updated['cost']
+    assert len(list((root / 'history').glob('cost-*'))) == 1
+
+
+def test_main_eval_and_plot_replace_cfg2_test_with_all_and_keep_cfg3_test(tmp_path):
+    from bise.modalities.semantic.workflow import run
+
+    config, records = config_and_records(tmp_path)
+    job, _ = annotate(config, records, 'glm', 16, frame_loader=fake_frames)
+    materialize(config, job, records, config['representations'])
+    root = Path(config['root'])
+    for rep in config['representations']:
+        encode(config, root / rep, records)
+    run(config, arguments(stage='eval'))
+    run(config, arguments(stage='plot'))
+    old_cfg3 = (root / 'evaluations/cfg3/metrics.json').read_bytes()
+    config['evaluation']['split'] = {'cfg2': 'all', 'cfg3': 'test'}
+    run(config, arguments(stage='eval', cfg=['cfg2']))
+    run(config, arguments(stage='plot'))
+    payload = json.loads((root / 'evaluations/cfg2/metrics.json').read_text())
+    recipe = json.loads((root / 'charts/cfg2.json').read_text())['data']
+    assert payload['split'] == recipe['split'] == 'all'
+    assert payload['coverage']['expected'] == payload['coverage']['present'] == 16
+    assert recipe['protocol']['ids'] == payload['protocol']['ids']
+    assert (root / 'evaluations/cfg3/metrics.json').read_bytes() == old_cfg3
+
+
 def test_role_prompts_original_labels_and_representation_isolation(tmp_path):
     config, _ = config_and_records(tmp_path)
     human, robot = video_prompt(config, 'human'), video_prompt(config, 'robot')
@@ -99,7 +168,7 @@ def test_role_prompts_original_labels_and_representation_isolation(tmp_path):
     assert 'task_0001' not in human + robot
     data = validate_video(sample_response(), config['taxonomy'])
     texts = representation_texts(data, config['taxonomy'])
-    assert texts['S2'].startswith(texts['S1'] + '\nLabels: ')
+    assert texts['S2c'].startswith(texts['S1'] + '\nLabels: ')
     assert json.loads(texts['S5']) == data['structured']
     assert not {'quality', 'evidence', 'labels'} & json.loads(texts['S5']).keys()
     bad = copy.deepcopy(data)
@@ -240,6 +309,12 @@ def test_scene_returns_task_description_or_null_without_explanations():
     observations = {'H_1': {'role': 'human'}, 'R_1': {'role': 'robot'}}
     assert validate_scene({'description': 'Press the button.'}, observations)['description']
     assert validate_scene({'description': None}, observations)['description'] is None
+    for text in ['null', 'None', 'In the human observation a box is opened.',
+                 'The robot side only grasps the box.', 'The box is possibly moved.',
+                 'A person and a robot each move a block.',
+                 'The human slides a block, while the robot lifts it.']:
+        with pytest.raises(ValueError):
+            validate_scene({'description': text}, observations)
     with pytest.raises(ValueError, match='description only'):
         validate_scene({'description': None, 'reason': 'Occluded'}, observations)
     with pytest.raises(ValueError, match='task content only'):
@@ -268,7 +343,7 @@ def test_evaluate_missing_artifacts_selected_refresh_and_positive_definitions(tm
     assert all(len(row['positive_ranks']) == 2 for row in rank_rows)
     assert 'MPR-all' in result['metrics']['human_to_robot']['scene']['S1']
     before = result['metrics']['human_to_robot']['task']['S1']
-    refreshed = evaluate(config, job, embedding_file, rows, output, 'cfg2', representations=['S2'])
+    refreshed = evaluate(config, job, embedding_file, rows, output, 'cfg2', representations=['S2c'])
     assert refreshed['metrics']['human_to_robot']['task']['S1'] == before
     assert len(read_jsonl(output / 'rankings.jsonl')) == len(rank_rows)
     assert not (output / 'run_info.json').exists()
@@ -289,7 +364,7 @@ def test_partial_evaluation_uses_common_five_representation_corpus(tmp_path):
     assert result['coverage']['expected'] == 8
 
 
-@pytest.mark.parametrize('source', ['S0', 'S1', 'S2', 'S3', 'S4', 'S5'])
+@pytest.mark.parametrize('source', ['S1', 'S2c', 'S2w', 'S3', 'S4', 'S5'])
 def test_scene_teacher_uses_only_selected_group_and_honors_train_split(tmp_path, source):
     config, records = config_and_records(tmp_path)
     output, records, scope = prepare(config, ['cfg2', 'cfg3'])
@@ -317,7 +392,53 @@ def test_scene_teacher_uses_only_selected_group_and_honors_train_split(tmp_path,
     assert {row['text'] for row in scene_row['observations'].values()} == {
         row['text'] for row in read_jsonl(output / source / 'annotations.jsonl')}
     assert all(not (output / rep).exists()
-               for rep in ['S0', 'S1', 'S2', 'S3', 'S4', 'S5'] if rep != source)
+               for rep in ['S1', 'S2c', 'S2w', 'S3', 'S4', 'S5'] if rep != source)
+
+
+def test_scene_repair_reuses_good_old_text_and_exports_only_nonnull_teachers(tmp_path, monkeypatch):
+    config, records = config_and_records(tmp_path)
+    config['annotation'].update(concurrency=1, splits={'cfg2': ['train', 'test'], 'cfg3': ['test']})
+    prompt = tmp_path / 'scene.md'
+    prompt.write_text(Path(config['scene_prompt']).read_text())
+    config['scene_prompt'] = str(prompt)
+    root, records, scope = prepare(config, ['cfg2'])
+    job, _ = annotate(config, records, 'glm', 16, frame_loader=fake_frames)
+    materialize(config, job, records, ['S3'])
+    config['providers']['glm']['stub_response'] = {'description': 'Lift the block.'}
+    args = SimpleNamespace(run=None, source='S3', limit=None, force=False, retry_unknown=False)
+    result = export_scene(config, root, records, scope, args)
+    old = RequestStore(root / 'jobs/scene-s3')
+    old_rows = list(old.annotations().values())
+    for index, value in enumerate([None, 'null', 'In the human observation a block is lifted.'], 1):
+        old.accept(old_rows[index], {'description': value}, f'legacy{index}')
+    before = {name: (old.directory / name).read_bytes()
+              for name in ('requests.jsonl', 'annotations.jsonl')}
+    prompt.write_text(prompt.read_text() + '\nStronger shared-operation constraint.\n')
+    outputs = iter(['Place the block.', None, 'Open the box.'])
+    calls = []
+
+    def sender(provider, body, timeout):
+        calls.append(body)
+        return {'choices': [{'message': {'content': json.dumps({'description': next(outputs)})}}],
+                'usage': {'prompt_tokens': 100, 'completion_tokens': 10}}
+
+    original = annotate
+    monkeypatch.setattr('bise.modalities.semantic.workflow.annotate',
+                        lambda *a, **kw: original(*a, **kw, sender=sender))
+    args.repair, args.scene_ids = True, None
+    result = export_scene(config, root, records, scope, args)
+    assert len(calls) == 3
+    assert all((old.directory / name).read_bytes() == value for name, value in before.items())
+    new_rows = RequestStore(root / 'jobs/scene-s3-r2').annotations()
+    carried = next(row for row in new_rows.values() if row['description'] == 'Lift the block.')
+    assert carried['reused_from']['job'].endswith('jobs/scene-s3')
+    with np.load(result['files'][0], allow_pickle=False) as data:
+        assert len(data['scene_ids']) == 3 and data['usable'].all()
+        assert set(data['texts'].tolist()) == {'Lift the block.', 'Place the block.', 'Open the box.'}
+        metadata = json.loads(str(data['metadata']))
+        assert metadata['usable_scenes'] == 3 and len(metadata['excluded_scenes']) == 1
+        assert metadata['target_scenes'] == 4
+        assert np.isfinite(data['vectors']).all()
 
 
 def test_cost_frames_same_subset_and_stage_restore(tmp_path, monkeypatch):
@@ -329,15 +450,73 @@ def test_cost_frames_same_subset_and_stage_restore(tmp_path, monkeypatch):
     monkeypatch.setattr('bise.modalities.semantic.workflow.annotate', patched)
     args = SimpleNamespace(providers=None, limit=None, force=False, fresh_benchmark=False,
                            retry_unknown=False, allow_partial=False)
-    summary = run_cost(config, output, records, scope, ['S0','S1','S2','S3','S4','S5'], args)
+    summary = run_cost(config, output, records, scope, ['S1','S2c','S2w','S3','S4','S5'], args)
     assert [row['frames'] for row in summary['variants']] == [32, 16, 8]
     assert summary['common_videos'] == 8 and summary['task_scene_positives_identical']
     assert all(row['engineering']['attempts'] == 8 for row in summary['variants'])
-    assert all('S0' in row['metrics']['human_to_robot']['task'] for row in summary['variants'])
+    assert all('S1' in row['metrics']['human_to_robot']['task'] for row in summary['variants'])
     recipes = prepare_figures(output)
     assert any(path.name == 'cost.json' for path, _ in recipes)
     (output / 'charts/cost.json').unlink()
     assert any(path.name == 'cost.json' for path, _ in prepare_figures(output))
+
+
+def test_three_provider_cost_pipeline_uses_five_variants_offline(tmp_path, monkeypatch):
+    from bise.modalities.semantic.workflow import run
+
+    config, records = config_and_records(tmp_path)
+    config['cost']['providers'] = ['glm', 'qwen', 'deepseek']
+    for name in ['qwen', 'deepseek']:
+        config['providers'][name].update(stub=True, stub_response=sample_response(),
+                                         concurrency=2, requests_per_second=0)
+    monkeypatch.setattr(annotation_module.request, 'urlopen',
+                        lambda *a, **k: pytest.fail('Offline test made an API call'))
+    output = Path(config['root'])
+    original = annotate
+
+    def patched(config, rows, provider, frames, **kwargs):
+        return original(config, rows, provider, frames, frame_loader=fake_frames, **kwargs)
+
+    monkeypatch.setattr('bise.modalities.semantic.workflow.annotate', patched)
+    result = run(config, arguments(stage='cost'))
+    assert result['stages'] == ['cost']
+    summary = json.loads((output / 'cost/summary.json').read_text())
+    assert [(v['provider'], v['frames']) for v in summary['variants']] == [
+        ('glm', 32), ('glm', 16), ('glm', 8), ('qwen', 16), ('deepseek', 16)]
+    assert summary['common_videos'] == summary['target_videos'] == 8
+    assert all(v['engineering']['successful'] == 8 for v in summary['variants'])
+    assert any(path.name == 'cost.json' for path, _ in prepare_figures(output))
+    for artifact in ['charts/cost.png', 'charts/cost.json', 'plots.json',
+                     'results.csv', 'report.html']:
+        assert (output / artifact).is_file()
+
+
+@pytest.mark.parametrize('timestamp,period,input_rate', [
+    ('2026-10-19T01:00:00+00:00', 'peak', 2),
+    ('2026-10-19T04:00:00+00:00', 'off_peak', 1),
+    ('2026-10-19T06:00:00+00:00', 'peak', 2),
+    ('2026-10-19T10:00:00+00:00', 'off_peak', 1),
+    ('2026-10-18T02:00:00+00:00', 'off_peak', 1),
+    ('2026-10-01T02:00:00+00:00', 'off_peak', 1),
+    ('2027-10-01T02:00:00+00:00', 'peak', 2),
+])
+def test_deepseek_accounting_uses_china_time_cache_and_holiday_tariffs(
+        timestamp, period, input_rate):
+    import datetime as dt
+
+    price = load_config('configs/semantic/ch3.json')['providers']['deepseek']['price']
+    stamp = dt.datetime.fromisoformat(timestamp).timestamp()
+    raw = {'created': stamp, 'usage': {'prompt_tokens': 1000, 'completion_tokens': 100,
+                                     'prompt_cache_hit_tokens': 200}}
+    result = account_usage(raw, price)
+    assert result['cached_tokens'] == 200
+    assert result['price']['period'] == period
+    assert result['price']['time_basis'] == 'response_created'
+    assert result['cost'] == pytest.approx(input_rate * (800 + 200 * .02 + 100 * 4) / 1e6)
+    raw.pop('created')
+    fallback = account_usage(raw, price, stamp)
+    assert fallback['cost'] == result['cost']
+    assert fallback['price']['time_basis'] == 'request_started'
 
 
 def test_shared_redraw_indexes_semantic_without_changing_existing_modalities(tmp_path, monkeypatch):
@@ -419,10 +598,12 @@ def test_failed_annotations_do_not_block_main_pipeline_and_resume_only_missing(t
     result = run(config, arguments())
     assert result['stages'] == ['annotate', 'encode', 'eval', 'analyze', 'plot', 'report']
     root = Path(config['root'])
-    job = make_job(config, 'glm', 20)
+    job = make_job(config, 'glm', 16)
     summary = json.loads((job / 'summary.json').read_text())
     assert set(summary['selection']['missing']) == missing_ids
-    assert summary['selection']['accepted'] == len(records) - len(missing_ids)
+    assert summary['selection']['accepted'] == len(annotation_records(config, records)) - len(missing_ids)
+    assert all(calls.count(row['video_path']) == (2 if row['video_path'] in failures else 1)
+               for row in annotation_records(config, records))
     params = json.loads((root / 'params.json').read_text())
     assert params['annotation_engineering']['video']['selection']['partial']
     assert (root / 'report.html').exists()
@@ -450,6 +631,59 @@ def test_failed_annotations_do_not_block_main_pipeline_and_resume_only_missing(t
         payload = json.loads((root / 'evaluations' / cfg / 'metrics.json').read_text())
         assert not payload['partial'] and payload['coverage']['present'] == 8
         assert not json.loads((root / 'charts' / (cfg + '.json')).read_text())['data']['partial']
+
+
+@pytest.mark.parametrize('failure', ['http', 'schema', 'frames'])
+@pytest.mark.parametrize('fail_all', [False, True])
+def test_failed_round_retries_once_after_first_pass_and_reuses_successes(
+        tmp_path, failure, fail_all):
+    from collections import Counter
+    from io import BytesIO
+    from urllib.error import HTTPError
+
+    config, records = config_and_records(tmp_path)
+    config['annotation'].update(concurrency=1, max_attempts=1)
+    rows = records[:2]
+    failed_paths = {row['video_path'] for row in (rows if fail_all else rows[:1])}
+    frame_calls, api_calls = Counter(), Counter()
+
+    def frames(path, *settings):
+        path = str(path)
+        frame_calls[path] += 1
+        if failure == 'frames' and path in failed_paths and frame_calls[path] == 1:
+            raise ValueError('Temporary frame preparation failure')
+        urls, metadata = fake_frames(path, *settings)
+        urls[0] = path
+        return urls, metadata
+
+    def sender(provider, body, timeout):
+        path = body['messages'][0]['content'][2]['image_url']['url']
+        api_calls[path] += 1
+        first_failure = path in failed_paths and api_calls[path] == 1
+        if failure == 'http' and first_failure:
+            raise HTTPError('https://stub.invalid', 400, 'Bad Request', {}, BytesIO(b'{}'))
+        raw = annotation_module.send_request(provider, body, timeout)
+        if failure == 'schema' and first_failure:
+            raw['choices'][0]['message']['content'] = '{"invalid": true}'
+        return raw
+
+    job, summary = annotate(config, rows, 'glm', 16, frame_loader=frames, sender=sender,
+                            retry_failed=True)
+    assert summary['selection'] == {'count': 2, 'accepted': 2, 'missing': [], 'partial': False}
+    assert len(summary['executions']) == 2
+    assert summary['executions'][0]['new_items'] == 2
+    assert summary['executions'][1]['new_items'] == len(failed_paths)
+    assert summary['executions'][1]['cache_hits'] == 2 - len(failed_paths)
+    for row in rows:
+        path = row['video_path']
+        expected = 2 if path in failed_paths else 1
+        assert frame_calls[path] == expected
+        assert api_calls[path] == (1 if failure == 'frames' else expected)
+    events = read_jsonl(job / 'requests.jsonl')
+    first_end = next(i for i, event in enumerate(events) if event['event'] == 'execution_end')
+    second_start = [i for i, event in enumerate(events)
+                    if event['event'] == 'execution_start'][1]
+    assert first_end < second_start
 
 
 def test_annotation_can_continue_after_validation_failures_but_not_total_failure(tmp_path):
@@ -523,11 +757,11 @@ def test_six_representations_share_one_request_and_keep_independent_projections(
         return annotation_module.send_request(provider, body, timeout)
     job, _ = annotate(config, records[:2], 'glm', 20,
                       frame_loader=fake_frames, sender=sender)
-    reps = ['S0', 'S1', 'S2', 'S3', 'S4', 'S5']
+    reps = ['S1', 'S2c', 'S2w', 'S3', 'S4', 'S5']
     materialize(config, job, records[:2], reps)
     assert len(calls) == 2 and job.name == 'glm20'
     prompt = calls[0]['messages'][0]['content'][0]['text']
-    assert 'ALL SIX' in prompt and 'baseline_description' in prompt
+    assert 'baseline_description' not in prompt
     for rep in reps:
         directory = Path(config['root']) / rep
         row = read_jsonl(directory / 'annotations.jsonl')[0]
@@ -535,13 +769,10 @@ def test_six_representations_share_one_request_and_keep_independent_projections(
         file, _ = encode(config, directory, records[:2])
         assert load_embeddings(file)['metadata']['representations'] == [rep]
     data = sample_response()
-    data['baseline_description'] = 'Move the green block.'
-    with pytest.raises(ValueError, match='contains color'):
-        validate_video(data, config['taxonomy'])
-    data['baseline_description'] = 'Peel an orange.'
+    data['description'] = 'A person moves the red block beside the blue block.'
     assert validate_video(data, config['taxonomy'])
-    del data['baseline_description']
-    with pytest.raises(ValueError, match='baseline_description'):
+    data['baseline_description'] = 'Old separate baseline.'
+    with pytest.raises(ValueError, match='requires exactly'):
         validate_video(data, config['taxonomy'])
 
 
@@ -552,19 +783,19 @@ def test_six_output_protocol_preserves_but_does_not_reuse_old_joint_cache(tmp_pa
     params['signature']['validation_policy'] = 'task_content_p3'
     write_json(old_job / 'params.json', params)
     old_data = sample_response()
-    del old_data['baseline_description']
+    old_data['baseline_description'] = 'Old separate baseline.'
     RequestStore(old_job).accept(records[0], old_data, 'old-attempt')
     saved = (old_job / 'annotations.jsonl').read_bytes()
     new_job, summary = annotate(config, records[:1], 'glm', 20, frame_loader=fake_frames)
     assert new_job != old_job and summary['executions'][-1]['new_items'] == 1
     assert (old_job / 'annotations.jsonl').read_bytes() == saved
-    assert 'baseline_description' in read_jsonl(new_job / 'annotations.jsonl')[0]
+    assert 'baseline_description' not in read_jsonl(new_job / 'annotations.jsonl')[0]
 
 
 def test_teacher_sources_have_separate_caches_and_only_changed_source_is_archived(tmp_path):
     config, records = config_and_records(tmp_path)
     root, records, scope = prepare(config, config['cfgs'])
-    selected = [r for r in records if r['cfg'] == 'cfg2' and r['split'] == 'train']
+    selected = [r for r in records if r['cfg'] == 'cfg2' and r['split'] == 'test']
     job, _ = annotate(config, selected, 'glm', 20, frame_loader=fake_frames)
     materialize(config, job, selected, ['S3', 'S4'])
     scene_config = copy.deepcopy(config)
@@ -618,22 +849,22 @@ def test_independent_groups_survive_s1_removal_and_resume(tmp_path, monkeypatch)
                         lambda root, overwrite=True: prepare_figures(root, overwrite))
     root = Path(config['root'])
     run(config, arguments())
-    assert len(calls) == len(records)
+    assert len(calls) == len(annotation_records(config, records))
     assert not (root / 'cost').exists() and not (root / 'teachers').exists()
     run(config, arguments(stage='scene', limit=1))
     teacher = (root / 'teachers/S5/cfg2.npz').read_bytes()
     before_calls = len(calls)
-    saved = (root / 'S2/annotations.jsonl').read_bytes()
-    metrics_before = json.loads((root / 'S2/evaluations/cfg2/metrics.json').read_text())['metrics']
+    saved = (root / 'S2c/annotations.jsonl').read_bytes()
+    metrics_before = json.loads((root / 'S2c/evaluations/cfg2/metrics.json').read_text())['metrics']
     run(config, arguments(stage='remove', only=['S1']))
     assert not (root / 'S1').exists()
     assert (root / 'teachers/S5/cfg2.npz').read_bytes() == teacher
-    assert (root / 'S2/annotations.jsonl').read_bytes() == saved
+    assert (root / 'S2c/annotations.jsonl').read_bytes() == saved
     assert 'S1' not in json.loads((root / 'evaluations/cfg2/metrics.json').read_text())['metrics']['human_to_robot']['task']
     assert 'S1' not in json.loads((root / 'charts/cfg2.json').read_text())['data']['metrics']['human_to_robot']['task']
     assert 'S1' not in {row['representation'] for row in read_jsonl(root / 'evaluations/cfg2/rankings.jsonl')}
-    run(config, arguments(stage='eval', only=['S2']))
-    assert json.loads((root / 'S2/evaluations/cfg2/metrics.json').read_text())['metrics'] == metrics_before
+    run(config, arguments(stage='eval', only=['S2c']))
+    assert json.loads((root / 'S2c/evaluations/cfg2/metrics.json').read_text())['metrics'] == metrics_before
     run(config, arguments(stage='annotate'))
     assert len(calls) == before_calls and not (root / 'S1').exists()
     run(config, arguments(stage='scene', limit=1))
@@ -646,42 +877,42 @@ def test_partial_comparison_intersects_only_selected_groups(tmp_path):
     config, records = config_and_records(tmp_path)
     rows = [r for r in records if r['cfg'] == 'cfg2' and r['split'] == 'test']
     job, _ = annotate(config, rows, 'glm', 20, frame_loader=fake_frames)
-    materialize(config, job, rows, ['S2', 'S3'])
+    materialize(config, job, rows, ['S2c', 'S3'])
     root = Path(config['root'])
-    encode(config, root / 'S2', rows)
+    encode(config, root / 'S2c', rows)
     encode(config, root / 'S3', rows[:4])
-    result = evaluate_groups(config, root, rows, ['S2', 'S3'], ['cfg2'], 'test', True)
-    assert all(result[rep]['cfg2']['coverage']['present'] == 4 for rep in ['S2', 'S3'])
-    assert not (root / 'S0').exists() and not (root / 'S1').exists()
-    merged = aggregate(root, ['S2', 'S3'], ['cfg2'])['cfg2']
+    result = evaluate_groups(config, root, rows, ['S2c', 'S3'], ['cfg2'], 'test', True)
+    assert all(result[rep]['cfg2']['coverage']['present'] == 4 for rep in ['S2c', 'S3'])
+    assert not (root / 'S1').exists() and not (root / 'S1').exists()
+    merged = aggregate(root, ['S2c', 'S3'], ['cfg2'])['cfg2']
     assert merged['partial']
-    result = evaluate_groups(config, root, rows, ['S2'], ['cfg2'], 'test', False)
-    assert result['S2']['cfg2']['coverage']['present'] == 8
-    merged = aggregate(root, ['S2', 'S3'], ['cfg2'])['cfg2']
-    assert list(merged['metrics']['human_to_robot']['task']) == ['S2']
+    result = evaluate_groups(config, root, rows, ['S2c'], ['cfg2'], 'test', False)
+    assert result['S2c']['cfg2']['coverage']['present'] == 8
+    merged = aggregate(root, ['S2c', 'S3'], ['cfg2'])['cfg2']
+    assert list(merged['metrics']['human_to_robot']['task']) == ['S2c']
     assert merged['excluded'] == {'S3': 'different evaluation corpus or protocol'}
 
 
 def test_protocol_change_archives_only_affected_groups(tmp_path):
     config, records = config_and_records(tmp_path)
     job, _ = annotate(config, records[:2], 'glm', 20, frame_loader=fake_frames)
-    materialize(config, job, records[:2], ['S2', 'S3'])
+    materialize(config, job, records[:2], ['S2c', 'S3'])
     root = Path(config['root'])
-    for rep in ('S2', 'S3'):
+    for rep in ('S2c', 'S3'):
         file, _ = encode(config, root / rep, records[:2])
         evaluate(config, root / rep, file, records[:2], root / rep / 'evaluations/cfg2', 'cfg2')
     s3 = (root / 'S3/annotations.jsonl').read_bytes()
     changed = copy.deepcopy(config)
     changed['providers']['glm']['request'] = {'temperature': 0.5}
     new_job, _ = annotate(changed, records[:2], 'glm', 20, frame_loader=fake_frames)
-    materialize(changed, new_job, records[:2], ['S2'])
-    assert (root / 'history/S2/annotations.jsonl').exists()
+    materialize(changed, new_job, records[:2], ['S2c'])
+    assert (root / 'history/S2c/annotations.jsonl').exists()
     assert (root / 'S3/annotations.jsonl').read_bytes() == s3
-    assert json.loads((root / 'S2/params.json').read_text())['job'] != json.loads((root / 'S3/params.json').read_text())['job']
-    file, _ = encode(changed, root / 'S2', records[:2])
-    evaluate(changed, root / 'S2', file, records[:2], root / 'S2/evaluations/cfg2', 'cfg2')
-    merged = aggregate(root, ['S2', 'S3'], ['cfg2'])['cfg2']
-    assert list(merged['metrics']['human_to_robot']['task']) == ['S2']
+    assert json.loads((root / 'S2c/params.json').read_text())['job'] != json.loads((root / 'S3/params.json').read_text())['job']
+    file, _ = encode(changed, root / 'S2c', records[:2])
+    evaluate(changed, root / 'S2c', file, records[:2], root / 'S2c/evaluations/cfg2', 'cfg2')
+    merged = aggregate(root, ['S2c', 'S3'], ['cfg2'])['cfg2']
+    assert list(merged['metrics']['human_to_robot']['task']) == ['S2c']
     assert 'S3' in merged['excluded']
 
 
@@ -708,26 +939,120 @@ def test_central_redraw_recovers_missing_aggregate_and_preserves_saved_data(tmp_
     root, records, _ = prepare(config, config['cfgs'])
     rows = [row for row in records if row['cfg'] == 'cfg2' and row['split'] == 'test']
     job, _ = annotate(config, rows, 'glm', 20, frame_loader=fake_frames)
-    materialize(config, job, rows, ['S2'])
-    encode(config, root / 'S2', rows)
-    evaluate_groups(config, root, rows, ['S2'], ['cfg2'], 'test', False)
-    aggregate(root, ['S2'], ['cfg2'])
+    materialize(config, job, rows, ['S2c'])
+    encode(config, root / 'S2c', rows)
+    evaluate_groups(config, root, rows, ['S2c'], ['cfg2'], 'test', False)
+    aggregate(root, ['S2c'], ['cfg2'])
     prepare_figures(root)
     source = root / 'charts/cfg2.json'
     saved = json.loads(source.read_text())
-    saved['data']['metrics']['human_to_robot']['task']['S2']['MRR'] = 0.123
+    saved['data']['metrics']['human_to_robot']['task']['S2c']['MRR'] = 0.123
     write_json(source, saved)
     shutil.rmtree(root / 'evaluations')
     recipes = index_plots(root)
     assert 'charts/cfg2.png' in recipes
     assert (root / 'evaluations/cfg2/metrics.json').exists()
-    assert json.loads(source.read_text())['data']['metrics']['human_to_robot']['task']['S2']['MRR'] == 0.123
+    assert json.loads(source.read_text())['data']['metrics']['human_to_robot']['task']['S2c']['MRR'] == 0.123
     source.unlink()
     index_plots(root)
-    assert json.loads(source.read_text())['data']['metrics']['human_to_robot']['task']['S2']['MRR'] != 0.123
+    assert json.loads(source.read_text())['data']['metrics']['human_to_robot']['task']['S2c']['MRR'] != 0.123
     seen = []
     monkeypatch.setattr('bise.modalities.semantic.figures.render_figure',
                         lambda source, target: seen.append(target))
     redraw_plots(root)
     assert seen == [root / 'charts/cfg2.png']
     assert 'sha256' not in (root / 'plots.json').read_text()
+
+
+def test_concat_and_weighted_label_encoding_are_separate_and_cache_recipe(tmp_path):
+    from bise.modalities.semantic.encoding import matching_embeddings
+    from bise.modalities.semantic.representations import label_text
+    config, records = config_and_records(tmp_path)
+    job, _ = annotate(config, records[:1], 'glm', 16, frame_loader=fake_frames)
+    materialize(config, job, records[:1], ['S2c', 'S2w'])
+    root = Path(config['root'])
+    desc = sample_response()['description']
+    labels = label_text(sample_response()['labels'], config['taxonomy'])
+    calls = []
+
+    class Encoder:
+        def encode_texts(self, texts):
+            calls.extend(texts)
+            return np.asarray([[3., 0.] if x == desc else [0., 2.] if x == labels
+                               else [2 ** -.5, 2 ** -.5] for x in texts], dtype=np.float32)
+
+    concat_file, concat_stats = encode(config, root / 'S2c', records[:1], embedder=Encoder())
+    weighted_file, weighted_stats = encode(config, root / 'S2w', records[:1], embedder=Encoder())
+    concat, weighted = load_embeddings(concat_file), load_embeddings(weighted_file)
+    expected = np.array([.7, .3]) / np.linalg.norm([.7, .3])
+    assert concat_stats['new_texts'] == 1 and weighted_stats['new_texts'] == 2
+    assert calls == [desc + '\nLabels: ' + labels, desc, labels]
+    assert np.allclose(weighted['S2w'][0], expected)
+    assert np.allclose(weighted['S2w_description'][0], [1, 0])
+    assert np.allclose(weighted['S2w_labels'][0], [0, 1])
+    assert not np.allclose(concat['S2c'], weighted['S2w'])
+    assert not (root / 'S1').exists()
+    same, stats = encode(config, root / 'S2w', records[:1],
+                         embedder=lambda: pytest.fail('Cached weighted vector loaded model'))
+    assert same == weighted_file and stats['cache_texts'] == 2
+    changed = copy.deepcopy(config)
+    changed['label_fusion'] = {'description_weight': .6, 'label_weight': .4}
+    with pytest.raises(FileNotFoundError):
+        matching_embeddings(changed, root / 'S2w')
+    new_file, _ = encode(changed, root / 'S2w', records[:1], embedder=Encoder())
+    assert new_file != weighted_file
+    assert np.allclose(load_embeddings(new_file)['S2w'][0], np.array([.6, .4]) / np.linalg.norm([.6, .4]))
+    assert matching_embeddings(changed, root / 'S2c') == concat_file
+    assert make_job(changed, 'glm', 16) == job
+    annotate(config, records[:2], 'glm', 16, frame_loader=fake_frames)
+    materialize(config, job, records[:2], ['S2w'])
+    extended_file, stats = encode(changed, root / 'S2w', records[:2], embedder=Encoder())
+    extended = load_embeddings(extended_file)
+    assert stats['new_texts'] == 2 and stats['cache_texts'] == 2
+    assert extended['S2w'].shape == (2, 2)
+    for key in ('S2w', 'S2w_description', 'S2w_labels'):
+        assert np.allclose(extended[key][0], load_embeddings(new_file)[key][0])
+        assert np.allclose(extended[key][1], extended[key][0])
+
+
+def test_default_annotation_scope_and_explicit_training_increment(tmp_path, monkeypatch):
+    from bise.modalities.semantic.workflow import run
+    config, records = config_and_records(tmp_path)
+    selected = annotation_records(config, records)
+    assert len(selected) == 24
+    assert all(row['split'] == 'test' for row in selected if row['cfg'] == 'cfg2')
+    assert {row['split'] for row in selected if row['cfg'] == 'cfg3'} == {'train', 'test'}
+    original = annotate
+
+    def patched(cfg, rows, provider, frames, **kwargs):
+        assert frames == 16
+        return original(cfg, rows, provider, frames, frame_loader=fake_frames, **kwargs)
+
+    monkeypatch.setattr('bise.modalities.semantic.workflow.annotate', patched)
+    run(config, arguments(stage='annotate'))
+    root = Path(config['root'])
+    job = make_job(config, 'glm', 16)
+    assert {row['sample_id'] for row in RequestStore(job).annotations().values()} == {
+        row['sample_id'] for row in selected}
+    before = (root / 'S3/annotations.jsonl').read_bytes()
+    run(config, arguments(stage='annotate', cfg=['cfg2'], split='train', only=['S1']))
+    assert len(RequestStore(job).annotations()) == 32
+    assert (root / 'S3/annotations.jsonl').read_bytes() == before
+    assert len(RequestStore(root / 'S1').annotations()) == 32
+    assert json.loads((root / 'params.json').read_text())['annotation_target_videos'] == 24
+
+
+def test_retired_groups_are_archived_and_description_keeps_labels_separate(tmp_path):
+    config, _ = config_and_records(tmp_path)
+    root = Path(config['root'])
+    for rep in ('S0', 'S2'):
+        write_json(root / rep / 'params.json', {'signature': {'schema_version': 3}})
+        (root / rep / 'annotations.jsonl').write_text('old product\n')
+    prepare(config, config['cfgs'])
+    for rep in ('S0', 'S2'):
+        assert not (root / rep).exists()
+        assert (root / 'history' / rep / 'annotations.jsonl').read_text() == 'old product\n'
+    data = sample_response()
+    data['description'] += ' Labels: capability_tags: transport'
+    with pytest.raises(ValueError, match='outside description'):
+        validate_video(data, config['taxonomy'])

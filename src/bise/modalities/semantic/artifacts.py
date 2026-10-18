@@ -6,7 +6,7 @@ from pathlib import Path
 
 from bise.common.paths import resolve_path
 from bise.modalities.semantic.manifest import expand_split, relative_path, video_record
-from bise.modalities.semantic.representations import REPRESENTATIONS, representation_texts
+from bise.modalities.semantic.representations import REPRESENTATIONS, label_text, representation_texts
 from bise.modalities.semantic.store import RequestStore, item_key, read_jsonl, write_json
 
 
@@ -15,6 +15,19 @@ def migrate(root: Path, sources: dict) -> None:
     if not root.is_dir():
         return
     moves = []
+    for name in ('S0', 'S2'):
+        old = root / name
+        if not (old / 'params.json').exists():
+            continue
+        destination = root / 'history' / name
+        revision = 1
+        while destination.exists():
+            revision += 1
+            destination = root / 'history' / f'{name}-r{revision}'
+        moves.append((old, destination))
+        teacher = root / 'teachers' / name
+        if teacher.exists():
+            moves.append((teacher, destination.with_name(destination.name + '-teachers')))
     for path in root.iterdir():
         params = path / 'params.json'
         if path.is_dir() and params.is_file():
@@ -130,8 +143,10 @@ def materialize(config: dict, job: Path, records: list[dict], representations: l
                 continue
             text = representation_texts(annotation, config['taxonomy'])[rep]
             data = {'representation': rep, 'text': text, 'job': relative_path(job)}
-            if rep == 'S2':
+            if rep in ('S2c', 'S2w'):
                 data['labels'] = annotation['labels']
+                data['description'] = annotation['description']
+                data['label_text'] = label_text(annotation['labels'], config['taxonomy'])
             if rep == 'S5':
                 data['structured'] = annotation['structured']
             previous = old.get(item_key(record))

@@ -2,8 +2,9 @@
 
 import base64
 import copy
+import io
 import json
-import os
+import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -13,24 +14,13 @@ from urllib import error, request
 import numpy as np
 
 from bise.common.paths import resolve_path
+from bise.modalities.semantic.credentials import NoActiveKeys, mark_overdue, provider_key, redact
 from bise.modalities.semantic.representations import (
     validate_scene, validate_video, video_prompt,
 )
 from bise.modalities.semantic.store import (
     RequestStore, account_usage, file_lock, item_key, read_jsonl, resolve_job, write_json,
 )
-
-
-def provider_key(provider: dict) -> str:
-    if provider.get("stub"):
-        return ""
-    names = provider["api_key_env"]
-    if isinstance(names, str):
-        names = [names]
-    for name in names:
-        if os.environ.get(name):
-            return os.environ[name]
-    raise ValueError(f"Set API key environment variable: {' or '.join(names)}")
 
 
 def make_job(config: dict, provider_name: str, frames: int, kind: str = "video") -> Path:
@@ -43,7 +33,7 @@ def make_job(config: dict, provider_name: str, frames: int, kind: str = "video")
         "model": provider["model"], "base_url": provider.get("base_url", "stub"),
         "request": provider.get("request", {}), "stub": provider.get("stub", False),
         "prompt": resolve_path(prompt_path).read_text(),
-        "validation_policy": "joint_s0_s5_p1" if kind == 'video' else 'task_content_p3',
+        "validation_policy": "description_labels_p1" if kind == 'video' else 'task_content_p4',
     }
     if kind == "video":
         signature.update({"frames": frames, "taxonomy": config["taxonomy"],
@@ -119,18 +109,48 @@ def send_request(provider: dict, body: dict, timeout: float) -> dict:
         return {"model": provider["model"], "choices": [{"message": {
             "content": json.dumps(content)}, "finish_reason": "stop"}],
                 "usage": {"prompt_tokens": 100, "completion_tokens": 100}}
-    req = request.Request(provider["base_url"].rstrip("/") + "/chat/completions",
-                          data=json.dumps(body).encode(), method="POST")
-    req.add_header("Content-Type", "application/json")
-    req.add_header("Authorization", "Bearer " + provider_key(provider))
-    with request.urlopen(req, timeout=timeout) as response:
-        return json.loads(response.read().decode())
+    while True:
+        key = provider_key(provider)
+        req = request.Request(provider["base_url"].rstrip("/") + "/chat/completions",
+                              data=json.dumps(body).encode(), method="POST")
+        req.add_header("Content-Type", "application/json")
+        req.add_header("Authorization", "Bearer " + key)
+        http_error = None
+        try:
+            with request.urlopen(req, timeout=timeout) as response:
+                text = response.read().decode()
+        except error.HTTPError as exc:
+            http_error = exc
+            text = exc.read().decode(errors='replace')
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            payload = {}
+        api_error = payload.get('error', {}) if isinstance(payload, dict) else {}
+        code = str(api_error.get('code')) if isinstance(api_error, dict) else ''
+        if code in provider.get('overdue_codes', ['1113']):
+            balance_code = code
+        elif http_error is not None and http_error.code in provider.get('overdue_statuses', []):
+            balance_code = str(http_error.code)
+        else:
+            balance_code = None
+        if balance_code is not None and provider.get('key_pool'):
+            if mark_overdue(provider['key_pool'], key, balance_code):
+                print(f'API balance exhausted ({balance_code}): key moved to overdue; '
+                      'trying the next active key.', flush=True)
+            continue
+        safe_text = redact(provider, text)
+        if http_error is not None:
+            raise error.HTTPError(http_error.url, http_error.code,
+                                  redact(provider, str(http_error.reason)), http_error.headers,
+                                  io.BytesIO(safe_text.encode())) from None
+        return json.loads(safe_text)
 
 
 def annotate(config: dict, records: list[dict], provider_name: str, frames: int,
              force: bool = False, retry_unknown: bool = False, kind: str = "video",
              frame_loader=sample_frames, sender=send_request,
-             allow_failures: bool = False) -> tuple[Path, dict]:
+             allow_failures: bool = False, retry_failed: bool = False) -> tuple[Path, dict]:
     provider = config["providers"][provider_name]
     provider_key(provider)
     directory = make_job(config, provider_name, frames, kind)
@@ -139,6 +159,24 @@ def annotate(config: dict, records: list[dict], provider_name: str, frames: int,
     config[f'_{kind}_prompt_text'] = signature['prompt']
     store = RequestStore(directory)
     settings = config["annotation"]
+    settings['concurrency'] = int(provider.get('concurrency', settings['concurrency']))
+    decode_concurrency = int(settings.get('decode_concurrency', settings['concurrency']))
+    requests_per_second = float(provider.get('requests_per_second', 0))
+    if settings['concurrency'] < 1 or decode_concurrency < 1 or requests_per_second < 0:
+        raise ValueError('Concurrency must be positive and request rate nonnegative')
+    decode_slots = threading.BoundedSemaphore(decode_concurrency)
+    pace_lock, next_request = threading.Lock(), 0.0
+
+    def pace_request():
+        nonlocal next_request
+        if not requests_per_second:
+            return
+        with pace_lock:
+            delay = max(0, next_request - time.perf_counter())
+            if delay:
+                time.sleep(delay)
+            next_request = time.perf_counter() + 1 / requests_per_second
+
     execution_id = uuid.uuid4().hex
 
     def validate(raw, record, frame_info):
@@ -172,16 +210,19 @@ def annotate(config: dict, records: list[dict], provider_name: str, frames: int,
         queued_at = time.perf_counter()
         store.event({"event": "execution_start", "execution_id": execution_id,
                      "selected": len(records), "pending": len(pending), "recovered": recovered,
-                     "concurrency": settings["concurrency"]})
+                     "concurrency": settings["concurrency"],
+                     "decode_concurrency": decode_concurrency,
+                     "requests_per_second": requests_per_second})
 
         def process(record):
             item_started = time.perf_counter()
             frame_info = {}
             try:
                 if kind == "video":
-                    urls, frame_info = frame_loader(
-                        resolve_path(record["video_path"]), frames,
-                        settings["max_side"], settings["jpeg_quality"])
+                    with decode_slots:
+                        urls, frame_info = frame_loader(
+                            resolve_path(record["video_path"]), frames,
+                            settings["max_side"], settings["jpeg_quality"])
                     body = video_body(config, provider, record, urls, frame_info)
                 else:
                     body = {"model": provider["model"], "stream": False,
@@ -208,6 +249,8 @@ def annotate(config: dict, records: list[dict], provider_name: str, frames: int,
                              "item_key": item_key(record), "sample_id": record["sample_id"],
                              "queue_seconds": item_started - queued_at})
                 request_started = time.perf_counter()
+                request_timestamp = time.time()
+                rate_wait_seconds = 0.0
                 retry_after = None
                 try:
                     request_body = copy.deepcopy(body)
@@ -222,14 +265,21 @@ def annotate(config: dict, records: list[dict], provider_name: str, frames: int,
                             'Do not add explanations, reasons, uncertainty notes, or extra fields.'})
                     if provider.get('send_request_id'):
                         request_body['request_id'] = attempt_id
+                    pace_started = time.perf_counter()
+                    pace_request()
+                    rate_wait_seconds = time.perf_counter() - pace_started
+                    request_started = time.perf_counter()
+                    request_timestamp = time.time()
                     raw = sender(provider, request_body, settings["timeout_seconds"])
                     request_seconds = time.perf_counter() - request_started
                     store.event({"event": "response", "execution_id": execution_id,
                                  "attempt_id": attempt_id, "record": record, "frames": frame_info,
                                  "validation_feedback": list(feedback),
                                  "repair_previous_attempt_id": previous_attempt_id,
-                                 "raw_response": raw, "accounting": account_usage(raw, provider.get("price", {})),
+                                 "raw_response": raw, "accounting": account_usage(
+                                     raw, provider.get("price", {}), request_timestamp),
                                  "timings": {"request_seconds": request_seconds,
+                                             "rate_wait_seconds": rate_wait_seconds,
                                              "item_elapsed_seconds": time.perf_counter() - item_started}})
                     parse_started = time.perf_counter()
                     try:
@@ -257,15 +307,17 @@ def annotate(config: dict, records: list[dict], provider_name: str, frames: int,
                     if isinstance(exc, error.HTTPError):
                         retry_after = exc.headers.get("Retry-After")
                         detail = exc.read().decode(errors='replace')[:2000]
-                        key = provider_key(provider)
-                        if key:
-                            detail = detail.replace(key,'[redacted]')
+                        detail = redact(provider, detail)
                     store.event({"event": "error", "execution_id": execution_id,
                                  "attempt_id": attempt_id, "sample_id": record["sample_id"],
-                                 "error_type": type(exc).__name__, "error": str(exc),
+                                 "error_type": type(exc).__name__,
+                                 "error": redact(provider, str(exc)),
                                  "error_detail": detail,
                                  "http_status": status,
-                                 "timings": {"request_seconds": time.perf_counter() - request_started}})
+                                 "timings": {"request_seconds": time.perf_counter() - request_started,
+                                             "rate_wait_seconds": rate_wait_seconds}})
+                    if isinstance(exc, NoActiveKeys):
+                        raise
                     if status is not None and status not in (408, 429) and status < 500:
                         return False
                 if local_attempt < settings["max_attempts"]:
@@ -278,10 +330,15 @@ def annotate(config: dict, records: list[dict], provider_name: str, frames: int,
             return False
 
         successes = 0
-        with ThreadPoolExecutor(max_workers=settings["concurrency"]) as pool:
+        with ThreadPoolExecutor(max_workers=min(settings["concurrency"], max(1, len(pending)))) as pool:
             futures = {pool.submit(process, record): record for record in pending}
             for index, future in enumerate(as_completed(futures), 1):
-                success = future.result()
+                try:
+                    success = future.result()
+                except NoActiveKeys:
+                    for queued in futures:
+                        queued.cancel()
+                    raise
                 successes += success
                 elapsed = time.perf_counter() - queued_at
                 eta = elapsed / index * (len(pending)-index)
@@ -295,14 +352,16 @@ def annotate(config: dict, records: list[dict], provider_name: str, frames: int,
                      "active_seconds": elapsed,
                      "new_known_cost": store.new_known_cost,
                      "new_items_per_second": len(pending) / elapsed if pending else None,
-                     "concurrency": settings["concurrency"]})
+                     "concurrency": settings["concurrency"],
+                     "decode_concurrency": decode_concurrency,
+                     "requests_per_second": requests_per_second})
         summary = store.summarize()
         current = store.annotations()
         failed = [r["sample_id"] for r in records if item_key(r) not in current]
         summary["selection"] = {"count": len(records), "accepted": len(records) - len(failed),
                                 "missing": failed, "partial": bool(failed)}
         write_json(directory / 'summary.json', summary)
-        if failed:
+        if failed and not retry_failed:
             message = (f"{len(failed)} annotations failed in {directory}; "
                        "see requests.jsonl, then rerun annotate. First IDs: " +
                        ", ".join(failed[:3]))
@@ -311,4 +370,11 @@ def annotate(config: dict, records: list[dict], provider_name: str, frames: int,
             print(f'WARNING: {message}. Continuing with '
                   f'{summary["selection"]["accepted"]}/{len(records)} accepted annotations.',
                   flush=True)
-        return directory, summary
+    if failed and retry_failed:
+        print(f'{directory.name}: automatically retrying {len(failed)} failed annotations '
+              'once before continuing.', flush=True)
+        # Release the job lock first; accepted items are cached and never resubmitted.
+        return annotate(config, records, provider_name, frames, force=False,
+                        retry_unknown=retry_unknown, kind=kind, frame_loader=frame_loader,
+                        sender=sender, allow_failures=allow_failures, retry_failed=False)
+    return directory, summary
