@@ -15,7 +15,7 @@ bootstrap()
 
 from bise.common import load_json_config
 from bise.modalities.video import build_retrieval_cases, collate_video_pairs, evaluate_video_retrieval
-from bise.modalities.video.figures import keep_first_camera_per_scene, plot_similarity_heatmap, plot_sorted_similarity_heatmap
+from bise.modalities.video.views import export_views
 from bise.modalities.video.factory import build_video_dataset, build_video_model, split_video_dataset
 
 
@@ -112,12 +112,7 @@ def _save_evaluation_outputs(
 
 
 def _save_heatmaps(output_dir: Path, result: dict) -> None:
-    matrix, metadata = keep_first_camera_per_scene(
-        result["similarity_matrix"],
-        _json_ready_metadata(result["metadata"]),
-    )
-    plot_similarity_heatmap(matrix, output_dir / "similarity_heatmap.png", max_items=120)
-    plot_sorted_similarity_heatmap(matrix, metadata, output_dir / "task_scene_sorted_similarity_heatmap.png", max_items=120)
+    export_views(output_dir)
 
 
 def _json_ready_metadata(metadata: dict) -> dict:

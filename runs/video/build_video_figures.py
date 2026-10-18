@@ -17,7 +17,8 @@ from _bootstrap import bootstrap
 
 bootstrap()
 
-from bise.modalities.video.figures import keep_first_camera_per_scene, plot_similarity_heatmap, plot_sorted_similarity_heatmap
+from bise.modalities.video.figures import plot_video_heatmap, plot_similarity_heatmap
+from bise.modalities.video.views import plot_views, prepare_views
 
 
 DIRECTION_LABELS = {
@@ -44,7 +45,8 @@ def parse_args():
         help="Training run directory containing curves.json. Repeat to compare training curves.",
     )
     parser.add_argument("--output-dir", required=True, help="Directory for generated figures and CSV files.")
-    parser.add_argument("--max-heatmap-items", type=int, default=120, help="Maximum matrix size to render in heatmaps.")
+    parser.add_argument("--max-heatmap-items", type=int, default=0,
+                        help="Maximum matrix size; 0 renders every video/scene.")
     return parser.parse_args()
 
 
@@ -68,16 +70,16 @@ def main():
             metadata_path = eval_dir / "metadata.json"
             if metadata_path.exists():
                 metadata = _load_json(metadata_path)
-                matrix, metadata = keep_first_camera_per_scene(matrix, metadata)
-                plot_similarity_heatmap(matrix, output_dir / f"{_safe_name(name)}_similarity_heatmap.png", args.max_heatmap_items)
-                plot_sorted_similarity_heatmap(
-                    matrix,
-                    metadata,
-                    output_dir / f"{_safe_name(name)}_task_scene_sorted_similarity_heatmap.png",
-                    args.max_heatmap_items,
-                )
+                for level in ('camera', 'scene'):
+                    plot_video_heatmap(matrix, metadata,
+                                       output_dir / f'{_safe_name(name)}_{level}_heatmap.png',
+                                       level, args.max_heatmap_items, source_dir=eval_dir)
+                if all((eval_dir / name).exists() for name in ('human_embeddings.npy', 'robot_embeddings.npy')):
+                    data = prepare_views(eval_dir)
+                    plot_views(data, output_dir / f'{_safe_name(name)}_views.png', source_dir=eval_dir)
             else:
-                plot_similarity_heatmap(matrix, output_dir / f"{_safe_name(name)}_similarity_heatmap.png", args.max_heatmap_items)
+                plot_similarity_heatmap(matrix, output_dir / f"{_safe_name(name)}_similarity_heatmap.png",
+                                        args.max_heatmap_items or max(matrix.shape))
 
         _plot_single_eval_metrics(name, metrics, output_dir / f"{_safe_name(name)}_task_metrics.png")
 

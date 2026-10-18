@@ -196,6 +196,19 @@ def index_plots(root: str | Path) -> dict:
 
         for source in sorted(directory.glob("*/evaluations/*/similarity_matrix.npy")):
             metadata_path = source.parent / "metadata.json"
+            if modality == 'video' and all((source.parent / name).is_file() for name in (
+                    'human_embeddings.npy', 'robot_embeddings.npy')):
+                from bise.modalities.video.views import prepare_views
+                prepare_views(source.parent)
+                for level in ('camera', 'scene'):
+                    add(source.parent / f'{level}_heatmap.png', 'video_heatmap',
+                        [source, metadata_path], {'level': level, 'max_items': 0})
+                add(source.parent / 'views.png', 'video_views', [source.parent / 'views.json'],
+                    upstream=[source.parent / name for name in (
+                        'human_embeddings.npy', 'robot_embeddings.npy', 'metadata.json')])
+                for legacy in ('similarity_heatmap.png', 'task_scene_sorted_similarity_heatmap.png'):
+                    (source.parent / legacy).unlink(missing_ok=True)
+                continue
             label = "Trajectory" if modality == "trajectory" else "Video"
             matrix = np.load(source, allow_pickle=False)
             metadata = heatmap_metadata(json.loads(metadata_path.read_text()), label)
@@ -266,6 +279,13 @@ def redraw_plots(root: str | Path) -> dict:
         elif entry["kind"] == "semantic":
             from bise.modalities.semantic.figures import render_figure
             render_figure(inputs[0], path)
+        elif entry['kind'] == 'video_heatmap':
+            from bise.modalities.video.figures import plot_video_heatmap
+            plot_video_heatmap(np.load(inputs[0], allow_pickle=False),
+                               json.loads(inputs[1].read_text()), path, **options)
+        elif entry['kind'] == 'video_views':
+            from bise.modalities.video.views import plot_views
+            plot_views(json.loads(inputs[0].read_text()), path)
         else:
             raise ValueError(f"Unknown plot kind: {entry['kind']}")
     return payload

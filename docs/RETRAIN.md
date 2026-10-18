@@ -418,6 +418,11 @@ artifacts/runs/retrain/s45/
 
 每个评估目录保存 `metrics.json`、`metadata.json`、`cases.json`、
 `similarity_matrix.npy`、两侧 embedding、热图、数据库存与 `run_info.json`。
+视频评估还从保存向量导出`views.json/csv/png`（相机一致性）和
+`camera_heatmap.png`（所有视频）、`scene_heatmap.png`（每格四个人机相似度取最大值）。
+这两张替换旧的首相机热图；原始`metrics.json`保持单视频评估含义。
+旧run可运行`python runs/video/evaluate_views.py --run <视频run目录>`离线补齐cfg2/cfg3，
+具体统计口径见[跨相机评估](video/CROSS_VIEW.md#8-评估与论文证据)。
 两种模态的 task / scene、两个检索方向都报告 `MPR-all`，只保存到评估指标、
 比较 JSON/CSV 和汇总数据；柱状图仍只显示 `R@1/5/10`、`MRR`、`NDCG@10`。
 `MPR-all` 对每个有正样本的查询计算所有正样本的平均排名除以候选数，
@@ -467,7 +472,7 @@ cfg2 主图中的 T4/E6 使用不同测试集合，图中标记并保留样本�
 `runs/redraw.py` 先扫描已有 JSON/NPY、补齐整个批次的清单，再依次覆盖所有 PNG。
 覆盖两种模态的单 run 训练曲线、cfg2/cfg3 两类热图、主比较柱状图和汇总曲线；
 PNG 已删除时也能恢复。旧批次首次执行会自动补齐清单。
-该入口只重绘已保存的数据快照，不训练、不加载 checkpoint、不重新计算评估指标，
+该入口不训练、不加载 checkpoint、不重算原有主检索指标；视频相机诊断可从保存向量补齐，
 无需 CUDA、模型缓存或 RH20T 原始文件。
 已有汇总 JSON 时优先从中恢复；汇总目录或 JSON 缺失时，从原 run 的评估与曲线重建。
 如果更新了评估指标，先用 `--stage charts` 重新汇总，再用该入口重绘全部图。

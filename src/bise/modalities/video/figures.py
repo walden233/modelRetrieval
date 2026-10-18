@@ -34,6 +34,61 @@ def keep_first_camera_per_scene(matrix: np.ndarray, metadata: dict) -> tuple[np.
     return filtered_matrix, filtered_metadata
 
 
+def plot_video_heatmap(matrix: np.ndarray, metadata: dict, output_path: Path,
+                       level: str, max_items: int = 0, source_dir: Path | None = None) -> None:
+    from bise.common.plots import record_plot
+    from bise.modalities.video.views import scene_groups, scene_max_similarity
+
+    matrix = np.asarray(matrix)
+    if matrix.ndim != 2 or matrix.shape[0] != matrix.shape[1]:
+        raise ValueError('Video heatmaps require a square paired-video similarity matrix')
+    scene_groups(metadata, len(matrix))
+    if level == 'scene':
+        matrix, metadata = scene_max_similarity(matrix, metadata)
+        order = np.arange(len(matrix))
+        title = 'Scene level / max over all human-view x robot-view pairs'
+        groups = metadata['task_ids']
+    elif level == 'camera':
+        order = np.asarray(sorted(range(len(matrix)), key=lambda i: (
+            str(metadata['camera_ids'][i]), str(metadata['task_ids'][i]),
+            str(metadata['scene_ids'][i]), str(metadata['sample_ids'][i]))))
+        title = 'Camera level / every video / sorted by camera, task, scene'
+        groups = [metadata['camera_ids'][i] for i in order]
+    else:
+        raise ValueError(f'Unknown video heatmap level: {level}')
+    matrix = matrix[np.ix_(order, order)]
+    sample = _sample_indices(len(matrix), max_items) if max_items > 0 else np.arange(len(matrix))
+    displayed = matrix[np.ix_(sample, sample)]
+    groups = [str(groups[i]) for i in sample]
+    source_dir = source_dir or output_path.parent
+    record_plot(output_path, 'video_heatmap', [source_dir / 'similarity_matrix.npy',
+                                              source_dir / 'metadata.json'],
+                {'level': level, 'max_items': max_items})
+    fig, ax = plt.subplots(figsize=(9, 8), constrained_layout=True)
+    image = ax.imshow(displayed, aspect='equal', cmap='viridis', vmin=-1, vmax=1,
+                      interpolation='nearest')
+    for i in range(1, len(groups)):
+        if groups[i] != groups[i - 1]:
+            width, alpha = (.3, .25) if level == 'scene' else (.5, .75)
+            ax.axhline(i - .5, color='white', linewidth=width, alpha=alpha)
+            ax.axvline(i - .5, color='white', linewidth=width, alpha=alpha)
+    if level == 'camera':
+        starts = [0] + [i for i in range(1, len(groups)) if groups[i] != groups[i - 1]]
+        ends = starts[1:] + [len(groups)]
+        centers = [(start + end - 1) / 2 for start, end in zip(starts, ends)]
+        labels = [groups[start] for start in starts]
+        ax.set_xticks(centers, labels, rotation=30)
+        ax.set_yticks(centers, labels)
+    ax.set(title=f'{title}\n{displayed.shape[0]} x {displayed.shape[1]} '
+                 f'(full matrix: {matrix.shape[0]} x {matrix.shape[1]})',
+           xlabel='Robot camera videos' if level == 'camera' else 'Robot scenes',
+           ylabel='Human camera videos' if level == 'camera' else 'Human scenes')
+    fig.colorbar(image, ax=ax, fraction=.045, pad=.025, label='Cosine similarity [-1, 1]')
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=180)
+    plt.close(fig)
+
+
 def plot_similarity_heatmap(matrix: np.ndarray, output_path: Path, max_items: int = 120, modality_label: str = "Video") -> None:
     matrix = np.asarray(matrix)
     if matrix.ndim != 2:
