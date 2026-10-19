@@ -5,6 +5,7 @@
   "output_root": "artifacts/runs/retrain",
   "dataset_root": "dataset/RH20T_subset",
   "manifest_dir": "artifacts/manifests/retrain",
+  "manifest_batch": "s50",
   "trajectory": {},
   "video": {
     "E0": {

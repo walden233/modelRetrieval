@@ -19,6 +19,10 @@
     "V2": {
       "config": "configs/retrain/views/V2.json",
       "label": "V2"
+    },
+    "V3": {
+      "config": "configs/retrain/views/V3.json",
+      "label": "V3"
     }
   }
 }

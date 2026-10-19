@@ -1,6 +1,7 @@
 """Check the supplied batch metadata and aligned modality split format."""
 
 import json
+import shutil
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,7 +11,8 @@ import pytest
 from bise.common.evaluation import bind_protocols
 from bise.common.fingerprints import file_hash, without_sha256, write_json
 from bise.data.rh20t.splits import (
-    load_protocol, load_split_map, prepare_protocols, protocol_hash, shared_scene_split,
+    load_protocol, load_split_map, prepare_protocols, protocol_hash, relocate_protocols,
+    shared_scene_split,
 )
 from bise.modalities.trajectory.factory import build_split_manifest, split_trajectory_dataset
 from bise.modalities.video.factory import build_split_manifest as video_manifest
@@ -147,6 +149,62 @@ def test_prepare_reuses_supplied_batch_files_without_rewriting(tmp_path):
     assert result == {cfg: str(path) for cfg, path in zip(("cfg2", "cfg3"), paths)}
     assert all(path.read_bytes() == value for path, value in before.items())
     assert prepare_protocols(tmp_path, tmp_path / "unused", directory, seed=43) == result
+    assert all(path.read_bytes() == value for path, value in before.items())
+
+
+def test_relocate_copied_batch_preserves_splits_and_reuses_them_without_resampling(
+        tmp_path, monkeypatch):
+    old = tmp_path / "old_machine"
+    old.mkdir()
+    for cfg, count in (("cfg2", 180), ("cfg3", 2)):
+        batch_protocol(old, cfg, count)
+    output = tmp_path / "new_machine/manifests/s42"
+    dataset = tmp_path / "new_machine/dataset/RH20T_subset"
+    shutil.copytree(old / "manifests/s42", output)
+    for cfg in ("cfg2", "cfg3"):
+        shutil.copytree(old / f"RH20T_{cfg}", dataset / f"RH20T_{cfg}")
+    shutil.rmtree(old)
+    before = {p.relative_to(output): p.read_bytes() for p in output.rglob("*.json")}
+    from bise.data.rh20t import splits
+
+    def unexpected_work(*args, **kwargs):
+        raise AssertionError("Relocation must not resample scenes or hash source files")
+
+    monkeypatch.setattr(splits.np.random, "default_rng", unexpected_work)
+    monkeypatch.setattr(splits, "file_hash", unexpected_work)
+    relocate_protocols(dataset, output)
+    for cfg in ("cfg2", "cfg3"):
+        for name in ("trajectory", "video"):
+            relative = Path(cfg) / f"split_manifest_{name}.json"
+            assert (output / relative).read_bytes() == before[relative]
+        inventory = json.loads((output / cfg / "data_manifest.json").read_text())
+        original = json.loads(before[Path(cfg) / "data_manifest.json"])
+        assert inventory.pop("data_root") == str(dataset / f"RH20T_{cfg}")
+        original.pop("data_root")
+        assert inventory == original
+        metadata = json.loads((output / cfg / "metadata.json").read_text())
+        assert metadata["data_manifest"] == str(output / cfg / "data_manifest.json")
+        assert load_protocol(output / cfg / "metadata.json")["seed"] == 42
+    relocated = {p: p.read_bytes() for p in output.rglob("*.json")}
+    # The CLI honors manifest_batch just like the full pipeline; a new seed cannot resplit it.
+    config = tmp_path / "run.json"
+    write_json(config, {"manifest_dir": str(output.parent), "batch": "cloud",
+                        "manifest_batch": "s42", "dataset_root": str(dataset), "seed": 999})
+    entry = load_entry("prepare_splits")
+    monkeypatch.setattr(sys, "argv", ["prepare_splits", "--config", str(config), "--relocate"])
+    entry.main()
+    assert all(path.read_bytes() == value for path, value in relocated.items())
+
+
+def test_relocate_rolls_back_metadata_when_frozen_video_is_missing(tmp_path):
+    for cfg, count in (("cfg2", 180), ("cfg3", 2)):
+        batch_protocol(tmp_path, cfg, count)
+    output = tmp_path / "moved/manifests/s42"
+    shutil.copytree(tmp_path / "manifests/s42", output)
+    before = {p: p.read_bytes() for p in output.rglob("*.json")}
+    (tmp_path / "RH20T_cfg3/task_0000/scene_1/cam_0_human.mp4").unlink()
+    with pytest.raises(FileNotFoundError, match="Frozen video file missing"):
+        relocate_protocols(tmp_path, output)
     assert all(path.read_bytes() == value for path, value in before.items())
 
 

@@ -174,6 +174,8 @@ def main():
     print(f"RUN_DIR={run_dir.resolve()}", flush=True)
 
     history = {"train_loss": [], "train_loss_inter": [], "train_loss_intra": [], "val_mean_p_rank": [], "val_mrr": [], "val_ndcg": []}
+    if config["loss"].get("negative_separation", {}).get("weight", 0):
+        history.update(train_loss_negative=[], negative_weighted_loss=[])
     if semantic is not None:
         history.update(train_loss_semantic=[], semantic_coverage=[], semantic_entropy=[],
                        semantic_weight=[])
@@ -206,6 +208,9 @@ def main():
         history["train_loss"].append(train_result["loss"])
         history["train_loss_inter"].append(train_result["inter_loss"] if record_intra_curves else None)
         history["train_loss_intra"].append(train_result["intra_loss"] if record_intra_curves else None)
+        if "train_loss_negative" in history:
+            history["train_loss_negative"].append(train_result["negative_loss"])
+            history["negative_weighted_loss"].append(train_result["negative_weighted_loss"])
         if semantic is not None:
             history["train_loss_semantic"].append(train_result["semantic_loss"])
             history["semantic_coverage"].append(train_result["semantic_coverage"])

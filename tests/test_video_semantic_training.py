@@ -211,7 +211,7 @@ def test_auxiliary_head_preserves_e5_initialization_and_retrieval():
 
 
 @pytest.mark.parametrize("suite", ("views", "video32"))
-def test_three_variants_prepare_train_and_evaluate_both_cfgs(tmp_path, monkeypatch, suite):
+def test_variants_prepare_train_and_evaluate_both_cfgs(tmp_path, monkeypatch, suite):
     from test_retrain_splits import frozen_protocol
     from test_retrain_video import entry, LocalBackbone, local_processor, local_frames
     from bise.data.rh20t import video_dataset
@@ -237,7 +237,8 @@ def test_three_variants_prepare_train_and_evaluate_both_cfgs(tmp_path, monkeypat
     torch.set_num_threads(2)
     try:
         splits, teachers = [], []
-        for name in ("V0", "V1", "V2"):
+        names = ("V0", "V1", "V2", "V3") if suite == "views" else ("V0", "V1", "V2")
+        for name in names:
             config = json.loads((ROOT / f"configs/retrain/{suite}/{name}.json").read_text())
             config["device"] = "cpu"
             config["dataset"].update(root_dir=payload["data_root"], num_frames=2,
@@ -247,14 +248,14 @@ def test_three_variants_prepare_train_and_evaluate_both_cfgs(tmp_path, monkeypat
             config["training"].update(num_epochs=1, eval_batch_size=64, amp=False)
             config["split"] = {"shared_manifest_path": str(protocol), "unit": "scene"}
             config["eval_manifests"] = {"cfg2": str(protocol), "cfg3": str(cfg3)}
-            if name != "V0":
+            if name in ("V1", "V2"):
                 config["loss"]["semantic"]["teacher_path"] = str(teacher_file)
             if config["model"].get("semantic_dim"):
                 config["model"]["semantic_dim"] = 6
             run = tmp_path / "runs" / "video" / name
             prepare_training_run(config, "video", run)
             # Snapshots and all metadata exist before the model is built.
-            if name != "V0":
+            if name in ("V1", "V2"):
                 with np.load(run / "semantic_teachers.npz", allow_pickle=False) as data:
                     teachers.append(set(data["scene_ids"]))
                     assert len(teachers[-1]) == scene_count - 170
@@ -265,13 +266,18 @@ def test_three_variants_prepare_train_and_evaluate_both_cfgs(tmp_path, monkeypat
             assert json.loads((run / "status.json").read_text())["state"] == "complete"
             assert (run / "best_model.pth").is_file() and not (run / "last_model.pth").exists()
             curves = json.loads((run / "curves.json").read_text())
-            if name != "V0":
+            if name in ("V1", "V2"):
                 assert curves["train_loss_semantic"][0] >= -1e-6
                 assert curves["semantic_coverage"] == [1.0]
                 if suite == "views":
                     assert curves["semantic_candidates"][0] > 8
                     assert curves["semantic_weighted_loss"][0] > 0
                     assert curves["semantic_gradient_ratio"][0] > 0
+            if name == "V3":
+                assert not (run / "semantic_teachers.npz").exists()
+                assert curves["train_loss_negative"][0] > 0
+                assert curves["negative_weighted_loss"][0] == pytest.approx(
+                    .1 * curves["train_loss_negative"][0])
             saved = json.loads((run / "params.json").read_text())
             for cfg in ("cfg2", "cfg3"):
                 current = effective_config(deepcopy(saved), "video", cfg)
@@ -288,7 +294,14 @@ def test_three_variants_prepare_train_and_evaluate_both_cfgs(tmp_path, monkeypat
                 for artifact in ("metrics.json", "views.json", "views.png",
                                  "camera_heatmap.png", "scene_heatmap.png"):
                     assert (output / artifact).is_file()
-        assert splits[0] == splits[1] == splits[2]
+        assert all(split == splits[0] for split in splits)
         assert teachers[0] == teachers[1]
+        if suite == "views":
+            from bise.common.comparison import export_comparison
+            registry = {"modality": "video", "batch": "test", "groups": {
+                name: {"run_dir": str(tmp_path / "runs/video" / name), "label": name}
+                for name in names}}
+            summary = export_comparison(registry, ["cfg2", "cfg3"], tmp_path / "charts")
+            assert all(set(summary[cfg]) == set(names) for cfg in ("cfg2", "cfg3"))
     finally:
         torch.set_num_threads(threads)

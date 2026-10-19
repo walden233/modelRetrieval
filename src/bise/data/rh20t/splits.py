@@ -233,6 +233,48 @@ def _video_pairs(root: Path, hand_entries: dict) -> dict:
     return inventory
 
 
+def relocate_protocols(dataset_root: str | Path, output_dir: str | Path) -> None:
+    """Rebind a copied batch to this machine, preserving every frozen split byte."""
+    dataset_root, output_dir = resolve_path(dataset_root), resolve_path(output_dir)
+    updates, targets = {}, []
+    for cfg in ("cfg2", "cfg3"):
+        directory = output_dir / cfg
+        target, data_path = directory / "metadata.json", directory / "data_manifest.json"
+        metadata, data = json.loads(target.read_text()), json.loads(data_path.read_text())
+        if (metadata.get("protocol") != PROTOCOL or metadata.get("schema_version") != 3
+                or metadata.get("cfg") != cfg or data.get("human_source") != "hand_3d_base"):
+            raise ValueError(f"Expected a frozen batch inventory: {target}")
+        root = dataset_root / f"RH20T_{cfg}"
+        if not root.is_dir():
+            raise FileNotFoundError(f"Dataset directory missing: {root}")
+        if Path(data["data_root"]).name != root.name:
+            raise ValueError(f"Inventory belongs to a different cfg: {data_path}")
+        splits = {name: directory / f"split_manifest_{name}.json"
+                  for name in ("trajectory", "video")}
+        for path in splits.values():
+            load_split_map(path)
+        rebound_metadata = {**metadata, "data_root": str(root), "data_manifest": str(data_path),
+                            "split_manifests": {name: str(path) for name, path in splits.items()}}
+        rebound_data = {**data, "data_root": str(root)}
+        for path, original, current in ((target, metadata, rebound_metadata),
+                                         (data_path, data, rebound_data)):
+            if current != original:
+                updates[path] = current
+        targets.append(target)
+    # Restore the originals if the copied data cannot satisfy the frozen camera choices.
+    before = {path: path.read_bytes() for path in updates}
+    try:
+        for path, current in updates.items():
+            write_json(path, current)
+        for target in targets:
+            load_protocol(target)
+    except Exception:
+        for path, content in before.items():
+            path.write_bytes(content)
+        raise
+    print(f"Relocate frozen batch paths: {len(updates)} files; splits unchanged", flush=True)
+
+
 def prepare_protocols(dataset_root: str | Path, source_dir: str | Path | None,
                       output_dir: str | Path,
                       seed: int = 42, cfg2_test_limit: int | None = 98) -> dict:

@@ -5,6 +5,21 @@ from torch import nn
 from bise.common.losses import multi_positive_intra_modal_loss as intra_domain_consistency_loss
 
 
+def negative_task_separation_loss(human_embeds, robot_embeds, task_labels, margin=0.3):
+    """Penalize high cosine scores between different tasks in HH, RR and HR pairs."""
+    if not -1.0 <= margin <= 1.0:
+        raise ValueError("negative_separation.margin must be between -1 and 1")
+    embeddings = torch.cat((human_embeds, robot_embeds), dim=0).float()
+    labels = task_labels.to(embeddings.device).repeat(2)
+    different_tasks = labels[:, None] != labels[None, :]
+    if not different_tasks.any():
+        return embeddings.sum() * 0.0
+    # The penalty uses raw cosine rather than the trainable contrastive logit scale.
+    with torch.autocast(device_type=embeddings.device.type, enabled=False):
+        cosine = embeddings @ embeddings.T
+        return F.relu(cosine[different_tasks] - margin).square().mean()
+
+
 class InfoNCELoss(nn.Module):
     # 最基础的一对一对比损失：假设 batch 内第 i 个 human 只和第 i 个 robot 匹配。
     def __init__(self, temperature: float = 0.07):

@@ -75,22 +75,23 @@ V0/V2将同scene跨相机正样本权重从0.5提高到1.0，与自身增强同�
 
 ## 4. 新实验与完整入口
 
-| 实验 | 采样 | 同scene模态内权重 | 语义监督 |
-|---|---|---|---|
-| V0 | 4 task × 1 scene × 2相机 | 1.0 | 无 |
-| V1 | random | 0.5 | 跨batch语义关系KL，缓存64对视频 |
-| V2 | 同V0 | 1.0 | 与V1相同 |
+| 实验 | 采样 | 同scene模态内权重 | 语义监督 | 异task分离 |
+|---|---|---|---|---|
+| V0 | 4 task × 1 scene × 2相机 | 1.0 | 无 | 无 |
+| V1 | random | 0.5 | 跨batch语义关系KL，缓存64对视频 | 无 |
+| V2 | 同V0 | 1.0 | 与V1相同 | 无 |
+| V3 | 同V0 | 1.0 | 无 | 余弦阈值0.3、损失权重0.1 |
 
-三组都从项目内V-JEPA2预训练权重从头训练，不读取已训练E5的best_model。共同设置为双适配头＋共享128维检索投影、微调最后1个block、16帧、训练/评估batch=8、5epoch、学习率1e-5、模态内权重0.2，按验证task MRR选择best。V1的“仅语义”指只额外增加语义监督，原有跨域和增强损失仍保留；不加入V0的组织采样和增权。
-本机V1/V2不再增加128→1024语义头，关系损失直接作用于最终检索向量；三组模型结构和初始化相同。与旧E5比较时，batch扩大也是变量；若需严格分解增益，应补充同batch=8、随机采样、无语义的E5对照，不能把全部变化都归因于语义。
+四组都从项目内V-JEPA2预训练权重从头训练，不读取已训练E5的best_model。共同设置为双适配头＋共享128维检索投影、微调最后1个block、16帧、训练/评估batch=8、5epoch、学习率1e-5、模态内权重0.2，按验证task MRR选择best。V1的“仅语义”指只额外增加语义监督，原有跨域和增强损失仍保留；不加入V0的组织采样和增权。
+本机V1/V2不再增加128→1024语义头，关系损失直接作用于最终检索向量；四组模型结构和初始化相同。与旧E5比较时，batch扩大也是变量；若需严格分解增益，应补充同batch=8、随机采样、无语义的E5对照，不能把全部变化都归因于语义。
 
 2026-10-19在本机RTX 4060 Laptop 8GB上使用真实预训练骨干、合成输入完成显存压力测试：V0两次优化器更新通过；V2九次更新通过，队列达到64对、候选达到72，PyTorch峰值allocated为6.59GiB、reserved为6.95GiB。该数值不包含桌面等外部占用，余量较紧；这是运行与显存验证，不是检索性能实验。未启动正式重训或覆盖现有run。
 
-配置目录为`configs/retrain/views/`，默认新batch为`v44`，结果在`artifacts/runs/retrain/v44/video/V0|V1|V2/`。`manifest_batch: s44`复用现有清单与冻结相机，不生成第二份公共清单；三组train/val/test直接复用`s44/video/E5/split_manifest.json`。E5实际train/val与s44公共清单不同，但test相同，因此不能只引用公共清单重新划分。每个新run仍保存自己的划分快照。
+配置目录为`configs/retrain/views/`，默认新batch为`v44`，结果在`artifacts/runs/retrain/v44/video/V0|V1|V2|V3/`。`manifest_batch: s44`复用现有清单与冻结相机，不生成第二份公共清单；四组train/val/test直接复用`s44/video/E5/split_manifest.json`。E5实际train/val与s44公共清单不同，但test相同，因此不能只引用公共清单重新划分。每个新run仍保存自己的划分快照。
 
 ```bash
 conda activate torch2
-# 完整准备、审计、三组从头训练、cfg2/cfg3评估与绘图
+# 完整准备、审计、四组从头训练、cfg2/cfg3评估与绘图
 python runs/retrain.py --config configs/retrain/views/run.json --batch v44 --modality video
 
 # 独立环节；train会先准备完所有选定run的元信息与教师快照，再依次训练
@@ -100,6 +101,9 @@ python runs/retrain.py --config configs/retrain/views/run.json --batch v44 --mod
 python runs/retrain.py --config configs/retrain/views/run.json --batch v44 --modality video --stage eval
 python runs/retrain.py --config configs/retrain/views/run.json --batch v44 --modality video --stage charts
 python runs/redraw.py --batch v44
+
+# 仅新增V3：训练、cfg2/cfg3评估及与已有V0–V2合并绘图
+python runs/retrain.py --config configs/retrain/views/run.json --batch v44 --modality video --only V3
 
 # 只重新训练、评估V1；旧V1会归档，V0/V2不重训
 python runs/retrain.py --config configs/retrain/views/run.json --batch v44 --modality video --stage train --only V1
@@ -118,9 +122,24 @@ V1/V2语义权重改为0.5、教师/学生温度均0.1、首个epoch逐step线�
 V0：L = L_inter + λ_intra × L_intra_view
 V1：L = L_inter + λ_intra × L_intra_original + λ_sem × L_sem
 V2：L = L_inter + λ_intra × L_intra_view + λ_sem × L_sem
+V3：L = L_inter + λ_intra × L_intra_view + 0.1 × L_neg
 ```
 
-三个实验的纯视频评估均自动生成主检索指标、相机一致性三联图、相机级和scene最大值热图，比较表与柱状图进入batch下的`video/charts/`。
+四个实验的纯视频评估均自动生成主检索指标、相机一致性三联图、相机级和scene最大值热图，比较表与柱状图进入batch下的`video/charts/`。
+
+V3严格继承V0的结构、划分、采样、初始化和训练预算，仅增加`loss.negative_separation`：
+
+```text
+L_neg = mean[max(0, cos(z_i, z_j) - 0.3)^2], task_i != task_j
+```
+
+分离项在当前batch的人类、机器人原始检索向量上计算，覆盖HH、RR、HR全部异task配对；
+同task的不同scene/相机全部屏蔽。输入已经L2归一化，该项使用float32余弦，不乘可训练logit_scale；
+低于阈值的负样本不再被推远。阈值为软惩罚起点，不保证训练后所有负样本均低于0.3。
+权重0.1和阈值0.3是初始设置，按验证表现调整；V3不使用语义教师。
+`curves.json`与epoch日志记录原始分离损失`train_loss_negative`（日志中为`negative_loss`）和
+实际加入总损失的`negative_weighted_loss`，run内曲线图增加分离损失面板。
+主评估、相机一致性和热图继续使用原有入口，V3与已有V0–V2合并进入batch比较图。
 
 ## 5. 推荐的语义监督粒度
 

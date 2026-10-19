@@ -125,8 +125,22 @@ AutoDL官方首页将部分vGPU-32G标为RTX 4080S 32G，不能仅凭vGPU名称�
 若同时保留上传压缩包、解压数据及重跑归档，建议至少80–100GB数据盘；以实际剩余空间为准。
 将项目及数据放在`/root/autodl-tmp/BISE`等本地数据盘位置。
 
-新机从源码配置运行并现场生成`v32`清单，不复制本机旧`pipeline.json`、run快照或整份旧清单目录：
-旧metadata/params里有本机绝对路径。数据完整且seed一致时，新机的划分规则和样本选择可复现。
+`artifacts/manifests/retrain/`已纳入Git，训练机拉取后可直接复用已有batch的scene划分和相机选择。
+清单中的绝对路径需先绑定到训练机；例如复用已在本机核对通过的`s44`：
+
+```bash
+python runs/prepare_splits.py --config configs/retrain/video32/run.json --batch s44 --relocate
+python runs/retrain.py --config configs/retrain/video32/run.json --batch s44 --modality video
+```
+
+`--relocate`只更新`metadata.json`和`data_manifest.json`中的运行路径，不重抽样，不修改两份split的内容与顺序；
+若冻结视频缺失则报错并恢复原元数据。数据仍需单独上传到配置的`dataset_root`。
+历史`extrinsics_source`仅记录来源，不要求训练机挂载原D盘。
+已有batch保留清单原seed和划分；训练seed仍由run配置或`--seed`指定。
+直接使用新名字`--batch v32`时，会生成一份新的v32清单，不会自动复用s44。
+如需输出名仍为v32、共享划分复用s44，在run.json设置`"manifest_batch": "s44"`，然后以`--batch v32`执行迁移和训练。
+旧run的`pipeline.json`、params快照及权重不随这次清单迁移；新训练从源码配置创建run。
+2026-10-19核对：s43/s44/s45的冻结视频均存在；s50/cfg3引用的496个视频文件在本机子集中缺失，应使用匹配的数据版本，不替换相机或重抽划分。
 
 ### 环境
 

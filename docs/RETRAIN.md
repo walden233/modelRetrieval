@@ -42,6 +42,7 @@ python runs/retrain.py --config configs/retrain/video32/run.json --batch v32 --m
 
 `configs/retrain/views/run.json`复用s44实际E5的划分，三组统一batch8、16帧、微调最后1层、双适配头、5epoch。V0为4task×双相机组织采样＋同scene正样本增权1.0；V1为原随机采样＋语义监督；V2为V0＋与V1相同的语义监督。
 V1/V2显式启用`mode=queue`、64对历史视频向量、语义权重0.5、1epoch预热，直接约束128维检索空间，不加语义投影头。本次不修改`video32`配置及原batch/bank监督路径。完整设置、日志字段、重跑入口见[跨相机实验](video/CROSS_VIEW.md#4-新实验与完整入口)。
+本机新增V3＝V0＋异task分离：使用当前batch的HH/RR/HR不同task配对，余弦超过0.3时计算平方惩罚，权重0.1；不使用语义监督。V0–V2及video32配置保持各自原设置。仅运行新增组：`python runs/retrain.py --config configs/retrain/views/run.json --batch v44 --modality video --only V3`。
 
 ## 当前实验矩阵
 
@@ -200,6 +201,29 @@ python runs/prepare_splits.py --config configs/retrain/s43/run.json --batch s45
 
 cfg2 评估继续使用每个 run 自己的 `split_manifest.json:test`；cfg3 使用 batch 的对应模态清单。
 两个模态均评估 cfg2/cfg3，任务级划分 T4/E6 仍纳入主图并标记，不能将其分数差异直接归因于结构。
+
+### Git同步与训练机复用
+
+`artifacts/manifests/retrain/`纳入Git，当前保留s43、s44、s45、s50各batch的八份必要JSON。
+根目录旧缓存`cfg2_data.json`、`cfg3_data.json`已删除；当前流水线使用各batch的`data_manifest.json`。
+数据集、训练权重、其它manifests和运行产物继续按原规则忽略。
+
+清单中的绝对路径仍指向生成它的机器。训练机拉取代码和清单、单独上传数据后，先执行路径迁移：
+
+```bash
+python runs/prepare_splits.py --config configs/retrain/video32/run.json --batch s44 --relocate
+python runs/retrain.py --config configs/retrain/video32/run.json --batch s44 --modality video
+```
+
+该例复用已核对通过的`s44`，训练seed取run配置；需要改变训练seed可显式加`--seed`，已有划分不会重抽。
+若run配置设置了`manifest_batch`，准备和迁移都以该值选择公共清单，与完整流水线一致。
+`--relocate`只重绑定该batch中metadata/data_manifest的路径，保留两份split的字节内容和顺序，
+不生成哈希或额外JSON，不扫描重建人手清单，不重新选相机。冻结视频缺失会回滚元数据并报错。
+历史`extrinsics_source`保留为来源记录，无需在训练机挂载原始D盘。
+本机现有公共清单此次没有改写。旧run的绝对路径快照不在这个迁移范围内。
+输出批次与共享划分可分开：在run.json设置`"manifest_batch": "s44"`后，`--batch v32`会输出到v32并复用s44划分。
+2026-10-19核对：s43/s44/s45匹配本机视频；s50/cfg3有496个所引用视频文件在本机缺失，保留原清单，复用时需匹配其数据版本。
+
 
 ## 完整入口
 

@@ -2,7 +2,10 @@ import torch
 from torch.amp import autocast
 from tqdm.auto import tqdm
 
-from .losses import InfoNCELoss, intra_domain_consistency_loss, multi_positive_video_contrastive_loss
+from .losses import (
+    InfoNCELoss, intra_domain_consistency_loss, multi_positive_video_contrastive_loss,
+    negative_task_separation_loss,
+)
 from .transforms import apply_video_transforms
 
 
@@ -28,6 +31,11 @@ def train_video_epoch(
     total_loss = 0.0
     total_inter = 0.0
     total_intra = 0.0
+    total_negative = 0.0
+    negative_config = loss_config.get("negative_separation", {})
+    negative_weight = float(negative_config.get("weight", 0.0))
+    if negative_weight < 0:
+        raise ValueError("negative_separation.weight must be nonnegative")
     total_semantic = total_entropy = total_weight = 0.0
     valid_teachers = seen_samples = semantic_queries = 0
     queued_semantic = semantic_supervisor is not None and semantic_supervisor.mode == "queue"
@@ -56,6 +64,13 @@ def train_video_epoch(
                 scene_positive_weight=float(loss_config.get("scene_positive_weight", 0.5)),
             )
             total = inter_loss + float(loss_config.get("lambda_intra", 0.0)) * intra_loss
+            if negative_weight:
+                negative_loss = negative_task_separation_loss(
+                    outputs["human_embeddings"], outputs["robot_embeddings"],
+                    batch["task_indices"], margin=float(negative_config.get("margin", 0.3)),
+                )
+                total = total + negative_weight * negative_loss
+                total_negative += float(negative_loss.detach())
             if semantic_supervisor is not None:
                 from .semantic import scene_key
                 keys = [scene_key(dataset_cfg, identity) for identity in batch["scene_ids"]]
@@ -114,6 +129,9 @@ def train_video_epoch(
         "inter_loss": total_inter / batch_count,
         "intra_loss": total_intra / batch_count,
     }
+    if negative_weight:
+        result.update(negative_loss=total_negative / batch_count,
+                      negative_weighted_loss=negative_weight * total_negative / batch_count)
     if semantic_supervisor is not None:
         result.update(
             semantic_loss=total_semantic / batch_count,
