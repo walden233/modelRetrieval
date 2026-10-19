@@ -22,7 +22,7 @@ from bise.common import ensure_directory, load_json_config, merge_overrides, sav
 from bise.common.paths import resolve_path
 from bise.modalities.video import build_retrieval_cases, collate_video_pairs, evaluate_video_retrieval, train_video_epoch
 from bise.modalities.video.factory import build_split_manifest, build_video_dataset, build_video_model, split_video_dataset
-from bise.modalities.video.sampling import SceneViewBatchSampler
+from bise.modalities.video.sampling import build_training_sampler
 from bise.modalities.video.semantic import prepare_semantic_supervision
 
 
@@ -100,7 +100,9 @@ def main():
         write_json(run_dir / "data_manifest.json", train_dataset.manifest)
         write_json(run_dir / "split_info.json", {
             "protocol": config["protocol"], "unit": split_config.get("unit", "scene"),
-            "counts": validate_split(split_manifest, split_config.get("unit", "scene")),
+            "counts": validate_split(
+                split_manifest, split_config.get("unit", "scene"),
+                require_disjoint=split_config.get("require_disjoint", False)),
             "use_fixed_val": (split_config.get("unit") != "task"
                               and split_config.get("use_fixed_val", True)),
             **({"scene_counts": split_config["scene_counts"]}
@@ -122,19 +124,15 @@ def main():
     val_source = build_video_dataset(config["dataset"], processor=processor, is_train=False)
     val_dataset = _mirror_subset(val_source, split_datasets.get("val"))
 
-    sampler = config["training"].get("sampler", "random")
+    sampler = build_training_sampler(split_datasets["train"], config["training"], seed)
     loader_options = {
         "num_workers": config["training"].get("num_workers", 0),
         "collate_fn": collate_video_pairs,
     }
-    if sampler == "scene_views":
-        if config["training"]["batch_size"] != 4:
-            raise ValueError("scene_views requires training.batch_size=4")
-        loader_options["batch_sampler"] = SceneViewBatchSampler(split_datasets["train"], seed)
-    elif sampler == "random":
-        loader_options.update(batch_size=config["training"]["batch_size"], shuffle=True)
+    if sampler is not None:
+        loader_options["batch_sampler"] = sampler
     else:
-        raise ValueError(f"Unknown video training sampler: {sampler}")
+        loader_options.update(batch_size=config["training"]["batch_size"], shuffle=True)
     train_loader = DataLoader(split_datasets["train"], **loader_options)
     semantic = prepare_semantic_supervision(config, split_datasets["train"], run_dir)
     if semantic is not None:
@@ -184,8 +182,8 @@ def main():
     record_intra_curves = _uses_intra_loss(config)
 
     for epoch in range(config["training"]["num_epochs"]):
-        if isinstance(train_loader.batch_sampler, SceneViewBatchSampler):
-            train_loader.batch_sampler.set_epoch(epoch)
+        if sampler is not None:
+            sampler.set_epoch(epoch)
         train_result = train_video_epoch(
             model=model,
             dataloader=train_loader,

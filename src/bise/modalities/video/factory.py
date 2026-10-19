@@ -10,7 +10,7 @@ from bise.common import resolve_path
 from bise.data.rh20t.video_dataset import RH20TVideoDataset
 from bise.data.whirl.video_pair_dataset import VideoPairDataset
 
-from .models.backbone_registry import build_video_backbone
+from .models.backbone_registry import backbone_source, build_video_backbone
 from .models.cross_domain_video_encoder import CrossDomainVideoEncoder
 
 
@@ -18,7 +18,7 @@ def build_video_model(model_config: Dict) -> tuple[object, CrossDomainVideoEncod
     # 工厂函数：根据配置先构建底层 backbone，再包装成统一的视频编码器。
     processor, backbone_adapter = build_video_backbone(
         backbone_type=model_config["backbone_type"],
-        model_name=model_config["backbone_name"],
+        model_name=backbone_source(model_config),
         trust_remote_code=model_config.get("trust_remote_code", True),
     )
     model = CrossDomainVideoEncoder(

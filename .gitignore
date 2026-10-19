@@ -4,7 +4,12 @@ rh20t_api/
 dataset/
 results/
 model_weight/
-artifacts/
+/artifacts/*
+!/artifacts/semantic/
+/artifacts/semantic/*
+!/artifacts/semantic/v2/
+/artifacts/semantic/v2/*
+!/artifacts/semantic/v2/teachers/
 analysis/
 **/__pycache__
 *.egg-info/

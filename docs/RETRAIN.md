@@ -4,7 +4,7 @@
 
 配置位于 `configs/retrain/`，产物位于
 `artifacts/runs/retrain/<batch>/{trajectory,video}/<group>/`。
-当前唯一批次模板为 `configs/retrain/s43/run.json`，默认 seed 43；
+默认两模态模板为 `configs/retrain/s43/run.json`，默认 seed 43；
 轨迹设计和几何表示见 [轨迹模板](trajectory/S43.md)。更新源配置不会自动改变已有 run 的实际训练设置；
 以各 run 的 `params.json` 为准。s44 视频的编号迁移见下节。
 
@@ -19,6 +19,24 @@ configs/retrain/s43/
 旧 s42 入口、重复轨迹配置和绑定历史权重的建库模板已删除。
 `runs/retrain.py`、`prepare_splits.py`、`audit_splits.py` 默认读取上述批次模板。
 运行时根据 `--batch` 绑定该批次的划分与输出路径；已有实验仍使用各 run 内的配置快照。
+
+## 32GB视频主实验（v32）
+
+独立配置为`configs/retrain/video32/run.json`，默认seed44、batch名v32。
+E0–E3统一微调最后2个block＋双适配头，保留单/多正样本和有/无模态内增强的四组消融。
+E4为冻结骨干＋双头；E5沿用E3的微调2层＋双头，改为24帧、batch14；E6为同架构的task划分；
+E7为VideoMAE微调最后2层＋双头。RawJ/RawM保留原始骨干评估。
+这是新矩阵，不迁移或覆盖旧s44权重，也不把旧E3视为两层微调结果。
+
+默认训练batch22、16帧，E5为batch14、24帧；均为8epoch，E0–E7使用随机采样。
+V0为每batch 11个不同task、各一个scene的两个相机，模态内scene正样本权重为1.0；V1为E3＋训练集文本库语义监督；
+V2为V0＋同一语义监督。其它组的scene权重默认0.5；旧`s43`和`views`配置及其本机训练行为保持原样。
+新batch独立准备公共清单，并开启scene/task互斥检查。
+详细矩阵、采样补齐规则和独立入口见[配置说明](../configs/retrain/video32/README.md)。
+
+```bash
+python runs/retrain.py --config configs/retrain/video32/run.json --batch v32 --modality video
+```
 
 ## 当前实验矩阵
 
@@ -47,7 +65,8 @@ T0 前 8 epoch 保持初始学习率，其余组前 10 epoch 保持。N1–N5 �
 额外保存一次 `loss_model.pth`，不覆盖它；对应 epoch/loss 记录在日志及 `status.json:loss_checkpoint`。
 未达到阈值则不生成该文件。轨迹、视频均不再保存 `last_model.pth`，已有历史文件不自动删除。
 
-视频统一 batch 4、5 epoch；以下未注明项以 E3 为准。
+以下为`configs/retrain/s43/video`的原视频矩阵，统一batch4、5epoch；未注明项以E3为准。
+32GB新矩阵以本页上节及`configs/retrain/video32`为准。
 
 | 实验 | 跨域损失 | 模态内增强 | 模型/划分 |
 |---|---|---|---|
@@ -447,7 +466,12 @@ artifacts/models/video/
 公共权重尚不存在时，首次评估将已加载的预训练骨干保存到公共位置，后续批次直接复用。
 s44 的两份权重已迁移至此，原 run 内副本移除；文件内容保持一致。
 各 run 仍单独保存参数、划分、指标和评估来源，checkpoint 指纹对应实际使用的权重文件。
-构建骨干结构和 processor 仍使用 Hugging Face 模型缓存，公共 `.pth` 不替代该缓存。
+旧配置构建骨干结构和processor仍使用Hugging Face模型缓存，公共`.pth`不替代该缓存。
+`configs/retrain/video32`已显式使用`model.backbone_dir`从项目内完整目录加载，
+包含模型config、processor配置及`model.safetensors`，无需系统HF缓存。
+迁移时复制`artifacts/models/video/facebook--vjepa2-vitl-fpc64-256/`和
+`artifacts/models/video/MCG-NJU--videomae-base/`两个目录；详见
+[离线目录说明](../configs/retrain/video32/README.md#离线骨干目录)。
 
 cfg2 主图中的 T4/E6 使用不同测试集合，图中标记并保留样本规模。
 重新导出主图会清除旧的 `cfg2_task.png`，不再生成单独的 task 图。
@@ -479,6 +503,26 @@ PNG 已删除时也能恢复。旧批次首次执行会自动补齐清单。
 缺少依赖文件或发现无法重绘的 PNG 时，在覆盖图片前报错。
 自定义批次路径用 `python runs/redraw.py --root <批次目录>`。
 重绘必须显式提供 `--batch` 或 `--root`，没有默认历史批次。
+
+## 打包实验产物
+
+```bash
+python scripts/pack_retrain.py --dry-run
+python scripts/pack_retrain.py
+# 可指定文件名，也可用 --source 只打包一个batch
+python scripts/pack_retrain.py --output artifacts/exports/retrain.zip
+```
+
+默认读取`artifacts/runs/retrain`全部内容（包括其中的archive历史目录），
+输出到`artifacts/exports/retrain_<时间>.zip`。
+排除`.pt/.pth/.ckpt/.safetensors/.bin/.onnx`及`.pt.tar/.pth.tar/.ckpt.tar`权重文件，
+保留配置、划分、指标、日志、图表、NPY向量/相似度矩阵和NPZ教师快照。
+不改动源文件，不覆盖已有压缩包，不跟随符号链接。
+包内默认以`retrain/`开头，恢复到项目时执行`unzip <压缩包> -d artifacts/runs`。
+
+`artifacts/semantic/v2/teachers/`已解除Git忽略；当前S3教师npz约1.6MB，
+包含scene ID、有效教师文本和向量，可直接跟随Git迁移。
+其余semantic产物及runs继续忽略。教师不在上述默认打包范围内，单独由Git管理。
 
 ## 验证
 

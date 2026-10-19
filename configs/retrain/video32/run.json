@@ -1,0 +1,79 @@
+{
+  "protocol": "retrain_v2",
+  "seed": 44,
+  "batch": "v32",
+  "output_root": "artifacts/runs/retrain",
+  "dataset_root": "dataset/RH20T_subset",
+  "manifest_dir": "artifacts/manifests/retrain",
+  "trajectory": {},
+  "video": {
+    "E0": {
+      "config": "configs/retrain/video32/E0.json",
+      "label": "E0",
+      "raw": false
+    },
+    "E1": {
+      "config": "configs/retrain/video32/E1.json",
+      "label": "E1",
+      "raw": false
+    },
+    "E2": {
+      "config": "configs/retrain/video32/E2.json",
+      "label": "E2",
+      "raw": false
+    },
+    "E3": {
+      "config": "configs/retrain/video32/E3.json",
+      "label": "E3",
+      "raw": false
+    },
+    "E4": {
+      "config": "configs/retrain/video32/E4.json",
+      "label": "E4",
+      "raw": false
+    },
+    "E5": {
+      "config": "configs/retrain/video32/E5.json",
+      "label": "E5",
+      "raw": false
+    },
+    "E6": {
+      "config": "configs/retrain/video32/E6.json",
+      "label": "E6",
+      "raw": false
+    },
+    "E7": {
+      "config": "configs/retrain/video32/E7.json",
+      "label": "E7",
+      "raw": false
+    },
+    "V0": {
+      "config": "configs/retrain/video32/V0.json",
+      "label": "V0",
+      "raw": false
+    },
+    "V1": {
+      "config": "configs/retrain/video32/V1.json",
+      "label": "V1",
+      "raw": false
+    },
+    "V2": {
+      "config": "configs/retrain/video32/V2.json",
+      "label": "V2",
+      "raw": false
+    },
+    "RawJ": {
+      "config": "configs/retrain/video32/RawJ.json",
+      "label": "RawJ",
+      "raw": true
+    },
+    "RawM": {
+      "config": "configs/retrain/video32/RawM.json",
+      "label": "RawM",
+      "raw": true
+    }
+  },
+  "prepare": {
+    "cfg2_test_limit": 98
+  }
+}

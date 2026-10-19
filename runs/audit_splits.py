@@ -74,7 +74,8 @@ def audit(config: dict, files: bool = False, runs: str | None = None) -> dict:
                            if split.get("scene_counts") and not split.get("manifest_path")
                            else split_video_dataset(source, split))
                 mapping = video_manifest(subsets)
-            counts = validate_split(mapping, split.get("unit", "scene"))
+            counts = validate_split(mapping, split.get("unit", "scene"),
+                                    require_disjoint=split.get("require_disjoint", False))
             report["groups"][f"{modality}/{key}"] = counts
     if runs:
         registry = load_runs(runs)

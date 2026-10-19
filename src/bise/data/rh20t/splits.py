@@ -44,7 +44,7 @@ def load_split_map(path: str | Path) -> dict:
     return mapping
 
 
-def validate_split(mapping: dict, unit: str = "scene") -> dict:
+def validate_split(mapping: dict, unit: str = "scene", *, require_disjoint: bool = False) -> dict:
     scenes = {key: {scene_id(x) for x in mapping.get(key, [])} for key in SPLITS}
     counts = {key: {"samples": len(mapping.get(key, [])), "scenes": len(scenes[key]),
                     "tasks": len({x.split('/')[0] for x in scenes[key]})} for key in SPLITS}
@@ -52,6 +52,16 @@ def validate_split(mapping: dict, unit: str = "scene") -> dict:
         values = mapping.get(left, [])
         if len(values) != len(set(values)):
             raise ValueError(f"Duplicate samples in {left}")
+        if require_disjoint:
+            for right in SPLITS[i + 1:]:
+                overlap = scenes[left] & scenes[right]
+                if overlap:
+                    raise ValueError(f"Overlapping scenes in {left}/{right}: {sorted(overlap)[:3]}")
+                if unit == "task":
+                    tasks_left = {value.split('/')[0] for value in scenes[left]}
+                    tasks_right = {value.split('/')[0] for value in scenes[right]}
+                    if tasks_left & tasks_right:
+                        raise ValueError(f"Overlapping tasks in {left}/{right}")
     return counts
 
 

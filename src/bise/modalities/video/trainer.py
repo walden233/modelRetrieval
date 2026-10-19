@@ -49,6 +49,7 @@ def train_video_epoch(
                 transform_config=intra_transform_config or loss_config.get("intra_transform"),
                 scene_labels=batch["scene_indices"],
                 task_labels=batch["task_indices"],
+                scene_positive_weight=float(loss_config.get("scene_positive_weight", 0.5)),
             )
             total = inter_loss + float(loss_config.get("lambda_intra", 0.0)) * intra_loss
             if semantic_supervisor is not None:
@@ -133,6 +134,7 @@ def _compute_inter_loss(outputs, labels, loss_config):
 
 def _compute_intra_loss(
     model, human_videos, robot_videos, logit_scale, transform_config, scene_labels, task_labels,
+    scene_positive_weight: float = 0.5,
 ):
     # 只有配置里显式打开增强一致性时，才计算这一路损失。
     if not transform_config:
@@ -148,6 +150,7 @@ def _compute_intra_loss(
         logit_scale,
         scene_labels,
         task_labels,
+        scene_positive_weight=scene_positive_weight,
     )
     robot_loss = intra_domain_consistency_loss(
         model.encode_robot(robot_view1),
@@ -155,6 +158,7 @@ def _compute_intra_loss(
         logit_scale,
         scene_labels,
         task_labels,
+        scene_positive_weight=scene_positive_weight,
     )
     return (human_loss + robot_loss) / 2.0
 

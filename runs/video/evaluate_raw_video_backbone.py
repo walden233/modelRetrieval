@@ -17,7 +17,7 @@ from bise.common import ensure_directory, load_json_config
 from bise.modalities.video import build_retrieval_cases, collate_video_pairs, evaluate_video_retrieval
 from bise.modalities.video.checkpoints import raw_backbone_path
 from bise.modalities.video.factory import build_video_dataset, split_video_dataset
-from bise.modalities.video.models.backbone_registry import build_video_backbone
+from bise.modalities.video.models.backbone_registry import backbone_source, build_video_backbone
 from evaluate_video import _resolve_split_config, _save_evaluation_outputs
 
 
@@ -50,7 +50,7 @@ def main():
 
     processor, backbone_adapter = build_video_backbone(
         backbone_type=config["model"]["backbone_type"],
-        model_name=config["model"]["backbone_name"],
+        model_name=backbone_source(config["model"]),
         trust_remote_code=config["model"].get("trust_remote_code", True),
     )
     model = RawBackboneRetrievalModel(backbone_adapter)

@@ -41,15 +41,14 @@ def prepare_training_run(config: dict, modality: str, run: Path,
         subsets = split_dataset(dataset, split)
     mapping = build_split_manifest(subsets)
     if modality == "video":
-        from bise.modalities.video.sampling import SceneViewBatchSampler
+        from bise.modalities.video.sampling import build_training_sampler
         from bise.modalities.video.semantic import prepare_semantic_supervision
-        if config.get("training", {}).get("sampler") == "scene_views":
-            if config["training"]["batch_size"] != 4:
-                raise ValueError("scene_views requires training.batch_size=4")
-            SceneViewBatchSampler(subsets["train"], config.get("seed", 42))
+        build_training_sampler(subsets["train"], config.get("training", {}),
+                               config.get("seed", 42))
         prepare_semantic_supervision(config, subsets["train"], run)
     from bise.data.rh20t.splits import validate_split
-    counts = validate_split(mapping, split.get("unit", "scene"))
+    counts = validate_split(mapping, split.get("unit", "scene"),
+                            require_disjoint=split.get("require_disjoint", False))
     run.mkdir(parents=True, exist_ok=True)
     write_json(run / "split_manifest.json", mapping)
     write_json(run / "data_manifest.json", dataset.manifest)

@@ -141,7 +141,8 @@ def test_auxiliary_head_preserves_e5_initialization_and_retrieval():
     assert torch.allclose(models[0].encode_human(videos), models[1].encode_human(videos))
 
 
-def test_three_variants_prepare_train_and_evaluate_both_cfgs(tmp_path, monkeypatch):
+@pytest.mark.parametrize("suite", ("views", "video32"))
+def test_three_variants_prepare_train_and_evaluate_both_cfgs(tmp_path, monkeypatch, suite):
     from test_retrain_splits import frozen_protocol
     from test_retrain_video import entry, LocalBackbone, local_processor, local_frames
     from bise.data.rh20t import video_dataset
@@ -149,7 +150,8 @@ def test_three_variants_prepare_train_and_evaluate_both_cfgs(tmp_path, monkeypat
     from bise.common.training import prepare_training_run
     from bise.common.evaluation import effective_config, validate_evaluation
 
-    protocol, payload, identities = frozen_protocol(tmp_path, with_files=True)
+    scene_count = 218 if suite == "video32" else 180
+    protocol, payload, identities = frozen_protocol(tmp_path, count=scene_count, with_files=True)
     cfg3, _, _ = frozen_protocol(tmp_path, cfg="cfg3", count=2, with_files=True)
     monkeypatch.syspath_prepend(str(ROOT / "runs/video"))
     monkeypatch.setattr(video_dataset, "sample_video_frames", local_frames)
@@ -167,7 +169,7 @@ def test_three_variants_prepare_train_and_evaluate_both_cfgs(tmp_path, monkeypat
     try:
         splits, teachers = [], []
         for name in ("V0", "V1", "V2"):
-            config = json.loads((ROOT / f"configs/retrain/views/{name}.json").read_text())
+            config = json.loads((ROOT / f"configs/retrain/{suite}/{name}.json").read_text())
             config["device"] = "cpu"
             config["dataset"].update(root_dir=payload["data_root"], num_frames=2,
                                      pair_manifests={"RH20T_cfg2": str(protocol),
@@ -178,7 +180,7 @@ def test_three_variants_prepare_train_and_evaluate_both_cfgs(tmp_path, monkeypat
             config["eval_manifests"] = {"cfg2": str(protocol), "cfg3": str(cfg3)}
             if name != "V0":
                 config["loss"]["semantic"]["teacher_path"] = str(teacher_file)
-            if name == "V2":
+            if config["model"].get("semantic_dim"):
                 config["model"]["semantic_dim"] = 6
             run = tmp_path / "runs" / "video" / name
             prepare_training_run(config, "video", run)
@@ -186,7 +188,7 @@ def test_three_variants_prepare_train_and_evaluate_both_cfgs(tmp_path, monkeypat
             if name != "V0":
                 with np.load(run / "semantic_teachers.npz", allow_pickle=False) as data:
                     teachers.append(set(data["scene_ids"]))
-                    assert len(teachers[-1]) == 10
+                    assert len(teachers[-1]) == scene_count - 170
             monkeypatch.setattr(sys, "argv", ["train_video", "--config", str(run / "params.json"),
                                              "--run-dir", str(run), "--prepared"])
             train.main()
