@@ -22,6 +22,8 @@ from bise.common import ensure_directory, load_json_config, merge_overrides, sav
 from bise.common.paths import resolve_path
 from bise.modalities.video import build_retrieval_cases, collate_video_pairs, evaluate_video_retrieval, train_video_epoch
 from bise.modalities.video.factory import build_split_manifest, build_video_dataset, build_video_model, split_video_dataset
+from bise.modalities.video.sampling import SceneViewBatchSampler
+from bise.modalities.video.semantic import prepare_semantic_supervision
 
 
 def parse_args():
@@ -120,13 +122,23 @@ def main():
     val_source = build_video_dataset(config["dataset"], processor=processor, is_train=False)
     val_dataset = _mirror_subset(val_source, split_datasets.get("val"))
 
-    train_loader = DataLoader(
-        split_datasets["train"],
-        batch_size=config["training"]["batch_size"],
-        shuffle=True,
-        num_workers=config["training"].get("num_workers", 0),
-        collate_fn=collate_video_pairs,
-    )
+    sampler = config["training"].get("sampler", "random")
+    loader_options = {
+        "num_workers": config["training"].get("num_workers", 0),
+        "collate_fn": collate_video_pairs,
+    }
+    if sampler == "scene_views":
+        if config["training"]["batch_size"] != 4:
+            raise ValueError("scene_views requires training.batch_size=4")
+        loader_options["batch_sampler"] = SceneViewBatchSampler(split_datasets["train"], seed)
+    elif sampler == "random":
+        loader_options.update(batch_size=config["training"]["batch_size"], shuffle=True)
+    else:
+        raise ValueError(f"Unknown video training sampler: {sampler}")
+    train_loader = DataLoader(split_datasets["train"], **loader_options)
+    semantic = prepare_semantic_supervision(config, split_datasets["train"], run_dir)
+    if semantic is not None:
+        semantic.to(device)
     val_loader = None
     if val_dataset is not None and len(val_dataset) > 0:
         val_loader = DataLoader(
@@ -164,11 +176,16 @@ def main():
     print(f"RUN_DIR={run_dir.resolve()}", flush=True)
 
     history = {"train_loss": [], "train_loss_inter": [], "train_loss_intra": [], "val_mean_p_rank": [], "val_mrr": [], "val_ndcg": []}
+    if semantic is not None:
+        history.update(train_loss_semantic=[], semantic_coverage=[], semantic_entropy=[],
+                       semantic_weight=[])
     best_result = None
     best_score = float("-inf")
     record_intra_curves = _uses_intra_loss(config)
 
     for epoch in range(config["training"]["num_epochs"]):
+        if isinstance(train_loader.batch_sampler, SceneViewBatchSampler):
+            train_loader.batch_sampler.set_epoch(epoch)
         train_result = train_video_epoch(
             model=model,
             dataloader=train_loader,
@@ -181,10 +198,18 @@ def main():
             grad_clip_norm=config["optimization"].get("grad_clip_norm"),
             gradient_accumulation_steps=config["training"].get("gradient_accumulation_steps", 1),
             intra_transform_config=config["dataset"].get("intra_train_augmentations"),
+            semantic_supervisor=semantic,
+            epoch=epoch,
+            dataset_cfg=Path(config["dataset"]["root_dir"]).name.removeprefix("RH20T_"),
         )
         history["train_loss"].append(train_result["loss"])
         history["train_loss_inter"].append(train_result["inter_loss"] if record_intra_curves else None)
         history["train_loss_intra"].append(train_result["intra_loss"] if record_intra_curves else None)
+        if semantic is not None:
+            history["train_loss_semantic"].append(train_result["semantic_loss"])
+            history["semantic_coverage"].append(train_result["semantic_coverage"])
+            history["semantic_entropy"].append(train_result["semantic_entropy"])
+            history["semantic_weight"].append(train_result["semantic_weight"])
 
         val_result = evaluate_video_retrieval(model, val_loader, device) if val_loader is not None else None
         primary_metrics = _extract_primary_metrics(val_result)
@@ -230,15 +255,16 @@ def _trainable_info(model, config: dict) -> dict:
 
     backbones = ([("shared", model.shared_backbone)] if model.shared_backbone is not None
                  else [("human", model.human_backbone), ("robot", model.robot_backbone)])
+    heads = [("human", model.human_adapter), ("robot", model.robot_adapter),
+             ("projector", model.projector)]
+    if getattr(model, "semantic_projector", None) is not None:
+        heads.append(("semantic", model.semantic_projector))
     return {
         "encoder_mode": model.encoder_mode,
         "batch_size": config["training"]["batch_size"],
         "unfreeze_last_n_blocks": config["model"].get("unfreeze_last_n_blocks", 0),
         "parameters": counts(model),
-        "heads": {name: counts(module) for name, module in (
-            ("human", model.human_adapter), ("robot", model.robot_adapter),
-            ("projector", model.projector),
-        )},
+        "heads": {name: counts(module) for name, module in heads},
         "backbones": [{
             "name": name, "parameters": counts(backbone),
             "trainable_blocks": [

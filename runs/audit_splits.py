@@ -17,7 +17,7 @@ def audit(config: dict, files: bool = False, runs: str | None = None) -> dict:
     report = {"protocols": {}, "groups": {}}
     manifests = config.get("eval_manifests")
     if manifests is None:
-        directory = resolve_path(config["manifest_dir"]) / config["batch"]
+        directory = resolve_path(config["manifest_dir"]) / config.get("manifest_batch", config["batch"])
         manifests = {cfg: directory / cfg / "metadata.json" for cfg in ("cfg2", "cfg3")}
     for cfg, path in manifests.items():
         payload = load_protocol(path)

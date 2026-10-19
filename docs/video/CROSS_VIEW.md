@@ -2,7 +2,7 @@
 
 记录日期：2026-10-10；损失实现更新：2026-10-11。
 
-本文提取讨论的关键结论。实验范围已确定；2026-10-17 已实现逐视频语义标注、scene 汇总和训练划分教师导出，见 [语义实现方案](../semantic/PLAN.md)。本文的新增视频训练损失仍为后续方案，当前改造未修改视频训练。
+本文提取讨论的关键结论。逐视频标注与教师生成见 [语义实现方案](../semantic/PLAN.md)。2026-10-18 已接入组织多视角采样、batch 内语义关系蒸馏、完整训练教师库蒸馏；配置与命令见第4节。
 
 2026-10-17 补充：scene 教师来源与导出接口以 [第三章实现方案](../semantic/PLAN.md#12-scene-级汇总与训练教师) 为准。复用第三章通过 --source 选定的一种逐视频语义表示（默认S5结构），再做只返回任务描述的scene级文本汇总；教师池与训练batch无关，读取时过滤实际train；当前默认每 scene 两个相机、四段视频，训练使用范围服从对应 run 的划分。
 
@@ -10,9 +10,9 @@
 s44 视频已按该编号迁移并复用原权重与评估结果，设置与映射见
 [当前矩阵和迁移记录](../RETRAIN.md#当前实验矩阵)。2026-10-11 已将两模态的模态内损失
 统一为自身增强 1、同 scene 不同相机 0.5、同 task 不同 scene 0.25，逐行归一化。
-下文扩展损失已实现，但组织采样与语义监督仍待实现；旧 run 的权重和评估不因此改变。
+组织采样与语义监督通过显式配置启用；原有随机采样实验保持原行为。
 历史基础矩阵以E3为基线；本轮跨相机补充实验按用户选择以 **E5** 为起点，
-后续两组应继承实际E5 run的参数、划分和预算，不把旧结果当成扩展方法结果。
+三组新增实验继承实际E5 run的参数、划分和预算，不把旧结果当成扩展方法结果。
 当前检查的s43/s44 E5实际params.json均为解冻最后1个block，应以实际产物为准，
 不能直接套用文档中“最后两个block”的概括。
 
@@ -46,7 +46,7 @@ s44 视频已按该编号迁移并复用原权重与评估结果，设置与映�
 2026-10-11 起，上述同 scene 跨相机关系在同 batch 内以 0.5 权重直接参与模态内监督；
 同 task 不同 scene 以 0.25 权重参与，自身增强权重为 1，不同 task 仍为负样本。
 
-当前训练随机打乱样本，batch 为 4，没有保证同一个 scene 的两个相机同时进入 batch。数据集具有跨相机配对，不代表每一步都使用了这些关系；梯度累积也不会自动扩大对比损失的候选集合。
+原E5训练随机打乱样本，batch 为4，没有保证同一个scene的两个相机同时进入batch。新V0–V2显式启用组织采样。数据集具有跨相机配对，不代表每一步都使用了这些关系；梯度累积也不会自动扩大对比损失的候选集合。
 
 实现参考：[共用模态内损失](../../src/bise/common/losses.py)、[跨域损失](../../src/bise/modalities/video/losses.py)、[训练器](../../src/bise/modalities/video/trainer.py)、[训练采样](../../runs/video/train_video.py)。
 
@@ -62,8 +62,8 @@ s44 视频已按该编号迁移并复用原权重与评估结果，设置与映�
 
 “屏蔽负样本”和“加入正样本”不同，但属于同一损失设计的消融，不应包装成两项方法创新。本轮最终不再单独新增“仅屏蔽”的训练实验。
 
-推荐采样为每个 batch 选择两个不同 task 的 scene，每个 scene 放入两个相机配对，共四组人机视频。这样既稳定出现跨视角正样本，也保留跨任务负样本。两组新实验使用相同采样。
-这是后续采样方案，当前修正仅改变损失和标签传递，仍使用随机采样；
+新采样为每个batch选择两个不同task的scene，每个scene放入两个相机配对，共四组人机视频（四个人类视频和四个机器人视频）。这样既稳定出现跨视角正样本，也保留跨任务负样本。三组新实验使用相同采样。
+每epoch所有训练scene各出现一次，不重复、不丢弃；按seed和epoch确定顺序。为满足四配对和不同task约束，训练scene数必须为正偶数，且任何task的scene数不能超过总数的一半；不满足时明确报错。当前E5的258个train scene满足要求。
 上述两 task 的组织采样也不会包含同 task 不同 scene 关系，若研究该项需另行设计采样。
 
 增加的直接关系为：
@@ -73,27 +73,54 @@ s44 视频已按该编号迁移并复用原权重与评估结果，设置与映�
 
 不同相机的视频应对应同一执行及相应时间区间。人类示范与机器人执行不是天然逐帧同步，不能直接按相同帧序号做阶段对齐。
 
-## 4. 已确定：跨相机只新增两个训练实验
+## 4. 新实验与完整入口
 
 | 实验 | 跨域监督 | 模态内监督 | 语义监督 |
 |---|---|---|---|
-| 扩展模态内一致性 | 保留现有跨域多正样本 | 同视频增强＋同次执行跨相机正样本 | 无 |
-| 扩展模态内一致性＋语义监督 | 与第一组相同 | 与第一组相同 | 增加语义关系蒸馏 |
+| V0 | E5 task多正样本 | 原有加权损失＋组织多视角采样 | 无 |
+| V1 | 与V0相同 | 与V0相同 | batch内人机视频关系双向KL |
+| V2 | 与V0相同 | 与V0相同 | 共享线性语义投影＋完整train文本库软关系KL |
 
-两组保持模型、采样、数据划分、训练预算和其他损失一致，只改变语义项。现有 run 可作为历史参照，但采样等条件不同的旧结果不能直接用于归因语义监督的收益。
+三组都从V-JEPA2预训练权重重新初始化训练，不读取已训练E5的best_model；双适配头和最终128维检索投影重新初始化。均沿用E5的16帧、batch=4、5epoch、学习率1e-5、解冻最后1个block、模态内权重0.2、验证task MRR选择best。V2仅额外增加128→1024的共享无偏置线性语义头，评估不用它；该头初始化不改变原有参数初始化或后续随机状态。论文可保留V0与V1/V2中一个，但完整实验保留三组结果。
+
+配置目录为`configs/retrain/views/`，默认新batch为`v44`，结果在`artifacts/runs/retrain/v44/video/V0|V1|V2/`。`manifest_batch: s44`复用现有清单与冻结相机，不生成第二份公共清单；三组train/val/test直接复用`s44/video/E5/split_manifest.json`。E5实际train/val与s44公共清单不同，但test相同，因此不能只引用公共清单重新划分。每个新run仍保存自己的划分快照。
+
+```bash
+conda activate torch2
+# 完整准备、审计、三组从头训练、cfg2/cfg3评估与绘图
+python runs/retrain.py --config configs/retrain/views/run.json --batch v44 --modality video
+
+# 独立环节；train会先准备完所有选定run的元信息与教师快照，再依次训练
+python runs/retrain.py --config configs/retrain/views/run.json --batch v44 --modality video --stage prepare
+python runs/retrain.py --config configs/retrain/views/run.json --batch v44 --modality video --stage audit
+python runs/retrain.py --config configs/retrain/views/run.json --batch v44 --modality video --stage train
+python runs/retrain.py --config configs/retrain/views/run.json --batch v44 --modality video --stage eval
+python runs/retrain.py --config configs/retrain/views/run.json --batch v44 --modality video --stage charts
+python runs/redraw.py --batch v44
+
+# 只重新训练、评估V1；旧V1会归档，V0/V2不重训
+python runs/retrain.py --config configs/retrain/views/run.json --batch v44 --modality video --stage train --only V1
+python runs/retrain.py --config configs/retrain/views/run.json --batch v44 --modality video --stage eval --only V1
+# 续跑整条流水线：已完成且best存在的训练复用，选定评估仍重新计算
+python runs/retrain.py --config configs/retrain/views/run.json --batch v44 --modality video --skip-existing
+```
+
+训练只存best，不存last；`--skip-existing`仅复用完成的run，未完成run会归档后从头训练，不是逐step断点恢复。纯重绘用`runs/redraw.py`，`--stage charts`还会从已有评估重新汇总比较数据。
+
+V1/V2默认语义权重0.1、教师/学生温度均0.1、首个epoch逐step线性升权；这些是起始配置，可在各自JSON中修改。教师快照为每run的`semantic_teachers.npz`，仅包含有效train scene的文本、归一化向量、身份与来源信息。准备后`params.json:loss.semantic`记录快照路径和覆盖情况，不新增单独的统计JSON。
 
 记现有跨域损失为 `L_inter`，扩展后的模态内损失为 `L_intra_view`：
 
 ```text
-实验一：L = L_inter + λ_intra × L_intra_view
-实验二：L = L_inter + λ_intra × L_intra_view + λ_sem × L_sem
+V0：L = L_inter + λ_intra × L_intra_view
+V1/V2：L = L_inter + λ_intra × L_intra_view + λ_sem × L_sem
 ```
 
-不在本记录中分配新的 E 编号、配置文件名或入口命令。
+三个实验的纯视频评估均自动生成主检索指标、相机一致性三联图、相机级和scene最大值热图，比较表与柱状图进入batch下的`video/charts/`。
 
 ## 5. 推荐的语义监督粒度
 
-训练以 scene 级、视角无关的操作语义为主。同一 scene 的人类与机器人、不同相机共享经过核验的教师。标注来源更新为第三章独立逐视频S5任务结构，再由文本模型汇总共享描述；无需为第四章重新读取视频标注。不可用目标默认屏蔽语义损失，不删除原视频样本或无声替换为 task 描述。
+训练以scene级、视角无关的操作语义为主。同一scene的人类与机器人、不同相机共享教师。本轮V1/V2选用`artifacts/semantic/v2/teachers/S3/cfg2.npz`，来源为逐视频S3经文本模型汇总的共享描述，无需重新标视频。读取时只保留实际train scene；不可用目标屏蔽语义损失，不删除视频样本或回退task描述。2026-10-18检查：全池401/428有效，实际E5训练覆盖241/258，另17个scene只参与原有损失；以后覆盖量以准备时写入params的快照为准。
 
 | 粒度 | 优点 | 局限 | 本轮建议 |
 |---|---|---|---|
@@ -127,7 +154,9 @@ s44 视频已按该编号迁移并复用原权重与评估结果，设置与映�
 
 ## 6. 语义监督如何参与训练
 
-推荐使用软关系蒸馏，避免根据文本相似度阈值重新硬划分视频正负样本。
+两种方法均使用软关系蒸馏，避免按文本相似度阈值重新硬划分视频正负样本。
+
+### V1：batch内关系
 
 1. 离线编码 scene 描述，文本教师冻结。
 2. 根据描述向量的相似度，计算 batch 内视频之间的语义匹配分布 `Q`。
@@ -146,6 +175,23 @@ L_sem = 两个检索方向的 KL(Q || P) 的平均
 这约束的是候选之间的相对匹配关系，不要求视频余弦相似度数值直接等于文本余弦相似度。
 
 固定骨干的实验更新适配头与检索投影；允许微调的实验才更新相应骨干参数。描述和文本编码器不参与反向传播。两组实验推理时均只输入视频。
+
+缺失教师的行和候选列同时屏蔽，并在有效候选上重新归一化。若batch中不足两个不同有效scene，语义项为零，原有损失照常计算。batch=4、两scene时该方法的关系信息有限，但保留为直接对照。
+
+### V2：完整训练文本库关系
+
+将全部有效train教师作为冻结候选库。当前scene文本与库中所有文本的相似度给出Q；人类和机器人最终检索向量分别通过同一个线性语义头W，与相同文本库比较得到P：
+
+```text
+Q_ij = softmax_j(cos(t_i, t_j) / τ_text)
+P^H_ij = softmax_j(cos(normalize(W h_i), t_j) / τ_video)
+P^R_ij = softmax_j(cos(normalize(W r_i), t_j) / τ_video)
+L_sem = [KL(Q || P^H) + KL(Q || P^R)] / 2
+```
+
+这里j覆盖整个有效train教师库，不受当前batch的两个scene限制；当前batch仅有一个有效scene时仍可使用。文本库不参与梯度，不额外编码视频，梯度经过共享语义头返回128维检索向量。推理不调用语义头或教师。验证、测试文本均不进入候选库。
+
+`curves.json`增加`train_loss_semantic`、`semantic_coverage`、`semantic_entropy`、`semantic_weight`；epoch日志还记录实际参与语义关系的配对查询数`semantic_queries`。覆盖率是有效教师视频配对比例，V1只有一份有效教师时该batch的有效覆盖仍记录，但不计入语义查询数。语义损失取每batch的有效查询平均，缺失项不以零教师伪造目标。
 
 ### 监督边界
 

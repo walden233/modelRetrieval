@@ -52,6 +52,7 @@ class CrossDomainVideoEncoder(nn.Module):
         unfreeze_last_n_blocks: int = 0,
         freeze_patch_embed: bool = False,
         freeze_norm_layers: bool = False,
+        semantic_dim: int = 0,
     ):
         super().__init__()
         # encoder_mode 决定 human / robot 两个域共享多少参数。
@@ -94,6 +95,11 @@ class CrossDomainVideoEncoder(nn.Module):
             freeze_patch_embed=freeze_patch_embed,
             freeze_norm_layers=freeze_norm_layers,
         )
+        # Auxiliary training head; retrieval continues to use the original embeddings.
+        self.semantic_projector = None
+        if semantic_dim:
+            with torch.random.fork_rng(devices=[]):
+                self.semantic_projector = nn.Linear(feature_dim, semantic_dim, bias=False)
 
     def encode_human(self, pixel_values: torch.Tensor, return_features: bool = False):
         # human 支路：backbone 提特征 -> adapter 做域校正 -> projector 投影到检索空间。

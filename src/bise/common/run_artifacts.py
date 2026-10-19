@@ -68,6 +68,7 @@ def plot_training_curves(history: Dict[str, Any], output_path: Path) -> None:
         ("val_ndcg", "Validation NDCG@10", "NDCG@10", "purple"),
         ("train_loss_inter", "Inter-modal Loss", "Loss", None),
         ("train_loss_intra", "Intra-modal Loss", "Loss", None),
+        ("train_loss_semantic", "Semantic Distillation Loss", "Loss", None),
     ]
     active_specs = [spec for spec in plot_specs if any(value is not None for value in history.get(spec[0], []))]
 

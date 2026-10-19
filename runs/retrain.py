@@ -42,7 +42,10 @@ def prepare_batch(config: dict, root: Path, modalities: list[str], seed: int,
                   device: str | None = None) -> tuple[dict, dict]:
     registries, runtime = {}, copy.deepcopy(config)
     runtime["seed"] = seed
-    manifest_dir = resolve_path(config["manifest_dir"]) / root.name
+    manifest_batch = config.get("manifest_batch", root.name)
+    if Path(manifest_batch).name != manifest_batch or manifest_batch in (".", ".."):
+        raise ValueError("manifest_batch must be a single batch name")
+    manifest_dir = resolve_path(config["manifest_dir"]) / manifest_batch
     runtime["manifest_dir"] = str(manifest_dir)
     runtime["eval_manifests"] = {
         cfg: str(manifest_dir / cfg / "metadata.json") for cfg in ("cfg2", "cfg3")

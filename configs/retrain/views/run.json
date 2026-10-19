@@ -1,0 +1,24 @@
+{
+  "protocol": "retrain_v2",
+  "seed": 44,
+  "batch": "v44",
+  "output_root": "artifacts/runs/retrain",
+  "dataset_root": "dataset/RH20T_subset",
+  "manifest_dir": "artifacts/manifests/retrain",
+  "manifest_batch": "s44",
+  "trajectory": {},
+  "video": {
+    "V0": {
+      "config": "configs/retrain/views/V0.json",
+      "label": "V0"
+    },
+    "V1": {
+      "config": "configs/retrain/views/V1.json",
+      "label": "V1"
+    },
+    "V2": {
+      "config": "configs/retrain/views/V2.json",
+      "label": "V2"
+    }
+  }
+}

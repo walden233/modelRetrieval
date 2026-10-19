@@ -18,6 +18,9 @@ def train_video_epoch(
     grad_clip_norm: float | None = None,
     gradient_accumulation_steps: int = 1,
     intra_transform_config=None,
+    semantic_supervisor=None,
+    epoch: int = 0,
+    dataset_cfg: str = "cfg2",
 ):
     # 一个 epoch 的训练主循环。
     # 输入 batch 后先前向，再算跨域对比损失 / 模态内一致性损失，最后反向更新参数。
@@ -25,6 +28,8 @@ def train_video_epoch(
     total_loss = 0.0
     total_inter = 0.0
     total_intra = 0.0
+    total_semantic = total_entropy = total_weight = 0.0
+    valid_teachers = seen_samples = semantic_queries = 0
     optimizer.zero_grad(set_to_none=True)
 
     for step, batch in enumerate(tqdm(dataloader, desc="Training Video"), start=1):
@@ -46,6 +51,21 @@ def train_video_epoch(
                 task_labels=batch["task_indices"],
             )
             total = inter_loss + float(loss_config.get("lambda_intra", 0.0)) * intra_loss
+            if semantic_supervisor is not None:
+                from .semantic import scene_key
+                keys = [scene_key(dataset_cfg, identity) for identity in batch["scene_ids"]]
+                semantic_loss, valid, entropy, queries = semantic_supervisor(
+                    outputs["human_embeddings"], outputs["robot_embeddings"], keys,
+                    getattr(model, "semantic_projector", None),
+                )
+                weight = semantic_supervisor.loss_weight(epoch + step / len(dataloader))
+                total = total + weight * semantic_loss
+                total_semantic += float(semantic_loss.detach())
+                total_entropy += entropy * queries
+                total_weight += weight
+                valid_teachers += valid
+                semantic_queries += queries
+                seen_samples += len(keys)
             scaled_loss = total / max(gradient_accumulation_steps, 1)
 
         if scaler is not None and scaler.is_enabled():
@@ -73,11 +93,20 @@ def train_video_epoch(
 
     batch_count = max(len(dataloader), 1)
     # 返回的是 epoch 平均统计，后续会写入训练曲线和 best_metrics。
-    return {
+    result = {
         "loss": total_loss / batch_count,
         "inter_loss": total_inter / batch_count,
         "intra_loss": total_intra / batch_count,
     }
+    if semantic_supervisor is not None:
+        result.update(
+            semantic_loss=total_semantic / batch_count,
+            semantic_coverage=valid_teachers / max(seen_samples, 1),
+            semantic_entropy=total_entropy / max(semantic_queries, 1),
+            semantic_queries=semantic_queries,
+            semantic_weight=total_weight / batch_count,
+        )
+    return result
 
 
 def _select_labels(batch, positive_level: str):

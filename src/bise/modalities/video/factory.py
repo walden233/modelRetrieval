@@ -33,6 +33,7 @@ def build_video_model(model_config: Dict) -> tuple[object, CrossDomainVideoEncod
         unfreeze_last_n_blocks=model_config.get("unfreeze_last_n_blocks", 0),
         freeze_patch_embed=model_config.get("freeze_patch_embed", False),
         freeze_norm_layers=model_config.get("freeze_norm_layers", False),
+        semantic_dim=model_config.get("semantic_dim", 0),
     )
     return processor, model
 
