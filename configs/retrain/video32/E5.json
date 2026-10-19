@@ -52,9 +52,9 @@
     "grad_clip_norm": 1.0
   },
   "training": {
-    "batch_size": 14,
-    "eval_batch_size": 14,
-    "num_epochs": 8,
+    "batch_size": 16,
+    "eval_batch_size": 16,
+    "num_epochs": 7,
     "num_workers": 0,
     "amp": true,
     "gradient_accumulation_steps": 1,

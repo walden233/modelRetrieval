@@ -24,12 +24,12 @@ configs/retrain/s43/
 
 独立配置为`configs/retrain/video32/run.json`，默认seed44、batch名v32。
 E0–E3统一微调最后2个block＋双适配头，保留单/多正样本和有/无模态内增强的四组消融。
-E4为冻结骨干＋双头；E5沿用E3的微调2层＋双头，改为24帧、batch14；E6为同架构的task划分；
+E4为冻结骨干＋双头；E5沿用E3的微调2层＋双头，改为24帧、batch16；E6为同架构的task划分；
 E7为VideoMAE微调最后2层＋双头。RawJ/RawM保留原始骨干评估。
 这是新矩阵，不迁移或覆盖旧s44权重，也不把旧E3视为两层微调结果。
 
-默认训练batch22、16帧，E5为batch14、24帧；均为8epoch，E0–E7使用随机采样。
-V0为每batch 11个不同task、各一个scene的两个相机，模态内scene正样本权重为1.0；V1为E3＋训练集文本库语义监督；
+统一训练和评估batch16、7epoch；默认16帧，E5为24帧，E0–E7使用随机采样。
+V0为每batch 8个不同task、各一个scene的两个相机，模态内scene正样本权重为1.0；V1为E3＋训练集文本库语义监督；
 V2为V0＋同一语义监督。其它组的scene权重默认0.5；本机`views`另行调整，见下节；`s43`基础视频配置不变。
 新batch独立准备公共清单，并开启scene/task互斥检查。
 详细矩阵、采样补齐规则和独立入口见[配置说明](../configs/retrain/video32/README.md)。

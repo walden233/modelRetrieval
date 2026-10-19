@@ -10,7 +10,7 @@
 | E2 | 同上 | 双头 | 最后2个block | 单正样本 | 有 | scene |
 | E3 | 同上 | 双头 | 最后2个block | task多正样本 | 有 | scene |
 | E4 | 同上 | 双头 | 全部冻结 | task多正样本 | 有 | scene |
-| E5 | 同上，24帧、batch14 | 双头 | 最后2个block | task多正样本 | 有 | scene |
+| E5 | 同上，24帧、batch16 | 双头 | 最后2个block | task多正样本 | 有 | scene |
 | E6 | 同上 | 双头 | 最后2个block | task多正样本 | 有 | task |
 | E7 | VideoMAE-Base | 双头 | 最后2个block | task多正样本 | 有 | scene |
 | RawJ / RawM | 原始V-JEPA2 / VideoMAE | 不用于编码 | 原始预训练模型，仅评估 | 无训练 | 无 | scene |
@@ -20,7 +20,7 @@
 | 实验 | batch采样 | scene正样本权重 | 语义监督 |
 |---|---|---|---|
 | E3 | 随机 | 0.5 | 无 |
-| V0 | 11个不同task，各取一个scene的两个相机 | 1.0 | 无 |
+| V0 | 8个不同task，各取一个scene的两个相机 | 1.0 | 无 |
 | V1 | 随机 | 0.5 | 训练集文本库监督 |
 | V2 | 与V0相同 | 1.0 | 与V1相同 |
 
@@ -35,23 +35,23 @@ V1/V2复用S3的scene教师`artifacts/semantic/v2/teachers/S3/cfg2.npz`。
 共享辅助投影为128→1024维，语义KL权重0.1、文本/视频温度均0.1、1epoch线性预热；辅助投影不参与最终检索。
 语义参数沿用已有文本库方案，本配置不包含旧的batch内语义监督实验。
 
-E3为完整方法。E4与E3比较冻结/微调；E5沿用E3架构，改为24帧、batch14，是增加帧数并降低batch的组合设置，不能单独归因于帧数。双头指人类和机器人分别使用残差适配头，最终检索投影共享。
+E3为完整方法。E4与E3比较冻结/微调；E5沿用E3架构和batch16，仅将采样帧数由16改为24，用于比较增加帧数的影响。双头指人类和机器人分别使用残差适配头，最终检索投影共享。
 E6的cfg2测试集按任务重新划分，约120个test、50个val scene；各task完全隔离，实际数量以run内清单为准。其余实验严格共用新batch的划分；cfg3均使用每task两个scene的独立测试清单。
 新batch独立生成划分，可能与历史s44不同；损失和结构消融在新batch内部比较，不把新旧指标直接当作同清单对照。
 
 ## 训练设置
 
-- 默认实际训练batch=22组人机配对，即44段原始视频；E5训练和评估batch均为14。均不使用梯度累积。
+- 全部配置的训练和评估batch均为16组人机配对，即每个训练batch包含32段原始视频；E5同样为batch16。均不使用梯度累积。
 - E0–E7及V1使用`random`：每epoch随机打乱全部train样本，不强制task或scene重复；尾batch按现有训练入口保留。
-- V0/V2显式启用新选项`scene_pairs`：每batch为11个不同task，每task一个scene的两个相机，共22对。同一个样本内人类与机器人视频仍来自同相机。
+- V0/V2显式启用新选项`scene_pairs`：每batch为8个不同task，每task一个scene的两个相机，共16对。同一个样本内人类与机器人视频仍来自同相机。
 - 组织采样每epoch覆盖全部train scene；不足整batch时从其它train task补充完整双相机scene，不从val/test取样。同seed下V0/V2的batch顺序一致。
 - 旧配置的`random`、`task_pairs`、batch4的`scene_views`行为均不改变；`configs/retrain/s43`及`configs/retrain/views`保持原样。
 - 默认16帧，E5为24帧，使用各骨干原有processor；V-JEPA2输入为256分辨率，VideoMAE使用原有预处理和特征接口。
-- 8epoch，AdamW学习率1e-5、weight_decay=0.01、线性调度、5%warmup、AMP。模态内权重0.2。
-- 516个train配对时随机batch22每epoch24步，8epoch共192步，尾batch为10对；E5每epoch37步，8epoch共296步，尾batch为12对。组织采样按scene覆盖及task数量补齐，实际步数由清单决定；E6按自身train规模计算。
+- 7epoch，AdamW学习率1e-5、weight_decay=0.01、线性调度、5%warmup、AMP。模态内权重0.2。
+- 516个train配对时随机batch16每epoch33步，7epoch共231步，尾batch为4对；E5步数和尾batch相同。组织采样按scene覆盖及task数量补齐，实际步数由清单决定；E6按自身train规模计算。
 - 按cfg2验证task MRR选择best，仅保存`best_model.pth`，不保存last。
 
-最后两层微调＋增强的实测显存趋势估计batch22张量约26.6GiB，另需缓存和CUDA运行时余量。此估计来自8GB机器的小batch测量，尚未在32GB机器实测batch22。
+按最后两层微调＋增强的小batch实测趋势外推，16帧batch16的张量峰值约19.8GiB；E5的24帧batch16显存需求更高。仍需为缓存和CUDA运行时留出余量，两种设置均需在目标机器实测。
 
 ## 入口
 
@@ -159,12 +159,12 @@ python -m pytest -q tests/test_video_local_models.py tests/test_video_losses.py
 python runs/retrain.py --config configs/retrain/video32/run.json --batch v32 --modality video --stage prepare
 python runs/retrain.py --config configs/retrain/video32/run.json --batch v32 --modality video --stage audit
 
-# 单独smoke batch：验证两种骨干、24帧及语义分支，同时实测显存；不改正式8epoch配置
+# 单独smoke batch：验证两种骨干、24帧及语义分支，同时实测显存；不改正式7epoch配置
 python runs/retrain.py --config configs/retrain/video32/run.json --batch v32smoke --modality video --only E3 E5 E7 V2 --video-epochs 1
 ```
 
 这是一轮小epoch完整验证，仍会训练和评估，不是仅导入检查。
-必须先确认32GB机器上的batch22、E5的24帧batch14能完成优化器更新；本机8GB测量不能代替该实测。
+必须先确认目标机器上的16帧batch16、E5的24帧batch16能完成优化器更新；本机8GB测量不能代替该实测。
 建议另开终端用`nvidia-smi`观察显存。若OOM，先统一调整受控比较组的batch，再正式训练；
 普通梯度累积不等价于扩大对比损失的候选池。
 
