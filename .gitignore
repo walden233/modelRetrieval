@@ -5,6 +5,9 @@ dataset/
 results/
 model_weight/
 /artifacts/*
+!/artifacts/manifests/
+/artifacts/manifests/*
+!/artifacts/manifests/retrain/
 !/artifacts/semantic/
 /artifacts/semantic/*
 !/artifacts/semantic/v2/

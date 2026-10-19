@@ -1,0 +1,13 @@
+{
+  "schema_version": 3,
+  "protocol": "retrain_v2",
+  "cfg": "cfg3",
+  "seed": 45,
+  "data_root": "/home/ttt/BISE/dataset/RH20T_subset/RH20T_cfg3",
+  "data_manifest": "/home/ttt/BISE/artifacts/manifests/retrain/s44/cfg3/data_manifest.json",
+  "split_manifests": {
+    "trajectory": "/home/ttt/BISE/artifacts/manifests/retrain/s44/cfg3/split_manifest_trajectory.json",
+    "video": "/home/ttt/BISE/artifacts/manifests/retrain/s44/cfg3/split_manifest_video.json"
+  },
+  "scenes_per_task": 2
+}
