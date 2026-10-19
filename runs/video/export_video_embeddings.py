@@ -15,8 +15,9 @@ bootstrap()
 
 from bise.common import EmbeddingSample, load_json_config
 from bise.retrieval.feature_store import FeatureStore
-from bise.modalities.video import build_retrieval_cases, collate_video_pairs, evaluate_video_retrieval
+from bise.modalities.video import build_retrieval_cases, evaluate_video_retrieval
 from bise.modalities.video.factory import build_video_dataset, build_video_model, split_video_dataset
+from bise.modalities.video.loading import video_loader_options
 
 
 def parse_args():
@@ -49,8 +50,7 @@ def main():
         dataset,
         batch_size=config["training"]["eval_batch_size"],
         shuffle=False,
-        num_workers=config["training"].get("num_workers", 0),
-        collate_fn=collate_video_pairs,
+        **video_loader_options(config["training"], device),
     )
     model = model.to(device)
     model.load_state_dict(torch.load(args.checkpoint, map_location=device))

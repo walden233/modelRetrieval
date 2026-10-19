@@ -191,3 +191,46 @@ python runs/retrain.py --config configs/retrain/video32/run.json --batch v32smok
 不能把“可看结果”当作“搬回本机后直接续训/重评”。
 
 默认命令会归档已有选定run后从头训练。加`--skip-existing`可复用已完成训练；未完成run仍归档重训，不是step级恢复。旧`s43`配置和`s44/v44`产物不作迁移。
+
+### CPU视频加载
+
+本组使用4个CPU worker，每个视频解码器2线程；保持batch、帧数、采样规则和模型设置。
+训练、验证、独立评估与Raw评估均复用worker、每worker预取2个batch，使用spawn启动，
+CUDA侧启用固定内存和非阻塞传输。设置在training.num_workers及dataset.decoder_threads中。
+正在运行的进程需重新启动才能使用新加载配置；已准备但未开始的run可以更新这两个字段。
+
+2026-10-20在RTX 4080 32GB实例上，64对真实视频、batch16、16帧的纯CPU加载测速：
+串行两轮分别59.20/58.95秒；4 worker＋2解码线程分别57.33/29.49秒；
+4 worker＋自动解码线程分别56.10/31.50秒。首轮包含spawn启动，后续复用worker。
+这是训练同时运行时的独立数据加载测试，不代表完整训练加速倍数。
+三组固定输入的像素统计与ID顺序一致，另有真实MP4逐像素相等、跨epoch worker复用、
+CUDA固定内存和非阻塞拷贝回读测试。
+当前Decord为CPU构建；FFmpeg尝试NVDEC返回CUDA_ERROR_NO_DEVICE并回退CPU，未启用GPU硬解。
+测速日志位于训练机/root/autodl-tmp/bise-loader-bench.log。
+
+### 无损像素缓存
+
+本组dataset.cache_dir为artifacts/cache/video。缓存按processor配置、帧数、采样方式、
+视频路径/大小/修改时间区分，使用独立npz保存processor的原始浮点输出，不量化、不改原视频，
+不向数据清单添加哈希。固定均匀采样跨seed共用缓存；16帧、24帧、VideoMAE分别缓存。
+模态内随机增强仍在每次训练时执行；非确定的随机选帧不启用缓存。
+首次访问解码并原子写入缓存，命中后跳过解码与processor。源视频或processor改变会生成新缓存，
+损坏缓存自动重建。可删除整个缓存目录，不影响原始数据及训练产物。
+
+可独立提前准备，使用已准备run的params.json，不加载骨干、不训练：
+
+```bash
+python runs/video/warm_cache.py --config artifacts/runs/retrain/s53/video/E1/params.json
+python runs/video/warm_cache.py --config artifacts/runs/retrain/s53/video/E5/params.json
+python runs/video/warm_cache.py --config artifacts/runs/retrain/s53/video/E7/params.json
+```
+
+2026-10-20同64对视频：首次构建82.31秒（含worker启动），缓存复用5.15秒，
+相比无缓存4 worker的29.49秒及串行58.95秒，纯加载分别约快5.7倍和11.4倍。
+压缩缓存约354MiB。临时E0模型、16帧batch16、AMP训练测试的缓存复用轮：
+4batch总7.74秒，第一批取数3.15秒，其余三批取数等待均小于0.001秒；
+GPU计算每batch约1.11秒，传输约0.031秒。独立临时模型未写训练run或覆盖正式权重。
+仅代表本次抽样测量；未命中的新采样仍需解码建缓存。
+底层检查日志/root/autodl-tmp/bise-nvdec-check.log：CUDA上下文创建成功，但H264/HEVC
+的cuvidGetDecoderCaps均返回CUDA_ERROR_NO_DEVICE；libcuda与libnvcuvid均595.58.03，
+与内核模块匹配，需平台进一步确认视频引擎可用性。未替换系统驱动。

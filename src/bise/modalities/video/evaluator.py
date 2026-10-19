@@ -23,8 +23,8 @@ def evaluate_video_retrieval(model, dataloader, device):
 
     with torch.no_grad():
         for batch in tqdm(dataloader, desc="Evaluating Video"):
-            human_videos = batch["human_pixel_values"].to(device)
-            robot_videos = batch["robot_pixel_values"].to(device)
+            human_videos = batch["human_pixel_values"].to(device, non_blocking=True)
+            robot_videos = batch["robot_pixel_values"].to(device, non_blocking=True)
             outputs = model(human_videos, robot_videos)
             human_features_list.append(outputs["human_embeddings"].cpu())
             robot_features_list.append(outputs["robot_embeddings"].cpu())

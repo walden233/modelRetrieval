@@ -20,8 +20,9 @@ bootstrap()
 
 from bise.common import ensure_directory, load_json_config, merge_overrides, save_run_artifacts
 from bise.common.paths import resolve_path
-from bise.modalities.video import build_retrieval_cases, collate_video_pairs, evaluate_video_retrieval, train_video_epoch
+from bise.modalities.video import build_retrieval_cases, evaluate_video_retrieval, train_video_epoch
 from bise.modalities.video.factory import build_split_manifest, build_video_dataset, build_video_model, split_video_dataset
+from bise.modalities.video.loading import video_loader_options
 from bise.modalities.video.sampling import build_training_sampler
 from bise.modalities.video.semantic import prepare_semantic_supervision
 
@@ -125,10 +126,7 @@ def main():
     val_dataset = _mirror_subset(val_source, split_datasets.get("val"))
 
     sampler = build_training_sampler(split_datasets["train"], config["training"], seed)
-    loader_options = {
-        "num_workers": config["training"].get("num_workers", 0),
-        "collate_fn": collate_video_pairs,
-    }
+    loader_options = video_loader_options(config["training"], device)
     if sampler is not None:
         loader_options["batch_sampler"] = sampler
     else:
@@ -143,8 +141,7 @@ def main():
             val_dataset,
             batch_size=config["training"]["eval_batch_size"],
             shuffle=False,
-            num_workers=config["training"].get("num_workers", 0),
-            collate_fn=collate_video_pairs,
+            **video_loader_options(config["training"], device),
         )
 
     model = model.to(device)

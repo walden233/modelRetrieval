@@ -10,10 +10,11 @@ def sample_video_frames(
     strategy: str = "uniform",
     seed: int | None = None,
     stride: int | None = None,
+    decoder_threads: int = 0,
 ):
     # 真正的视频读取入口：先解码，再按策略选帧，最后返回帧列表。
     try:
-        video_reader = VideoReader(str(video_path), ctx=cpu(0))
+        video_reader = VideoReader(str(video_path), ctx=cpu(0), num_threads=decoder_threads)
         total_frames = len(video_reader)
         if total_frames <= 0:
             raise ValueError(f"Video contains no readable frames: {video_path}")

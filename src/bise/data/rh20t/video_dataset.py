@@ -5,6 +5,7 @@ from torch.utils.data import Dataset
 
 from bise.common.schemas import VideoPairSample
 from bise.modalities.video.batch import extract_pixel_values
+from bise.modalities.video.cache import VideoPixelCache
 from bise.modalities.video.frame_sampling import sample_video_frames
 from bise.modalities.video.transforms import apply_video_transforms
 
@@ -26,10 +27,13 @@ class RH20TVideoDataset(Dataset):
         debug_max_samples: int | None = None,
         pair_manifest_path: str | None = None,
         verify_video_hashes: bool = True,
+        decoder_threads: int = 0,
+        cache_dir: str | None = None,
     ):
         self.root_dir = root_dir
         self.processor = processor
         self.num_frames = num_frames
+        self.decoder_threads = decoder_threads
         self.sampling_strategy = sampling_strategy
         self.sampling_stride = sampling_stride
         self.deterministic = deterministic
@@ -40,6 +44,10 @@ class RH20TVideoDataset(Dataset):
         self._file_hashes = {}
         self.verify_video_hashes = verify_video_hashes
         self.manifest = None
+        self.pixel_cache = None
+        if cache_dir and (deterministic or sampling_strategy in {"uniform", "center_clip", "stride"}):
+            self.pixel_cache = VideoPixelCache(
+                cache_dir, processor, num_frames, sampling_strategy, sampling_stride)
         if pair_manifest_path:
             self.samples = self._frozen_samples(pair_manifest_path)
         else:
@@ -74,25 +82,34 @@ class RH20TVideoDataset(Dataset):
                 elif self._verified_files[path] != stamp:
                     raise ValueError(f"Video changed during experiment: {path}")
         sample_seed = self.seed + idx if self.deterministic else None
-        human_frames = sample_video_frames(
-            sample.human_video_path,
-            num_frames=self.num_frames,
-            strategy=self.sampling_strategy,
-            seed=sample_seed,
-            stride=self.sampling_stride,
-        )
-        robot_frames = sample_video_frames(
-            sample.robot_video_path,
-            num_frames=self.num_frames,
-            strategy=self.sampling_strategy,
-            seed=sample_seed,
-            stride=self.sampling_stride,
-        )
-        if human_frames is None or robot_frames is None:
-            raise ValueError(f"Cannot decode paired video sample: {sample.sample_id}")
+        cache_path = (self.pixel_cache.path(
+            (sample.human_video_path, sample.robot_video_path), sample_seed)
+            if self.pixel_cache is not None else None)
+        pixel_values = self.pixel_cache.load(cache_path) if cache_path is not None else None
+        if pixel_values is None:
+            human_frames = sample_video_frames(
+                sample.human_video_path,
+                num_frames=self.num_frames,
+                strategy=self.sampling_strategy,
+                seed=sample_seed,
+                stride=self.sampling_stride,
+                decoder_threads=self.decoder_threads,
+            )
+            robot_frames = sample_video_frames(
+                sample.robot_video_path,
+                num_frames=self.num_frames,
+                strategy=self.sampling_strategy,
+                seed=sample_seed,
+                stride=self.sampling_stride,
+                decoder_threads=self.decoder_threads,
+            )
+            if human_frames is None or robot_frames is None:
+                raise ValueError(f"Cannot decode paired video sample: {sample.sample_id}")
 
-        inputs = self.processor([human_frames, robot_frames], return_tensors="pt")
-        pixel_values = extract_pixel_values(inputs)
+            inputs = self.processor([human_frames, robot_frames], return_tensors="pt")
+            pixel_values = extract_pixel_values(inputs)
+            if cache_path is not None:
+                self.pixel_cache.save(cache_path, pixel_values)
         human_pixel_values = apply_video_transforms(pixel_values[0], self.transform_config, seed=sample_seed)
         robot_pixel_values = apply_video_transforms(pixel_values[1], self.transform_config, seed=sample_seed)
         return {

@@ -145,7 +145,8 @@ def test_video32_videomae_trains_last_two_blocks_and_evaluates_both_cfgs(tmp_pat
                              pair_manifests={"RH20T_cfg2": str(protocol),
                                              "RH20T_cfg3": str(cfg3)})
     config["model"].update(feature_dim=4, dropout=0)
-    config["training"].update(batch_size=4, eval_batch_size=64, num_epochs=1, amp=False)
+    config["training"].update(batch_size=4, eval_batch_size=64, num_epochs=1,
+                              amp=False, num_workers=0)
     config["split"]["shared_manifest_path"] = str(protocol)
     config["eval_manifests"] = {"cfg2": str(protocol), "cfg3": str(cfg3)}
     run = tmp_path / "batch/video/E7"

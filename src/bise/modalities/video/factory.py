@@ -64,6 +64,9 @@ def build_video_dataset(dataset_config: Dict, processor, is_train: bool,
         return RH20TVideoDataset(
             root_dir=str(root),
             max_pairs_per_scene=dataset_config.get("max_pairs_per_scene"),
+            decoder_threads=dataset_config.get("decoder_threads", 0),
+            cache_dir=(str(resolve_path(dataset_config["cache_dir"]))
+                       if dataset_config.get("cache_dir") else None),
             pair_manifest_path=pair_manifest,
             verify_video_hashes=not metadata_only,
             **common_kwargs,

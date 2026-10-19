@@ -45,8 +45,8 @@ def train_video_epoch(
     optimizer.zero_grad(set_to_none=True)
 
     for step, batch in enumerate(tqdm(dataloader, desc="Training Video"), start=1):
-        human_videos = batch["human_pixel_values"].to(device)
-        robot_videos = batch["robot_pixel_values"].to(device)
+        human_videos = batch["human_pixel_values"].to(device, non_blocking=True)
+        robot_videos = batch["robot_pixel_values"].to(device, non_blocking=True)
         # positive_level 决定“正样本”是按 scene 还是按 task 定义。
         labels = _select_labels(batch, loss_config.get("positive_level", "task")).to(device)
 

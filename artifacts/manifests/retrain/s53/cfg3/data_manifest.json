@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "human_source": "hand_3d_base",
-  "data_root": "/home/ttt/BISE/dataset/RH20T_subset/RH20T_cfg3",
+  "data_root": "/root/autodl-tmp/BISE/dataset/RH20T_subset/RH20T_cfg3",
   "human_time_unit": "seconds_from_rgb_timestamp_ms",
   "robot_time_unit": "seconds_from_timestamp_ms",
   "task_identity": "local_subset_id_not_cross_cfg_semantic_id",

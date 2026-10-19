@@ -245,7 +245,8 @@ def test_variants_prepare_train_and_evaluate_both_cfgs(tmp_path, monkeypatch, su
                                      pair_manifests={"RH20T_cfg2": str(protocol),
                                                      "RH20T_cfg3": str(cfg3)})
             config["model"].update(feature_dim=4, dropout=0, unfreeze_last_n_blocks=0)
-            config["training"].update(num_epochs=1, eval_batch_size=64, amp=False)
+            config["training"].update(num_epochs=1, eval_batch_size=64, amp=False,
+                                      num_workers=0)
             config["split"] = {"shared_manifest_path": str(protocol), "unit": "scene"}
             config["eval_manifests"] = {"cfg2": str(protocol), "cfg3": str(cfg3)}
             if name in ("V1", "V2"):
