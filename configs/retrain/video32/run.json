@@ -62,6 +62,11 @@
       "label": "V2",
       "raw": false
     },
+    "V3": {
+      "config": "configs/retrain/video32/V3.json",
+      "label": "V0+Sep",
+      "raw": false
+    },
     "RawJ": {
       "config": "configs/retrain/video32/RawJ.json",
       "label": "RawJ",

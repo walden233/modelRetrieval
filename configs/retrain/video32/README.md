@@ -15,20 +15,28 @@
 | E7 | VideoMAE-Base | 双头 | 最后2个block | task多正样本 | 有 | scene |
 | RawJ / RawM | 原始V-JEPA2 / VideoMAE | 不用于编码 | 原始预训练模型，仅评估 | 无训练 | 无 | scene |
 
-跨相机扩展全部继承E3（微调最后2层、双头、task多正样本、模态内增强），形成跨视角训练策略与语义监督的两因素对照：
+跨相机扩展全部继承E3（微调最后2层、双头、task多正样本、模态内增强）：
 
-| 实验 | batch采样 | scene正样本权重 | 语义监督 |
-|---|---|---|---|
-| E3 | 随机 | 0.5 | 无 |
-| V0 | 8个不同task，各取一个scene的两个相机 | 1.0 | 无 |
-| V1 | 随机 | 0.5 | 训练集文本库监督 |
-| V2 | 与V0相同 | 1.0 | 与V1相同 |
+| 实验 | batch采样 | scene正样本权重 | 语义监督 | 异task分离 |
+|---|---|---|---|---|
+| E3 | 随机 | 0.5 | 无 | 无 |
+| V0 | 8个不同task，各取一个scene的两个相机 | 1.0 | 无 | 无 |
+| V1 | 随机 | 0.5 | 训练集文本库监督 | 无 |
+| V2（V0＋V1） | 与V0相同 | 1.0 | 与V1相同 | 无 |
+| V0+Sep（内部V3） | 与V0相同 | 1.0 | 无 | 阈值0.3，权重0.1 |
 
-V0/V2的`loss.scene_positive_weight=1.0`同时用于人域和机器人域的模态内损失，
+V0/V2/V3的`loss.scene_positive_weight=1.0`同时用于人域和机器人域的模态内损失，
 使同一scene另一个相机与自身增强的原始权重均为1，归一化后各占1/2。
 跨视角策略包含组织采样和更强的跨相机约束，不能把E3→V0的变化单独归因于采样。
 同task不同scene的权重仍为0.25，整体`lambda_intra`仍为0.2。
 其它配置缺省scene权重为0.5，原本机视频和轨迹实验不变。
+
+V3严格复制本目录V0的全部设置，仅增加`loss.negative_separation`。
+对当前batch中HH/RR/HR异task检索向量计算`mean(relu(cosine - 0.3)^2)`，以0.1加入总损失；
+不使用语义监督。分离项与本机V3相同，但继承本目录的batch16、最后2层微调、7epoch和CPU缓存。
+内部配置、命令选择和run目录仍为`V3`，图表标签统一为`V0+Sep`，兼容本机已有V3产物。
+完整流水线自动包含该组及cfg2/cfg3主评估、相机一致性、两种热图和批次比较图。
+已经启动的流水线在启动时读取实验列表，不会自动发现后来加入的V3；这类批次在当前训练结束后使用下方`--only V3`命令补跑。
 
 V1/V2复用S3的scene教师`artifacts/semantic/v2/teachers/S3/cfg2.npz`。
 只把当前train中非null的有效教师纳入文本库，快照保存到各run的`semantic_teachers.npz`；缺失教师的scene继续参与原视频损失。
@@ -43,8 +51,8 @@ E6的cfg2测试集按任务重新划分，约120个test、50个val scene；各ta
 
 - 全部配置的训练和评估batch均为16组人机配对，即每个训练batch包含32段原始视频；E5同样为batch16。均不使用梯度累积。
 - E0–E7及V1使用`random`：每epoch随机打乱全部train样本，不强制task或scene重复；尾batch按现有训练入口保留。
-- V0/V2显式启用新选项`scene_pairs`：每batch为8个不同task，每task一个scene的两个相机，共16对。同一个样本内人类与机器人视频仍来自同相机。
-- 组织采样每epoch覆盖全部train scene；不足整batch时从其它train task补充完整双相机scene，不从val/test取样。同seed下V0/V2的batch顺序一致。
+- V0/V2/V3显式启用新选项`scene_pairs`：每batch为8个不同task，每task一个scene的两个相机，共16对。同一个样本内人类与机器人视频仍来自同相机。
+- 组织采样每epoch覆盖全部train scene；不足整batch时从其它train task补充完整双相机scene，不从val/test取样。同seed下V0/V2/V3的batch顺序一致。
 - 旧配置的`random`、`task_pairs`、batch4的`scene_views`行为均不改变；`configs/retrain/s43`及`configs/retrain/views`保持原样。
 - 默认16帧，E5为24帧，使用各骨干原有processor；V-JEPA2输入为256分辨率，VideoMAE使用原有预处理和特征接口。
 - 7epoch，AdamW学习率1e-5、weight_decay=0.01、线性调度、5%warmup、AMP。模态内权重0.2。
@@ -71,7 +79,12 @@ python runs/retrain.py --config configs/retrain/video32/run.json --batch v32 --m
 python runs/retrain.py --config configs/retrain/video32/run.json --batch v32 --modality video --only E0 E3
 
 # 仅训练和评估跨相机扩展；已有公共清单时可跳过prepare阶段
-python runs/retrain.py --config configs/retrain/video32/run.json --batch v32 --modality video --only V0 V1 V2
+python runs/retrain.py --config configs/retrain/video32/run.json --batch v32 --modality video --only V0 V1 V2 V3
+
+# 已有s53/s54/s55时，仅补跑V0+Sep；--seed与原训练保持一致
+python runs/retrain.py --config configs/retrain/video32/run.json --batch s53 --seed 53 --modality video --only V3 --skip-existing
+python runs/retrain.py --config configs/retrain/video32/run.json --batch s54 --seed 54 --modality video --only V3 --skip-existing
+python runs/retrain.py --config configs/retrain/video32/run.json --batch s55 --seed 55 --modality video --only V3 --skip-existing
 ```
 
 独立`--stage train`需先完成prepare；新机器运行完整入口会自行准备清单，配置不引用旧E0–E7的run。数据放在`dataset/RH20T_subset`。
@@ -121,7 +134,7 @@ AutoDL官方首页将部分vGPU-32G标为RTX 4080S 32G，不能仅凭vGPU名称�
 只做视频时无需上传深度视频、夹爪缓存、系统HF缓存或历史训练run。
 
 完整两份子集当前约25.0GiB，完整离线骨干目录约1.57GiB，教师约1.6MB。
-后续11个训练run的best权重约需十几GiB，Raw评估还会生成两份公共pth。
+后续12个训练run的best权重约需十几GiB，Raw评估还会生成两份公共pth。
 若同时保留上传压缩包、解压数据及重跑归档，建议至少80–100GB数据盘；以实际剩余空间为准。
 将项目及数据放在`/root/autodl-tmp/BISE`等本地数据盘位置。
 

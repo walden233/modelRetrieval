@@ -237,7 +237,7 @@ def test_variants_prepare_train_and_evaluate_both_cfgs(tmp_path, monkeypatch, su
     torch.set_num_threads(2)
     try:
         splits, teachers = [], []
-        names = ("V0", "V1", "V2", "V3") if suite == "views" else ("V0", "V1", "V2")
+        names = ("V0", "V1", "V2", "V3")
         for name in names:
             config = json.loads((ROOT / f"configs/retrain/{suite}/{name}.json").read_text())
             config["device"] = "cpu"

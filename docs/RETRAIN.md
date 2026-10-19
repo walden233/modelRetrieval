@@ -1,6 +1,6 @@
 # RH20T retrain
 
-更新时间：2026-10-14。本文为当前实验编号、流水线和产物规则的主说明。
+更新时间：2026-10-20。本文为当前实验编号、流水线和产物规则的主说明。
 
 配置位于 `configs/retrain/`，产物位于
 `artifacts/runs/retrain/<batch>/{trajectory,video}/<group>/`。
@@ -23,14 +23,16 @@ configs/retrain/s43/
 ## 32GB视频主实验（v32）
 
 独立配置为`configs/retrain/video32/run.json`，默认seed44、batch名v32。
-E0–E3统一微调最后2个block＋双适配头，保留单/多正样本和有/无模态内增强的四组消融。
+E0–E3使用双适配头，比较单/多正样本和有/无模态内增强。
 E4为冻结骨干＋双头；E5沿用E3的微调2层＋双头，改为24帧、batch16；E6为同架构的task划分；
 E7为VideoMAE微调最后2层＋双头。RawJ/RawM保留原始骨干评估。
 这是新矩阵，不迁移或覆盖旧s44权重，也不把旧E3视为两层微调结果。
 
 统一训练和评估batch16、7epoch；默认16帧，E5为24帧，E0–E7使用随机采样。
 V0为每batch 8个不同task、各一个scene的两个相机，模态内scene正样本权重为1.0；V1为E3＋训练集文本库语义监督；
-V2为V0＋同一语义监督。其它组的scene权重默认0.5；本机`views`另行调整，见下节；`s43`基础视频配置不变。
+V2为V0＋同一语义监督；V3为V0＋异task分离，图表显示为`V0+Sep`，内部配置、目录和`--only`仍用`V3`。
+V3继承本目录V0的全部设置，仅增加余弦阈值0.3、权重0.1的分离项，不使用语义监督。
+其它组的scene权重默认0.5；本机`views`另行调整，见下节；`s43`基础视频配置不变。
 新batch独立准备公共清单，并开启scene/task互斥检查。
 详细矩阵、采样补齐规则和独立入口见[配置说明](../configs/retrain/video32/README.md)。
 
@@ -40,9 +42,9 @@ python runs/retrain.py --config configs/retrain/video32/run.json --batch v32 --m
 
 ## 本机视频跨相机实验
 
-`configs/retrain/views/run.json`复用s44实际E5的划分，三组统一batch8、16帧、微调最后1层、双适配头、5epoch。V0为4task×双相机组织采样＋同scene正样本增权1.0；V1为原随机采样＋语义监督；V2为V0＋与V1相同的语义监督。
-V1/V2显式启用`mode=queue`、64对历史视频向量、语义权重0.5、1epoch预热，直接约束128维检索空间，不加语义投影头。本次不修改`video32`配置及原batch/bank监督路径。完整设置、日志字段、重跑入口见[跨相机实验](video/CROSS_VIEW.md#4-新实验与完整入口)。
-本机新增V3＝V0＋异task分离：使用当前batch的HH/RR/HR不同task配对，余弦超过0.3时计算平方惩罚，权重0.1；不使用语义监督。V0–V2及video32配置保持各自原设置。仅运行新增组：`python runs/retrain.py --config configs/retrain/views/run.json --batch v44 --modality video --only V3`。
+`configs/retrain/views/run.json`复用s44实际E5的划分，四组统一batch8、16帧、微调最后1层、双适配头、5epoch。V0为4task×双相机组织采样＋同scene正样本增权1.0；V1为原随机采样＋语义监督；V2为V0＋与V1相同的语义监督。
+V1/V2显式启用`mode=queue`、64对历史视频向量、语义权重0.5、1epoch预热，直接约束128维检索空间，不加语义投影头；video32保留bank配置，两套语义实现不混用。完整设置、日志字段、重跑入口见[跨相机实验](video/CROSS_VIEW.md#4-新实验与完整入口)。
+V3（展示名V0+Sep）＝V0＋异task分离：使用当前batch的HH/RR/HR不同task配对，余弦超过0.3时计算平方惩罚，权重0.1；不使用语义监督。该措施也已加入video32，分别继承各自V0的训练预算。本机训练参数和已有产物路径不变。仅运行本机新增组：`python runs/retrain.py --config configs/retrain/views/run.json --batch v44 --modality video --only V3`。
 
 ## 当前实验矩阵
 

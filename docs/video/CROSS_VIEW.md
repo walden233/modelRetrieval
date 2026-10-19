@@ -1,8 +1,8 @@
 # 视频跨相机匹配：实验与论文叙事
 
-记录日期：2026-10-10；本机V系列更新：2026-10-19。
+记录日期：2026-10-10；V系列与video32更新：2026-10-20。
 
-本文提取讨论的关键结论。逐视频标注与教师生成见 [语义实现方案](../semantic/PLAN.md)。已实现组织多视角采样、batch内关系及文本库蒸馏；2026-10-19本机V1/V2改用跨batch视频关系队列，配置与命令见第4节。32GB配置不受本次调整影响。
+本文提取讨论的关键结论。逐视频标注与教师生成见 [语义实现方案](../semantic/PLAN.md)。已实现组织多视角采样、batch内关系及文本库蒸馏；本机V1/V2使用跨batch视频关系队列，video32保留文本库监督。V0+Sep（内部V3）已同步到两套流水线，配置、结果解释与命令见第4节。
 
 2026-10-17 补充：scene 教师来源与导出接口以 [第三章实现方案](../semantic/PLAN.md#12-scene-级汇总与训练教师) 为准。复用第三章通过 --source 选定的一种逐视频语义表示（默认S5结构），再做只返回任务描述的scene级文本汇总；教师池与训练batch无关，读取时过滤实际train；当前默认每 scene 两个相机、四段视频，训练使用范围服从对应 run 的划分。
 
@@ -80,7 +80,7 @@ V0/V2将同scene跨相机正样本权重从0.5提高到1.0，与自身增强同�
 | V0 | 4 task × 1 scene × 2相机 | 1.0 | 无 | 无 |
 | V1 | random | 0.5 | 跨batch语义关系KL，缓存64对视频 | 无 |
 | V2 | 同V0 | 1.0 | 与V1相同 | 无 |
-| V3 | 同V0 | 1.0 | 无 | 余弦阈值0.3、损失权重0.1 |
+| V0+Sep（内部V3） | 同V0 | 1.0 | 无 | 余弦阈值0.3、损失权重0.1 |
 
 四组都从项目内V-JEPA2预训练权重从头训练，不读取已训练E5的best_model。共同设置为双适配头＋共享128维检索投影、微调最后1个block、16帧、训练/评估batch=8、5epoch、学习率1e-5、模态内权重0.2，按验证task MRR选择best。V1的“仅语义”指只额外增加语义监督，原有跨域和增强损失仍保留；不加入V0的组织采样和增权。
 本机V1/V2不再增加128→1024语义头，关系损失直接作用于最终检索向量；四组模型结构和初始化相同。与旧E5比较时，batch扩大也是变量；若需严格分解增益，应补充同batch=8、随机采样、无语义的E5对照，不能把全部变化都归因于语义。
@@ -140,6 +140,47 @@ L_neg = mean[max(0, cos(z_i, z_j) - 0.3)^2], task_i != task_j
 `curves.json`与epoch日志记录原始分离损失`train_loss_negative`（日志中为`negative_loss`）和
 实际加入总损失的`negative_weighted_loss`，run内曲线图增加分离损失面板。
 主评估、相机一致性和热图继续使用原有入口，V3与已有V0–V2合并进入batch比较图。
+
+### 32GB配置与命名
+
+论文与图表将V3显示为`V0+Sep`（Sep表示异任务分离），内部组名、配置名、目录及命令仍用`V3`，不重命名已有run。
+`configs/retrain/video32/V3.json`继承该目录V0，仅增加同一分离项；batch16、16帧、微调最后2层、7epoch，
+同时继承4个CPU worker与无损像素缓存。已注册到video32完整流水线，训练、cfg2/cfg3评估、跨相机分析和汇总绘图无需单独入口。
+本机V1/V2使用queue，video32仍使用bank；不将两套实验的语义监督结果视为相同设置的多seed重复。
+
+```bash
+# 训练机已有s53/s54/s55时仅补跑新增组，其它训练run不重训
+python runs/retrain.py --config configs/retrain/video32/run.json --batch s53 --seed 53 --modality video --only V3 --skip-existing
+python runs/retrain.py --config configs/retrain/video32/run.json --batch s54 --seed 54 --modality video --only V3 --skip-existing
+python runs/retrain.py --config configs/retrain/video32/run.json --batch s55 --seed 55 --modality video --only V3 --skip-existing
+# 本机已完成四组时，仅更新图表标签及比较数据，不训练或重新编码
+python runs/retrain.py --config configs/retrain/views/run.json --batch v44 --modality video --stage charts
+```
+
+### 最终呈现与本机结果（2026-10-20）
+
+章节保留E系列与V系列，不再增加实验组：E系列比较基础损失、增强与编码设置；V0检验组织采样与同scene增权，
+V1检验弱语义监督，V2检验二者联合，V0+Sep检验异task分离能否缓解负样本相似度升高。
+写作顺序为基础检索→跨视角局限→组织采样/语义监督→异task分离→失败与适用边界；
+跨相机一致性和完整候选库检索分别解释，不用绝对相似度升高代替检索收益。
+
+以下为本机s44/E5与v44/V0–V3的human→robot、task级完整候选库指标（百分数）：
+
+| 设置 | cfg2 R@1 | cfg2 MRR | cfg2 NDCG@10 | cfg3 R@1 | cfg3 MRR | cfg3 NDCG@10 |
+|---|---:|---:|---:|---:|---:|---:|
+| E5 | 34.17 | 47.90 | 32.68 | 26.56 | 37.32 | 22.60 |
+| V0 | 31.25 | 44.54 | 34.12 | 25.39 | 36.70 | 23.34 |
+| V1 | 37.08 | 48.75 | 32.60 | 26.56 | 37.28 | 22.33 |
+| V2 | 35.00 | 48.04 | 37.05 | 24.22 | 36.26 | 23.22 |
+| V0+Sep | 35.00 | 47.26 | 37.04 | 25.39 | 36.89 | 23.98 |
+
+V0→V0+Sep只有分离项不同，但按验证MRR选择的best分别为第3/5epoch。
+cfg2跨相机HR正样本余弦0.748→0.731，异task负样本0.618→0.579，正负间隔0.130→0.151，
+受控跨相机task R@1为25.42%→28.33%；cfg3间隔0.086→0.096，R@1为15.32%→15.73%。
+说明分离项方向有效、cfg2检索有所恢复，cfg3收益有限；V2的cfg2跨相机R@1仍更高（30.42%）。
+平均间隔扩大与逐查询排序改善不等价，当前单seed结果不支持宣称稳定最优或已解决跨视角泛化。
+后续以既定多seed的均值与波动报告结果；本机E5为batch4，V系列为batch8，E5→V的差异不能全部归因于新增措施。
+原始依据为各run的`evaluations/cfg2|cfg3/metrics.json`、`views.json`和`checkpoint_info.json`，不另建重复数据文件。
 
 ## 5. 推荐的语义监督粒度
 

@@ -22,7 +22,7 @@
     },
     "V3": {
       "config": "configs/retrain/views/V3.json",
-      "label": "V3"
+      "label": "V0+Sep"
     }
   }
 }
