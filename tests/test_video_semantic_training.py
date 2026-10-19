@@ -101,6 +101,75 @@ def test_bank_distillation_uses_external_train_anchors_and_shared_projection():
     assert teacher.loss_weight(2) == pytest.approx(.2)
 
 
+def test_queued_relations_match_kl_and_backpropagate_only_through_current_videos():
+    teacher = SemanticSupervisor(["a", "b", "c"], np.eye(3),
+                                 {"mode": "queue", "queue_size": 3,
+                                  "text_temperature": .3, "video_temperature": .5})
+    old_h = F.normalize(torch.randn(2, 4), dim=-1).requires_grad_()
+    old_r = F.normalize(torch.randn(2, 4), dim=-1).requires_grad_()
+    loss, _, _, queries = teacher(old_h, old_r, ["a", "a"])
+    assert loss.item() == 0 and queries == 0
+    assert teacher.queue_indices.tolist() == [0, 0]
+    h = F.normalize(torch.randn(2, 4), dim=-1).requires_grad_()
+    r = F.normalize(torch.randn(2, 4), dim=-1).requires_grad_()
+    loss, valid, entropy, queries = teacher(h, r, ["b", "missing"])
+    target = teacher.vectors[1:2] @ teacher.vectors[[1, 0, 0]].T / .3
+    logits = (h[:1] @ torch.cat((r[:1], old_r.detach())).T / .5,
+              r[:1] @ torch.cat((h[:1], old_h.detach())).T / .5)
+    expected = sum(F.kl_div(F.log_softmax(p, -1), F.softmax(target, -1),
+                            reduction="batchmean") for p in logits) / 2
+    torch.testing.assert_close(loss, expected)
+    assert valid == queries == 1 and entropy > 0 and teacher.candidate_count == 3
+    loss.backward()
+    assert h.grad[0].abs().sum() > 0 and r.grad[0].abs().sum() > 0
+    assert h.grad[1].abs().sum() == r.grad[1].abs().sum() == 0
+    assert old_h.grad is old_r.grad is None
+    assert teacher.queue_human.grad_fn is teacher.queue_robot.grad_fn is None
+    teacher(h, r, ["c", "missing"])
+    assert teacher.queue_indices.tolist() == [0, 1, 2]
+    before = teacher.queue_indices.clone()
+    teacher(h, r, ["missing", "missing"])
+    torch.testing.assert_close(teacher.queue_indices, before)
+    assert teacher.state_dict() == {}
+    teacher.reset_queue()
+    assert not teacher.queue_indices.numel() and not teacher.queue_human.numel()
+    loss, _, _, queries = teacher(h, r, ["b", "b"])
+    assert loss.item() == 0 and queries == 0
+    with pytest.raises(ValueError, match="queue_size"):
+        SemanticSupervisor(["a", "b"], np.eye(2), {"mode": "queue", "queue_size": 0})
+
+
+def test_local_views_use_independent_semantic_and_view_ablations():
+    from bise.modalities.video.sampling import build_training_sampler
+
+    configs = {name: json.loads((ROOT / f"configs/retrain/views/{name}.json").read_text())
+               for name in ("V0", "V1", "V2")}
+    dataset = metadata_dataset([3, 2, 2, 1, 1])
+    for name, config in configs.items():
+        assert config["training"]["batch_size"] == 8
+        assert config["training"]["eval_batch_size"] == 8
+        assert config["model"]["unfreeze_last_n_blocks"] == 1
+        assert not config["model"].get("semantic_dim")
+        sampler = build_training_sampler(dataset, config["training"], 44)
+        if name == "V1":
+            assert sampler is None
+            assert config["loss"]["scene_positive_weight"] == .5
+        else:
+            assert config["loss"]["scene_positive_weight"] == 1
+            for batch in sampler:
+                assert len(batch) == len(set(batch)) == 8
+                samples = [dataset.samples[i] for i in batch]
+                assert len({s.task_id for s in samples}) == 4
+                for task in {s.task_id for s in samples}:
+                    pair = [s for s in samples if s.task_id == task]
+                    assert len({s.scene_id for s in pair}) == 1
+                    assert {s.camera_id for s in pair} == {"a", "b"}
+    assert configs["V1"]["loss"]["semantic"] == configs["V2"]["loss"]["semantic"]
+    assert configs["V1"]["loss"]["semantic"]["mode"] == "queue"
+    assert configs["V1"]["loss"]["semantic"]["queue_size"] == 64
+    assert "semantic" not in configs["V0"]["loss"]
+
+
 def test_teacher_snapshot_filters_null_and_held_out_scenes(tmp_path):
     dataset = metadata_dataset([1, 1, 1])
     ids = [f"cfg2/{sample.scene_id}" for sample in dataset.samples[::2]]
@@ -150,7 +219,7 @@ def test_three_variants_prepare_train_and_evaluate_both_cfgs(tmp_path, monkeypat
     from bise.common.training import prepare_training_run
     from bise.common.evaluation import effective_config, validate_evaluation
 
-    scene_count = 218 if suite == "video32" else 180
+    scene_count = 218 if suite == "video32" else 186
     protocol, payload, identities = frozen_protocol(tmp_path, count=scene_count, with_files=True)
     cfg3, _, _ = frozen_protocol(tmp_path, cfg="cfg3", count=2, with_files=True)
     monkeypatch.syspath_prepend(str(ROOT / "runs/video"))
@@ -199,6 +268,10 @@ def test_three_variants_prepare_train_and_evaluate_both_cfgs(tmp_path, monkeypat
             if name != "V0":
                 assert curves["train_loss_semantic"][0] >= -1e-6
                 assert curves["semantic_coverage"] == [1.0]
+                if suite == "views":
+                    assert curves["semantic_candidates"][0] > 8
+                    assert curves["semantic_weighted_loss"][0] > 0
+                    assert curves["semantic_gradient_ratio"][0] > 0
             saved = json.loads((run / "params.json").read_text())
             for cfg in ("cfg2", "cfg3"):
                 current = effective_config(deepcopy(saved), "video", cfg)

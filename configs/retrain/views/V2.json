@@ -35,7 +35,7 @@
     "temperature": 0.07,
     "freeze_backbone": false,
     "unfreeze_last_n_blocks": 1,
-    "semantic_dim": 1024
+    "backbone_dir": "artifacts/models/video/facebook--vjepa2-vitl-fpc64-256"
   },
   "loss": {
     "name": "multi_positive",
@@ -43,13 +43,15 @@
     "lambda_intra": 0.2,
     "temperature": 0.07,
     "semantic": {
-      "mode": "bank",
+      "mode": "queue",
       "teacher_path": "artifacts/semantic/v2/teachers/S3/cfg2.npz",
-      "weight": 0.1,
+      "weight": 0.5,
       "text_temperature": 0.1,
       "video_temperature": 0.1,
-      "warmup_epochs": 1.0
-    }
+      "warmup_epochs": 1.0,
+      "queue_size": 64
+    },
+    "scene_positive_weight": 1.0
   },
   "optimization": {
     "learning_rate": 1e-05,
@@ -59,13 +61,13 @@
     "grad_clip_norm": 1.0
   },
   "training": {
-    "batch_size": 4,
-    "eval_batch_size": 4,
+    "batch_size": 8,
+    "eval_batch_size": 8,
     "num_epochs": 5,
     "num_workers": 0,
     "amp": true,
     "gradient_accumulation_steps": 1,
-    "sampler": "scene_views"
+    "sampler": "scene_pairs"
   },
   "protocol": "retrain_v2",
   "eval_manifests": {

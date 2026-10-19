@@ -177,6 +177,9 @@ def main():
     if semantic is not None:
         history.update(train_loss_semantic=[], semantic_coverage=[], semantic_entropy=[],
                        semantic_weight=[])
+        if semantic.mode == "queue":
+            history.update(semantic_candidates=[], semantic_weighted_loss=[],
+                           semantic_gradient_ratio=[])
     best_result = None
     best_score = float("-inf")
     record_intra_curves = _uses_intra_loss(config)
@@ -208,6 +211,9 @@ def main():
             history["semantic_coverage"].append(train_result["semantic_coverage"])
             history["semantic_entropy"].append(train_result["semantic_entropy"])
             history["semantic_weight"].append(train_result["semantic_weight"])
+            if semantic.mode == "queue":
+                for key in ("semantic_candidates", "semantic_weighted_loss", "semantic_gradient_ratio"):
+                    history[key].append(train_result[key])
 
         val_result = evaluate_video_retrieval(model, val_loader, device) if val_loader is not None else None
         primary_metrics = _extract_primary_metrics(val_result)

@@ -30,6 +30,10 @@ def train_video_epoch(
     total_intra = 0.0
     total_semantic = total_entropy = total_weight = 0.0
     valid_teachers = seen_samples = semantic_queries = 0
+    queued_semantic = semantic_supervisor is not None and semantic_supervisor.mode == "queue"
+    semantic_candidates = total_semantic_weighted = total_semantic_gradient_ratio = 0.0
+    if queued_semantic:
+        semantic_supervisor.reset_queue()
     optimizer.zero_grad(set_to_none=True)
 
     for step, batch in enumerate(tqdm(dataloader, desc="Training Video"), start=1):
@@ -64,6 +68,17 @@ def train_video_epoch(
                 total_semantic += float(semantic_loss.detach())
                 total_entropy += entropy * queries
                 total_weight += weight
+                if queued_semantic:
+                    semantic_candidates += semantic_supervisor.candidate_count
+                    total_semantic_weighted += weight * float(semantic_loss.detach())
+                    # Diagnose the actual semantic force on the retrieval embeddings.
+                    embeddings = (outputs["human_embeddings"], outputs["robot_embeddings"])
+                    sem_grads = torch.autograd.grad(weight * semantic_loss, embeddings,
+                                                    retain_graph=True)
+                    inter_grads = torch.autograd.grad(inter_loss, embeddings, retain_graph=True)
+                    sem_norm = sum(g.float().square().sum() for g in sem_grads).sqrt()
+                    inter_norm = sum(g.float().square().sum() for g in inter_grads).sqrt()
+                    total_semantic_gradient_ratio += float(sem_norm / inter_norm.clamp_min(1e-8))
                 valid_teachers += valid
                 semantic_queries += queries
                 seen_samples += len(keys)
@@ -106,6 +121,12 @@ def train_video_epoch(
             semantic_entropy=total_entropy / max(semantic_queries, 1),
             semantic_queries=semantic_queries,
             semantic_weight=total_weight / batch_count,
+        )
+    if queued_semantic:
+        result.update(
+            semantic_candidates=semantic_candidates / batch_count,
+            semantic_weighted_loss=total_semantic_weighted / batch_count,
+            semantic_gradient_ratio=total_semantic_gradient_ratio / batch_count,
         )
     return result
 

@@ -1,4 +1,4 @@
-"""Frozen scene teachers for batch relations or full text-bank distillation."""
+"""Frozen scene teachers for batch, queued-video or text-bank distillation."""
 
 import json
 from pathlib import Path
@@ -20,8 +20,8 @@ class SemanticSupervisor(nn.Module):
     def __init__(self, ids, vectors, config):
         super().__init__()
         self.mode = config["mode"]
-        if self.mode not in {"batch", "bank"}:
-            raise ValueError("semantic.mode must be batch or bank")
+        if self.mode not in {"batch", "bank", "queue"}:
+            raise ValueError("semantic.mode must be batch, bank or queue")
         self.text_temperature = float(config.get("text_temperature", 0.1))
         self.video_temperature = float(config.get("video_temperature", 0.1))
         self.weight = float(config.get("weight", 0.1))
@@ -32,6 +32,37 @@ class SemanticSupervisor(nn.Module):
         self.indices = {identity: index for index, identity in enumerate(ids)}
         self.register_buffer("vectors", torch.as_tensor(vectors, dtype=torch.float32),
                              persistent=False)
+        self.queue_size = int(config.get("queue_size", 64)) if self.mode == "queue" else 0
+        if self.mode == "queue" and self.queue_size < 1:
+            raise ValueError("semantic.queue_size must be positive")
+        self.register_buffer("queue_indices", torch.empty(0, dtype=torch.long), persistent=False)
+        self.register_buffer("queue_human", torch.empty(0, 0), persistent=False)
+        self.register_buffer("queue_robot", torch.empty(0, 0), persistent=False)
+        self.candidate_count = 0
+
+    def reset_queue(self):
+        """Do not reuse stale video embeddings from the preceding epoch."""
+        self.queue_indices = self.queue_indices[:0]
+        self.queue_human = self.queue_human[:0]
+        self.queue_robot = self.queue_robot[:0]
+
+    def _queue_pairs(self, human, robot, indices):
+        # Only current videos retain a graph; cached candidates are stop-gradient.
+        candidate_indices, candidate_human, candidate_robot = indices, human, robot
+        if self.queue_indices.numel():
+            candidate_indices = torch.cat((indices, self.queue_indices))
+            candidate_human = torch.cat((human, self.queue_human))
+            candidate_robot = torch.cat((robot, self.queue_robot))
+        # Store the newest entries at the end and cap the FIFO at queue_size pairs.
+        self.queue_indices = torch.cat((self.queue_indices, indices))[-self.queue_size:]
+        self.queue_indices = self.queue_indices.detach().clone()
+        if self.queue_human.numel():
+            human = torch.cat((self.queue_human, human))
+            robot = torch.cat((self.queue_robot, robot))
+        self.queue_human = human.detach()[-self.queue_size:].clone()
+        self.queue_robot = robot.detach()[-self.queue_size:].clone()
+        self.candidate_count = len(candidate_indices)
+        return candidate_indices, candidate_human, candidate_robot
 
     def forward(self, human, robot, keys, projector=None):
         indices = torch.tensor([self.indices.get(key, -1) for key in keys],
@@ -39,16 +70,27 @@ class SemanticSupervisor(nn.Module):
         valid = indices >= 0
         count = int(valid.sum())
         zero = (human.sum() + robot.sum()) * 0.0
+        self.candidate_count = 0
         # One distinct teacher gives no useful within-batch relational supervision.
         if count == 0 or (self.mode == "batch" and indices[valid].unique().numel() < 2):
             return zero, count, 0.0, 0
         text = self.vectors[indices[valid]]
-        if self.mode == "batch":
+        if self.mode == "queue":
+            h, r = human[valid].float(), robot[valid].float()
+            candidates, h_pool, r_pool = self._queue_pairs(h, r, indices[valid])
+            if candidates.unique().numel() < 2:
+                return zero, count, 0.0, 0
+            target_logits = text @ self.vectors[candidates].T / self.text_temperature
+            pairs = ((target_logits, h @ r_pool.T / self.video_temperature),
+                     (target_logits, r @ h_pool.T / self.video_temperature))
+        elif self.mode == "batch":
+            self.candidate_count = count
             target_logits = text @ text.T / self.text_temperature
             logits = human[valid].float() @ robot[valid].float().T
             logits = logits / self.video_temperature
             pairs = ((target_logits, logits), (target_logits.T, logits.T))
         else:
+            self.candidate_count = len(self.vectors)
             if projector is None:
                 raise ValueError("bank supervision requires the shared semantic projector")
             target_logits = text @ self.vectors.T / self.text_temperature
@@ -104,7 +146,7 @@ def prepare_semantic_supervision(config, train_dataset, run_dir):
         if config["model"].get("semantic_dim") != vectors.shape[1]:
             raise ValueError("model.semantic_dim must equal the text teacher vector dimension")
     elif config["model"].get("semantic_dim", 0):
-        raise ValueError("The batch method does not use a semantic projector")
+        raise ValueError("The batch/queue methods do not use a semantic projector")
     coverage = {
         "train_scenes": len(train_ids), "teacher_scenes": len(selected),
         "missing_scenes": sorted(train_ids - set(selected_ids)),
