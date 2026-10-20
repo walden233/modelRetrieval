@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 import cv2
-import mediapipe as mp
 import numpy as np
 
 
@@ -269,6 +268,8 @@ def _load_optional_extrinsics(scene_dir: Path, camera_id: str):
 
 
 def extract_camera_hand_data(scene_dir: Path, camera_id: str) -> dict[str, Any]:
+    import mediapipe as mp
+
     color_path = scene_dir / f"cam_{camera_id}_human.mp4"
     depth_path = scene_dir / f"cam_{camera_id}_human_depth.mp4"
     if not color_path.is_file() or not depth_path.is_file():

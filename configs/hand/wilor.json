@@ -1,0 +1,62 @@
+{
+  "dataset_root": "dataset/RH20T_subset",
+  "output_dir": "artifacts/hand/wilor/pilot",
+  "repo_dir": "artifacts/tools/WiLoR",
+  "model_dir": "artifacts/models/hand/wilor",
+  "scenes": [
+    "cfg2/task_0020/scene_4",
+    "cfg2/task_0109/scene_4",
+    "cfg3/task_0004/scene_4"
+  ],
+  "device": "cuda",
+  "fp16": true,
+  "batch_size": 1,
+  "detection_confidence": 0.3,
+  "frame_stride": 1,
+  "tracking": {
+    "max_gap_seconds": 0.5,
+    "max_wrist_distance": 1.5
+  },
+  "roles": {
+    "provider_config": "configs/semantic/ch3.json",
+    "provider": "glm",
+    "prompt": "configs/hand/roles.md",
+    "frames_per_camera": 16,
+    "max_frames_per_camera": 24,
+    "max_attempts": 3,
+    "timeout_seconds": 240
+  },
+  "comparison": {
+    "time_tolerance_ms": 50,
+    "anchor_frames": 3,
+    "max_window_gap_ms": 250,
+    "max_anchor_rotation_degrees": 15,
+    "max_anchor_displacement_m": 0.03,
+    "min_paired_frames": 5
+  },
+  "trajectory": {
+    "identity": {
+      "enabled": true,
+      "time_tolerance_ms": 50,
+      "min_paired_frames": 10,
+      "min_relative_improvement": 0.5,
+      "min_score_drop": 0.5,
+      "max_wrist_distance_m": 0.08,
+      "max_epipolar_px": 8.0,
+      "min_reference_confidence_margin": 0.2
+    },
+    "min_detection_score": 0.45,
+    "min_inside_fraction": 0.8,
+    "min_role_confidence": "medium",
+    "time_tolerance_ms": 50,
+    "max_depth_mad_m": 0.015,
+    "max_anchor_residual_m": 0.04,
+    "min_depth_anchors": 5,
+    "max_epipolar_px": 4.0,
+    "max_reprojection_px": 4.0,
+    "min_ray_angle_degrees": 2.0,
+    "max_view_disagreement_m": 0.08,
+    "min_trajectory_frames": 10,
+    "min_trajectory_coverage": 0.3
+  }
+}
