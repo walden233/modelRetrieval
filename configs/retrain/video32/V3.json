@@ -47,7 +47,7 @@
     "scene_positive_weight": 1.0,
     "temperature": 0.07,
     "negative_separation": {
-      "margin": 0.3,
+      "margin": 0.2,
       "weight": 0.1
     }
   },

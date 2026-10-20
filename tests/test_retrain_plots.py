@@ -59,6 +59,31 @@ def plot_batch(tmp_path):
     return root, matrix, metadata
 
 
+def test_comparison_mpr_panel_uses_percent_and_keeps_missing_values(tmp_path, monkeypatch):
+    from bise.common.comparison import _plot
+
+    experiments = [{"label": "V0", "partition": "shared", "test_scenes": 120,
+                    "metrics": {"human_to_robot": {
+                        "task": {**dict.fromkeys(METRICS, .5), "MPR-all": 9.5},
+                        "scene": {**dict.fromkeys(METRICS, .5), "MPR-all": 8.5}}}},
+                   {"label": "Legacy", "partition": "shared", "test_scenes": 120,
+                    "metrics": {"human_to_robot": {
+                        level: dict.fromkeys(METRICS, .5) for level in ("task", "scene")}}}]
+
+    def savefig(figure, path, **kwargs):
+        assert len(figure.axes) == 3
+        assert all(axis.get_ylim() == (0., 1.) for axis in figure.axes[:2])
+        axis = figure.axes[2]
+        assert axis.get_ylim() == (0., 100.)
+        assert "lower is better" in axis.get_title()
+        np.testing.assert_allclose([bar.get_height() for bar in axis.patches],
+                                   [9.5, np.nan, 8.5, np.nan], equal_nan=True)
+        assert [text.get_text() for text in axis.get_legend().get_texts()] == ["Task", "Scene"]
+
+    monkeypatch.setattr(matplotlib.figure.Figure, "savefig", savefig)
+    _plot(experiments, tmp_path / "cfg2.png", "Video comparison")
+
+
 def test_index_records_every_source_before_drawing_and_recovers_missing_pngs(tmp_path,
                                                                            monkeypatch):
     root, matrix, metadata = plot_batch(tmp_path)

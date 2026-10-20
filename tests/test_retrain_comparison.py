@@ -164,7 +164,7 @@ def test_only_selected_run_is_evaluated_and_all_runs_are_merged(tmp_path, monkey
     mpr_rows = [row for row in result["rows"] if row["metric"] == "MPR-all"]
     assert len(mpr_rows) == 8
     assert all(row["value"] == 50.0 for row in mpr_rows)
-    assert plotted_metrics == ["R@1", "R@5", "R@10", "MRR", "NDCG@10"] * 2
+    assert plotted_metrics == ["R@1", "R@5", "R@10", "MRR", "NDCG@10"] * 2 + ["Task", "Scene"]
     assert (runs.parent / "charts/cfg2.png").is_file()
     with (runs.parent / "charts/cfg2.csv").open(newline="") as handle:
         csv_mpr_rows = [row for row in csv.DictReader(handle) if row["metric"] == "MPR-all"]

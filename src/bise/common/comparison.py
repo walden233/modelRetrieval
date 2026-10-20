@@ -82,7 +82,11 @@ def _plot(experiments: list, path: Path, title: str) -> None:
     if path.with_suffix(".json").is_file():
         source = path.with_suffix(".json")
         record_plot(path, "comparison", [source], {"title": title}, comparison_sources(source))
-    fig, axes = plt.subplots(1, 2, figsize=(max(12, len(experiments) * 1.6), 5.2))
+    has_mpr = any("MPR-all" in x["metrics"]["human_to_robot"][level]
+                  for x in experiments for level in ("task", "scene"))
+    columns = 3 if has_mpr else 2
+    fig, axes = plt.subplots(1, columns,
+                             figsize=(max(6 * columns, len(experiments) * .8 * columns), 5.2))
     positions = np.arange(len(experiments))
     width = .8 / len(METRICS)
     has_task_split = any(x["partition"] == "task" for x in experiments)
@@ -97,6 +101,18 @@ def _plot(experiments: list, path: Path, title: str) -> None:
         axis.set_ylim(0, 1)
         axis.set_title(f"{level.capitalize()} retrieval")
         axis.grid(axis="y", alpha=.2)
+    if has_mpr:
+        axis = axes[2]
+        for offset, level in ((-.2, "task"), (.2, "scene")):
+            values = [x["metrics"]["human_to_robot"][level].get("MPR-all", np.nan)
+                      for x in experiments]
+            axis.bar(positions + offset, values, .4, label=level.capitalize())
+        axis.set_xticks(positions, labels, rotation=20)
+        axis.set_ylabel("Mean positive rank (% of gallery)")
+        axis.set_ylim(0, 100)
+        axis.set_title("MPR-all (lower is better)")
+        axis.grid(axis="y", alpha=.2)
+        axis.legend()
     fig.suptitle(title)
     fig.legend(*axes[1].get_legend_handles_labels(), ncol=len(METRICS),
                loc="lower center", bbox_to_anchor=(.5, .04 if has_task_split else .01))
