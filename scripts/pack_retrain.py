@@ -54,9 +54,12 @@ def pack_retrain(source: Path, output: Path | None = None) -> dict:
     return report
 
 
-def pack_batches(source: Path, batches: list[str], output_dir: Path | None = None) -> dict:
+def pack_batches(source: Path, batches: list[str], output_dir: Path | None = None,
+                 artifacts_only: bool = False) -> dict:
     source = source.resolve()
     files = {"artifacts": [], "weights": []}
+    if artifacts_only:
+        files.pop("weights")
     for batch in dict.fromkeys(batches):
         if Path(batch).name != batch or batch in (".", ".."):
             raise ValueError(f"Invalid batch name: {batch}")
@@ -65,8 +68,9 @@ def pack_batches(source: Path, batches: list[str], output_dir: Path | None = Non
             raise ValueError(f"Batch must be an existing directory: {directory}")
         included, _ = collect_files(directory)
         files["artifacts"].extend(included)
-        files["weights"].extend(path for path in sorted(directory.rglob("*"))
-                                if path.is_file() and path.name.lower().endswith(WEIGHT_SUFFIXES))
+        if not artifacts_only:
+            files["weights"].extend(path for path in sorted(directory.rglob("*"))
+                                    if path.is_file() and path.name.lower().endswith(WEIGHT_SUFFIXES))
     report = {kind: {"files": len(paths), "bytes": sum(p.stat().st_size for p in paths)}
               for kind, paths in files.items()}
     if output_dir is None:
@@ -101,15 +105,20 @@ def main():
     parser.add_argument("--source", type=Path, default=ROOT / "artifacts/runs/retrain")
     parser.add_argument("--output", type=Path, help="New ZIP path; existing archives are never overwritten")
     parser.add_argument("--batches", nargs="+", help="Selected batches; create two ZIPs, artifacts and weights")
+    parser.add_argument("--artifacts-only", action="store_true",
+                        help="With --batches, create only the non-weight archive")
     parser.add_argument("--output-dir", type=Path, default=ROOT / "artifacts/exports",
                         help="Directory for the two selected-batch archives")
     parser.add_argument("--dry-run", action="store_true", help="Count files and size without creating an archive")
     args = parser.parse_args()
+    if args.artifacts_only and not args.batches:
+        parser.error("--artifacts-only requires --batches")
     if args.batches:
         if args.output:
             parser.error("Use --output-dir with --batches, not --output")
         report = pack_batches(args.source, args.batches,
-                              None if args.dry_run else args.output_dir)
+                              None if args.dry_run else args.output_dir,
+                              artifacts_only=args.artifacts_only)
         for kind, item in report.items():
             print(f"{kind}: {item['files']} files ({item['bytes'] / 1024 ** 2:.1f} MiB)")
             if "output" in item:

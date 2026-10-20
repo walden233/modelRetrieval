@@ -473,8 +473,8 @@ artifacts/runs/retrain/s45/
 这两张替换旧的首相机热图；原始`metrics.json`保持单视频评估含义。
 旧run可运行`python runs/video/evaluate_views.py --run <视频run目录>`离线补齐cfg2/cfg3，
 具体统计口径见[跨相机评估](video/CROSS_VIEW.md#8-评估与论文证据)。
-两种模态的 task / scene、两个检索方向都报告 `MPR-all`，只保存到评估指标、
-比较 JSON/CSV 和汇总数据；柱状图仍只显示 `R@1/5/10`、`MRR`、`NDCG@10`。
+两种模态的 task / scene、两个检索方向都报告 `MPR-all`，保存在评估指标、比较 JSON/CSV 和汇总数据中。
+主比较图只显示task级`R@1/5/10`、`MRR`、`NDCG@10`，以及独立的task `MPR-all`子图；不绘制scene级指标。
 `MPR-all` 对每个有正样本的查询计算所有正样本的平均排名除以候选数，
 再对这些查询等权平均并乘以 100。排名从 1 开始，单位是百分比，越低越好；
 例如 10 表示正样本平均位于候选库前 10%。无正样本的查询不参与平均。
@@ -556,6 +556,8 @@ python scripts/pack_retrain.py --output artifacts/exports/retrain.zip
 ```bash
 python scripts/pack_retrain.py --batches s53 s54 s55 --dry-run
 python scripts/pack_retrain.py --batches s53 s54 s55
+# 重绘后仅更新非权重包
+python scripts/pack_retrain.py --batches s53 s54 s55 --artifacts-only
 ```
 
 生成`artifacts/exports/s53_s54_s55_<时间>_artifacts.zip`和`..._weights.zip`，

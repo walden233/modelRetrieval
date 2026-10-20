@@ -82,6 +82,13 @@ def test_selected_batches_split_weights_and_preserve_project_paths(tmp_path):
                 archived.add(relative)
     assert len(archived) == 9
     assert all(p.read_bytes() == data for p, data in contents.items())
+    artifacts = MODULE.pack_batches(source, selected, tmp_path / "artifacts_only",
+                                    artifacts_only=True)
+    assert set(artifacts) == {"artifacts"}
+    assert len(list((tmp_path / "artifacts_only").iterdir())) == 1
+    with ZipFile(artifacts["artifacts"]["output"]) as archive:
+        assert len(archive.namelist()) == 6
+        assert not any(name.endswith(".pth") for name in archive.namelist())
     with pytest.raises(ValueError, match="Invalid batch"):
         MODULE.pack_batches(source, ["../s53"])
     with pytest.raises(ValueError, match="existing directory"):

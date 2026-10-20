@@ -71,14 +71,15 @@ def test_comparison_mpr_panel_uses_percent_and_keeps_missing_values(tmp_path, mo
                         level: dict.fromkeys(METRICS, .5) for level in ("task", "scene")}}}]
 
     def savefig(figure, path, **kwargs):
-        assert len(figure.axes) == 3
-        assert all(axis.get_ylim() == (0., 1.) for axis in figure.axes[:2])
-        axis = figure.axes[2]
+        assert len(figure.axes) == 2
+        assert figure.axes[0].get_ylim() == (0., 1.)
+        assert figure.axes[0].get_title() == "Task retrieval"
+        axis = figure.axes[1]
         assert axis.get_ylim() == (0., 100.)
         assert "lower is better" in axis.get_title()
         np.testing.assert_allclose([bar.get_height() for bar in axis.patches],
-                                   [9.5, np.nan, 8.5, np.nan], equal_nan=True)
-        assert [text.get_text() for text in axis.get_legend().get_texts()] == ["Task", "Scene"]
+                                   [9.5, np.nan], equal_nan=True)
+        assert all("Scene" not in axis.get_title() for axis in figure.axes)
 
     monkeypatch.setattr(matplotlib.figure.Figure, "savefig", savefig)
     _plot(experiments, tmp_path / "cfg2.png", "Video comparison")

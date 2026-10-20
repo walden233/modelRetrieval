@@ -82,39 +82,38 @@ def _plot(experiments: list, path: Path, title: str) -> None:
     if path.with_suffix(".json").is_file():
         source = path.with_suffix(".json")
         record_plot(path, "comparison", [source], {"title": title}, comparison_sources(source))
-    has_mpr = any("MPR-all" in x["metrics"]["human_to_robot"][level]
-                  for x in experiments for level in ("task", "scene"))
-    columns = 3 if has_mpr else 2
+    has_mpr = any("MPR-all" in x["metrics"]["human_to_robot"]["task"]
+                  for x in experiments)
+    columns = 2 if has_mpr else 1
     fig, axes = plt.subplots(1, columns,
                              figsize=(max(6 * columns, len(experiments) * .8 * columns), 5.2))
+    axes = np.atleast_1d(axes)
     positions = np.arange(len(experiments))
     width = .8 / len(METRICS)
     has_task_split = any(x["partition"] == "task" for x in experiments)
     labels = [f"{x['label']}{'*' if x['partition'] == 'task' else ''}\n"
               f"{x['test_scenes']} scenes" for x in experiments]
-    for axis, level in zip(axes, ("task", "scene")):
-        for index, metric in enumerate(METRICS):
-            values = [x["metrics"]["human_to_robot"][level][metric] for x in experiments]
-            axis.bar(positions + (index - 2) * width, values, width, label=metric)
-        axis.set_xticks(positions, labels, rotation=20)
-        axis.set_ylabel("Score")
-        axis.set_ylim(0, 1)
-        axis.set_title(f"{level.capitalize()} retrieval")
-        axis.grid(axis="y", alpha=.2)
+    axis = axes[0]
+    for index, metric in enumerate(METRICS):
+        values = [x["metrics"]["human_to_robot"]["task"][metric] for x in experiments]
+        axis.bar(positions + (index - 2) * width, values, width, label=metric)
+    axis.set_xticks(positions, labels, rotation=20)
+    axis.set_ylabel("Score")
+    axis.set_ylim(0, 1)
+    axis.set_title("Task retrieval")
+    axis.grid(axis="y", alpha=.2)
     if has_mpr:
-        axis = axes[2]
-        for offset, level in ((-.2, "task"), (.2, "scene")):
-            values = [x["metrics"]["human_to_robot"][level].get("MPR-all", np.nan)
-                      for x in experiments]
-            axis.bar(positions + offset, values, .4, label=level.capitalize())
+        axis = axes[1]
+        values = [x["metrics"]["human_to_robot"]["task"].get("MPR-all", np.nan)
+                  for x in experiments]
+        axis.bar(positions, values, .6, label="MPR-all")
         axis.set_xticks(positions, labels, rotation=20)
         axis.set_ylabel("Mean positive rank (% of gallery)")
         axis.set_ylim(0, 100)
-        axis.set_title("MPR-all (lower is better)")
+        axis.set_title("Task MPR-all (lower is better)")
         axis.grid(axis="y", alpha=.2)
-        axis.legend()
     fig.suptitle(title)
-    fig.legend(*axes[1].get_legend_handles_labels(), ncol=len(METRICS),
+    fig.legend(*axes[0].get_legend_handles_labels(), ncol=len(METRICS),
                loc="lower center", bbox_to_anchor=(.5, .04 if has_task_split else .01))
     if has_task_split:
         fig.text(.5, .01, "* Task split; cfg2 uses each run's recorded test set.",
