@@ -551,6 +551,18 @@ python scripts/pack_retrain.py --output artifacts/exports/retrain.zip
 不改动源文件，不覆盖已有压缩包，不跟随符号链接。
 包内默认以`retrain/`开头，恢复到项目时执行`unzip <压缩包> -d artifacts/runs`。
 
+选定s53/s54/s55，分别打包非权重产物和权重：
+
+```bash
+python scripts/pack_retrain.py --batches s53 s54 s55 --dry-run
+python scripts/pack_retrain.py --batches s53 s54 s55
+```
+
+生成`artifacts/exports/s53_s54_s55_<时间>_artifacts.zip`和`..._weights.zip`，
+两个包内均保留`artifacts/runs/retrain/sXX/...`路径；在项目根目录执行`unzip <压缩包>`即可恢复。
+权重包不压缩以加快打包，其余产物使用快速ZIP压缩；均支持大于4GB的文件。
+可用`--output-dir`改变输出目录。原有无`--batches`的打包行为不变。
+
 `artifacts/semantic/v2/teachers/`已解除Git忽略；当前S3教师npz约1.6MB，
 包含scene ID、有效教师文本和向量，可直接跟随Git迁移。
 其余semantic产物及runs继续忽略。教师不在上述默认打包范围内，单独由Git管理。

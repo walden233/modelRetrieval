@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Zip retrain artifacts, retaining evaluation arrays and excluding model weights."""
+"""Zip retrain artifacts; selected batches produce separate artifact/weight archives."""
 
 import argparse
 from datetime import datetime
 from pathlib import Path
-from zipfile import ZIP_DEFLATED, ZipFile
+from zipfile import ZIP_DEFLATED, ZIP_STORED, ZipFile
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -54,12 +54,67 @@ def pack_retrain(source: Path, output: Path | None = None) -> dict:
     return report
 
 
+def pack_batches(source: Path, batches: list[str], output_dir: Path | None = None) -> dict:
+    source = source.resolve()
+    files = {"artifacts": [], "weights": []}
+    for batch in dict.fromkeys(batches):
+        if Path(batch).name != batch or batch in (".", ".."):
+            raise ValueError(f"Invalid batch name: {batch}")
+        directory = source / batch
+        if not directory.is_dir() or directory.is_symlink():
+            raise ValueError(f"Batch must be an existing directory: {directory}")
+        included, _ = collect_files(directory)
+        files["artifacts"].extend(included)
+        files["weights"].extend(path for path in sorted(directory.rglob("*"))
+                                if path.is_file() and path.name.lower().endswith(WEIGHT_SUFFIXES))
+    report = {kind: {"files": len(paths), "bytes": sum(p.stat().st_size for p in paths)}
+              for kind, paths in files.items()}
+    if output_dir is None:
+        return report
+    output_dir = output_dir.resolve()
+    if output_dir.is_relative_to(source):
+        raise ValueError("The output archives must be outside the source directory")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    prefix = f"{'_'.join(dict.fromkeys(batches))}_{datetime.now():%Y%m%d_%H%M%S_%f}"
+    for kind, paths in files.items():
+        output = output_dir / f"{prefix}_{kind}.zip"
+        temporary = output.with_suffix(".zip.part")
+        compression = ZIP_STORED if kind == "weights" else ZIP_DEFLATED
+        try:
+            with ZipFile(temporary, "x", compression=compression,
+                         compresslevel=None if kind == "weights" else 1,
+                         allowZip64=True) as archive:
+                for index, path in enumerate(paths, 1):
+                    name = Path("artifacts/runs/retrain") / path.relative_to(source)
+                    archive.write(path, arcname=name.as_posix())
+                    if index % 100 == 0 or index == len(paths):
+                        print(f"{kind}: {index}/{len(paths)} ({index / len(paths):.0%})", flush=True)
+            temporary.replace(output)
+        finally:
+            temporary.unlink(missing_ok=True)
+        report[kind].update(output=str(output), archive_bytes=output.stat().st_size)
+    return report
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, default=ROOT / "artifacts/runs/retrain")
     parser.add_argument("--output", type=Path, help="New ZIP path; existing archives are never overwritten")
+    parser.add_argument("--batches", nargs="+", help="Selected batches; create two ZIPs, artifacts and weights")
+    parser.add_argument("--output-dir", type=Path, default=ROOT / "artifacts/exports",
+                        help="Directory for the two selected-batch archives")
     parser.add_argument("--dry-run", action="store_true", help="Count files and size without creating an archive")
     args = parser.parse_args()
+    if args.batches:
+        if args.output:
+            parser.error("Use --output-dir with --batches, not --output")
+        report = pack_batches(args.source, args.batches,
+                              None if args.dry_run else args.output_dir)
+        for kind, item in report.items():
+            print(f"{kind}: {item['files']} files ({item['bytes'] / 1024 ** 2:.1f} MiB)")
+            if "output" in item:
+                print(f"Saved {item['output']} ({item['archive_bytes'] / 1024 ** 2:.1f} MiB)")
+        return
     output = args.output or (ROOT / "artifacts/exports"
                              / f"retrain_{datetime.now():%Y%m%d_%H%M%S_%f}.zip")
     report = pack_retrain(args.source, None if args.dry_run else output)

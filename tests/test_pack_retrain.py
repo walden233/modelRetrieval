@@ -50,3 +50,39 @@ def test_archive_cannot_include_itself_or_follow_external_links(tmp_path):
     (source / "disguised.json").symlink_to(external)
     with pytest.raises(ValueError, match="Symbolic links"):
         MODULE.pack_retrain(source, tmp_path / "export.zip")
+
+
+def test_selected_batches_split_weights_and_preserve_project_paths(tmp_path):
+    source = tmp_path / "retrain"
+    contents = {}
+    for batch in ("s53", "s54", "s55", "s56"):
+        for name in ("video/E3/best_model.pth", "video/charts/cfg2.json",
+                     "video/E3/evaluations/cfg2/human_embeddings.npy"):
+            p = source / batch / name
+            p.parent.mkdir(parents=True, exist_ok=True)
+            contents[p] = f"{batch}/{name}".encode()
+            p.write_bytes(contents[p])
+    selected = ["s53", "s54", "s55", "s53"]
+    dry = MODULE.pack_batches(source, selected)
+    assert dry["weights"]["files"] == 3 and dry["artifacts"]["files"] == 6
+    output = tmp_path / "exports"
+    report = MODULE.pack_batches(source, selected, output)
+    assert len(list(output.iterdir())) == 2
+    archived = set()
+    for kind, item in report.items():
+        with ZipFile(item["output"]) as archive:
+            assert archive.testzip() is None
+            assert len(archive.namelist()) == dry[kind]["files"]
+            for name in archive.namelist():
+                assert name.startswith("artifacts/runs/retrain/")
+                relative = Path(name).relative_to("artifacts/runs/retrain")
+                assert relative.parts[0] != "s56"
+                assert name.endswith(".pth") == (kind == "weights")
+                assert archive.read(name) == contents[source / relative]
+                archived.add(relative)
+    assert len(archived) == 9
+    assert all(p.read_bytes() == data for p, data in contents.items())
+    with pytest.raises(ValueError, match="Invalid batch"):
+        MODULE.pack_batches(source, ["../s53"])
+    with pytest.raises(ValueError, match="existing directory"):
+        MODULE.pack_batches(source, ["s99"])
