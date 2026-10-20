@@ -38,6 +38,10 @@ artifacts/tools/wilor-env/bin/python runs/trajectory/hand_wilor.py \
 ```
 
 配置为`configs/hand/wilor.json`。更换提取设置或scene集合使用新输出目录；同设置重跑用`--overwrite`。
+执行批量参数可原目录续跑：`frame_batch_size=4`表示每次检测4帧，`batch_size=4`表示将这些帧的手部裁剪
+跨帧合批、每次最多重建4只手；空帧和尾部不足4帧也会保存，跟踪、时间戳和输出按原始帧序处理。
+仅改变这两个批量参数不会拒绝已有完整camera缓存，重启后只重做未完成camera；新NPZ记录
+`frame_batch_size`和`hand_batch_size`，旧NPZ不改写。半精度合批可能产生微小数值差异。
 前缀提取冒烟使用`--stage extract --max-frames 4 --output-dir artifacts/hand/wilor/smoke`，
 明确不是完整轨迹，角色标注要求完整camera结果。强制重标注使用`--stage roles --overwrite`；
 失败请求自动重试三次，仍失败则保留已成功记录，下次同命令只补缺失scene。
@@ -255,6 +259,9 @@ cfg3/task_0004的一对视角由22.72cm降至8.95cm（41帧），仍有明显差
 RTX 4060 Laptop 8GB、Torch 2.7.0+cu126：9路视频共1305帧，提取总耗时108.73秒（含加载），
 逐相机耗时合计约97.27秒，PyTorch峰值allocated为2.459GiB。日志保存在pilot/run.log。
 这只是本批小样本推理测速，不代表全量速度或实时保证。
+跨帧合批另在cfg2/task_0109/scene_4的036422060215相机前32帧测试：单帧/单手批量为11.78帧/秒，
+双批量均为4时为22.08帧/秒（约1.87倍，不含视频解码和叠加写入）。两者均检出65只手，检测框一致，
+二维关键点平均差异0.043像素、最大0.172像素；不能据此假定不同视频或与视频训练共享GPU时有相同加速比。
 
 - cfg2/task_0109/scene_4：三个相机对的极线残差中位数约2.13/2.96/2.20像素，几何一致性相对较好。
 - cfg2/task_0020/scene_4：约28.62/32.64/7.42像素；风扇区域可见疑似背景误检。高检测覆盖不等于准确。

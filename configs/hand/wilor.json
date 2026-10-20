@@ -10,7 +10,8 @@
   ],
   "device": "cuda",
   "fp16": true,
-  "batch_size": 1,
+  "batch_size": 4,
+  "frame_batch_size": 4,
   "detection_confidence": 0.3,
   "frame_stride": 1,
   "tracking": {

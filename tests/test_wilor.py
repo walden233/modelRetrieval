@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+import pytest
 
 from bise.data.rh20t.wilor import HandTracker, extract_video
 from bise.data.rh20t.wilor_quality import cross_view_quality, fundamental, track_quality
@@ -37,23 +38,28 @@ def test_cross_view_diagnostic_uses_calibration_and_source_timestamps():
     assert cross_view_quality(a, b, matrix)['hand_observation_pairs'] == 0
 
 
-def test_extraction_keeps_empty_frames_and_writes_only_separate_output(tmp_path):
+@pytest.mark.parametrize('frame_batch_size', [1, 4])
+def test_extraction_keeps_empty_frames_and_writes_only_separate_output(tmp_path, frame_batch_size):
     source, output = tmp_path/'source', tmp_path/'output'
     source.mkdir()
     output.mkdir()
     video = source/'cam_a_human.mp4'
     writer = cv2.VideoWriter(str(video), cv2.VideoWriter_fourcc(*'mp4v'), 25, (64, 48))
     assert writer.isOpened()
-    for _ in range(4):
+    for _ in range(5):
         writer.write(np.full((48, 64, 3), 60, np.uint8))
     writer.release()
-    np.save(source/'cam_a_human_timestamps.npy', {'color': [1000, 1070, 1140, 1210]})
+    np.save(source/'cam_a_human_timestamps.npy', {'color': [1000, 1070, 1140, 1210, 1280]})
     before = {p.name: p.read_bytes() for p in source.iterdir()}
     class Backend:
         index = 0
+        batches = []
+        def predict_many(self, images):
+            self.batches.append(len(images))
+            return [self.predict(image) for image in images]
         def predict(self, image):
             self.index += 1
-            if self.index in (1, 3):
+            if self.index in (1, 3, 5):
                 return []
             return [{'boxes': np.array([10, 10, 40, 40]), 'right': 1, 'scores': .9,
                      'joints_image_px': np.full((21, 2), 20.),
@@ -61,10 +67,16 @@ def test_extraction_keeps_empty_frames_and_writes_only_separate_output(tmp_path)
                      'joints_camera_estimate_m': np.ones((21, 3)), 'model_focal_px': 100.,
                      'mano_shape': np.zeros(10), 'mano_pose': np.repeat(np.eye(3)[None], 15, axis=0),
                      'mano_orientation': np.eye(3)[None]}]
-    extract_video(Backend(), source, 'a', output, {'frame_stride': 1, 'tracking': {}})
+    backend = Backend()
+    extract_video(backend, source, 'a', output,
+                  {'frame_stride': 1, 'frame_batch_size': frame_batch_size,
+                   'batch_size': 4, 'tracking': {}})
+    assert backend.batches == ([4, 1] if frame_batch_size == 4 else [1]*5)
     with np.load(output/'a.npz', allow_pickle=False) as d:
-        assert d['frame_ptr'].tolist() == [0, 0, 1, 1, 2]
-        assert d['timestamp_ms'].tolist() == [1000, 1070, 1140, 1210]
+        assert d['frame_ptr'].tolist() == [0, 0, 1, 1, 2, 2]
+        assert d['timestamp_ms'].tolist() == [1000, 1070, 1140, 1210, 1280]
+        assert int(d['frame_batch_size']) == frame_batch_size
+        assert int(d['hand_batch_size']) == 4
         quality = track_quality(d)
         assert len(quality) == 1
         assert quality[0]['median_bone_cv'] is None

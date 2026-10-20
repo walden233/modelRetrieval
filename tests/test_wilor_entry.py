@@ -46,6 +46,14 @@ def test_cached_extraction_packages_outputs_without_running_inference(tmp_path):
                                  'repo_dir': str(repo), 'frame_stride': 1, 'batch_size': 1,
                                  'scenes': ['cfg2/task_0001/scene_1']}))
     before = video.read_bytes(), video.stat().st_mtime_ns
+    # Batch changes are execution settings and must reuse complete camera results.
+    old = json.loads(config.read_text())
+    old.update(repo_revision=subprocess.check_output(
+        ['git', '-C', str(repo), 'rev-parse', 'HEAD'], text=True).strip(), max_frames=None)
+    (output/'params.json').write_text(json.dumps(old))
+    updated = json.loads(config.read_text())
+    updated.update(batch_size=4, frame_batch_size=4)
+    config.write_text(json.dumps(updated))
     subprocess.run([sys.executable, str(ENTRY), '--config', str(config), '--stage', 'extract',
                     '--archive'], check=True, capture_output=True, text=True)
     with tarfile.open(tmp_path/'output.tar.gz') as archive:
@@ -53,3 +61,4 @@ def test_cached_extraction_packages_outputs_without_running_inference(tmp_path):
         assert 'output/params.json' in archive.getnames()
     assert before == (video.read_bytes(), video.stat().st_mtime_ns)
     assert not (tmp_path/'output.tar.gz.part').exists()
+    assert json.loads((output/'params.json').read_text())['frame_batch_size'] == 4

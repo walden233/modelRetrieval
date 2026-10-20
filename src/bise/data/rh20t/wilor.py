@@ -111,47 +111,69 @@ class WiLoRBackend:
         self.cfg, self.config = cfg, config
         self.load_info = {'missing_keys': missing, 'unexpected_keys': unexpected}
 
-    @torch.inference_mode()
     def predict(self, image):
+        return self.predict_many([image])[0]
+
+    @torch.inference_mode()
+    def predict_many(self, images):
+        """Detect frames together and reconstruct their hand crops in shared batches."""
+        if not images:
+            return []
         from wilor.datasets.vitdet_dataset import ViTDetDataset
         from wilor.utils.renderer import cam_crop_to_full
-        prediction = self.detector(image, conf=self.config['detection_confidence'],
-                                   verbose=False, device=str(self.device))[0]
-        boxes = prediction.boxes.xyxy.cpu().numpy()
-        right = prediction.boxes.cls.cpu().numpy().astype(np.int32)
-        scores = prediction.boxes.conf.cpu().numpy()
-        if not len(boxes):
-            return []
-        source = ViTDetDataset(self.cfg, image, boxes, right, rescale_factor=2.0,
-                               fp16=self.fp16)
-        loader = torch.utils.data.DataLoader(source, batch_size=self.config['batch_size'])
-        results = []
+        predictions = self.detector(images, conf=self.config['detection_confidence'],
+                                    verbose=False, device=str(self.device))
+        if len(predictions) != len(images):
+            raise ValueError('Detector frame count mismatch')
+        sources, owners, frame_data = [], [], []
+        results = [[] for _ in images]
+        for frame, (image, prediction) in enumerate(zip(images, predictions)):
+            boxes = prediction.boxes.xyxy.cpu().numpy()
+            right = prediction.boxes.cls.cpu().numpy().astype(np.int32)
+            scores = prediction.boxes.conf.cpu().numpy()
+            frame_data.append((boxes, right, scores))
+            if len(boxes):
+                sources.append(ViTDetDataset(self.cfg, image, boxes, right,
+                                             rescale_factor=2.0, fp16=self.fp16))
+                owners.extend((frame, index) for index in range(len(boxes)))
+        if not sources:
+            return results
+        loader = torch.utils.data.DataLoader(torch.utils.data.ConcatDataset(sources),
+                                             batch_size=self.config['batch_size'])
+        offset = 0
         for batch in loader:
             batch = {k: v.to(self.device) for k, v in batch.items()}
             output = self.model(batch)
             cam = output['pred_cam'].float().clone()
             cam[:, 1] *= 2 * batch['right'] - 1
-            focal = self.cfg.EXTRA.FOCAL_LENGTH / self.cfg.MODEL.IMAGE_SIZE * max(image.shape[:2])
+            focal = (self.cfg.EXTRA.FOCAL_LENGTH / self.cfg.MODEL.IMAGE_SIZE
+                     * batch['img_size'].float().amax(dim=1))
             translation = cam_crop_to_full(cam, batch['box_center'].float(),
                                            batch['box_size'].float(), batch['img_size'].float(), focal)
+            points = output['pred_keypoints_3d'].float().cpu().numpy()
+            params = {k: v.float().cpu().numpy() for k, v in output['pred_mano_params'].items()}
+            translations = translation.cpu().numpy()
+            focal = focal.cpu().numpy()
             for n in range(len(cam)):
-                index = int(batch['personid'][n])
-                xyz = output['pred_keypoints_3d'][n].float().cpu().numpy().copy()
+                frame, index = owners[offset+n]
+                image = images[frame]
+                boxes, right, scores = frame_data[frame]
+                xyz = points[n].copy()
                 xyz[:, 0] *= 2 * right[index] - 1
-                trans = translation[n].cpu().numpy()
-                camera = xyz + trans
-                pixel = camera[:, :2] / camera[:, 2:] * focal
+                camera = xyz + translations[n]
+                pixel = camera[:, :2] / camera[:, 2:] * focal[n]
                 pixel += np.array([image.shape[1], image.shape[0]]) / 2
-                results.append({
+                results[frame].append({
                     'boxes': boxes[index], 'right': right[index], 'scores': scores[index],
                     'joints_image_px': pixel.astype(np.float32),
                     'joints_root_m': (xyz - xyz[0]).astype(np.float32),
                     'joints_camera_estimate_m': camera.astype(np.float32),
-                    'model_focal_px': np.float32(focal),
-                    'mano_shape': output['pred_mano_params']['betas'][n].float().cpu().numpy(),
-                    'mano_pose': output['pred_mano_params']['hand_pose'][n].float().cpu().numpy(),
-                    'mano_orientation': output['pred_mano_params']['global_orient'][n].float().cpu().numpy(),
+                    'model_focal_px': np.float32(focal[n]),
+                    'mano_shape': params['betas'][n],
+                    'mano_pose': params['hand_pose'][n],
+                    'mano_orientation': params['global_orient'][n],
                 })
+            offset += len(cam)
         return results
 
 
@@ -172,6 +194,34 @@ def draw_hands(image, detections):
             for point in points:
                 cv2.circle(image, tuple(point), 2, color, -1)
     return image
+
+
+def frame_predictions(backend, cap, count, config, max_frames):
+    """Yield predictions in source order, including empty frames and the final short batch."""
+    indices, images = [], []
+    batch_size = config.get('frame_batch_size', 1)
+    limit = min(count, max_frames) if max_frames is not None else count
+    for frame_index in range(limit):
+        ok, image = cap.read()
+        if not ok:
+            raise OSError(f'Failed to decode source frame {frame_index}')
+        if frame_index % config['frame_stride']:
+            continue
+        indices.append(frame_index)
+        images.append(image)
+        if len(images) == batch_size:
+            predictions = (backend.predict_many(images) if hasattr(backend, 'predict_many')
+                           else [backend.predict(image) for image in images])
+            if len(predictions) != len(images):
+                raise ValueError('Prediction frame count mismatch')
+            yield from zip(indices, images, predictions)
+            indices, images = [], []
+    if images:
+        predictions = (backend.predict_many(images) if hasattr(backend, 'predict_many')
+                       else [backend.predict(image) for image in images])
+        if len(predictions) != len(images):
+            raise ValueError('Prediction frame count mismatch')
+        yield from zip(indices, images, predictions)
 
 
 def extract_video(backend, source, camera, output, config, max_frames=None):
@@ -196,15 +246,7 @@ def extract_video(backend, source, camera, output, config, max_frames=None):
     preview_indices = set(np.linspace(0, min(count, max_frames or count) - 1, 6).astype(int))
     start = time.monotonic()
     try:
-        for frame_index in range(count):
-            ok, image = cap.read()
-            if not ok:
-                raise OSError(f'Failed to decode {video} frame {frame_index}')
-            if max_frames is not None and frame_index >= max_frames:
-                break
-            if frame_index % config['frame_stride']:
-                continue
-            detections = backend.predict(image)
+        for frame_index, image, detections in frame_predictions(backend, cap, count, config, max_frames):
             if detections:
                 ids, ambiguous = tracker.update(
                     np.stack([d['boxes'] for d in detections]),
@@ -237,6 +279,8 @@ def extract_video(backend, source, camera, output, config, max_frames=None):
     arrays.update(frame_index=np.asarray(indices), timestamp_ms=np.asarray(times), frame_ptr=np.asarray(ptr),
                   video_path=np.asarray(str(video.resolve())), image_size_wh=np.asarray([width, height]),
                   elapsed_seconds=np.asarray(time.monotonic()-start),
+                  frame_batch_size=np.asarray(config.get('frame_batch_size', 1)),
+                  hand_batch_size=np.asarray(config.get('batch_size', 1)),
                   complete=np.asarray(max_frames is None or max_frames >= count),
                   coordinate_note=np.asarray('camera_estimate uses the model assumed focal; NOT calibrated robot-base coordinates'))
     temp = destination.with_suffix('.tmp.npz')

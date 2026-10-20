@@ -43,8 +43,8 @@ def main():
         parser.error('--archive requires complete --stage extract or all, without --max-frames')
     if args.max_frames is not None and args.max_frames < 1:
         parser.error('--max-frames must be positive')
-    if config['frame_stride'] < 1 or config['batch_size'] < 1:
-        parser.error('frame_stride and batch_size must be positive')
+    if min(config['frame_stride'], config['batch_size'], config.get('frame_batch_size', 1)) < 1:
+        parser.error('frame_stride, batch_size and frame_batch_size must be positive')
     root, dataset = resolve_path(config['output_dir']), resolve_path(config['dataset_root'])
     if root.resolve().is_relative_to(dataset.resolve()):
         parser.error('Output must be outside the source dataset')
@@ -75,11 +75,14 @@ def main():
                     'repo_revision': subprocess.check_output(
                         ['git', '-C', str(resolve_path(config['repo_dir'])), 'rev-parse', 'HEAD'], text=True).strip()}
         previous = root / 'params.json'
-        extraction_keys = set(config) - {'roles', 'trajectory', 'comparison'}
+        extraction_keys = set(config) - {'roles', 'trajectory', 'comparison',
+                                         'batch_size', 'frame_batch_size'}
         old = json.loads(previous.read_text()) if previous.exists() else {}
         if old and any(old.get(k) != snapshot.get(k) for k in extraction_keys | {'max_frames', 'repo_revision'}):
             raise ValueError('Extraction settings differ; choose another --output-dir')
         previous.write_text(json.dumps(snapshot, indent=2)+'\n')
+        print(f"Inference batches: {config.get('frame_batch_size', 1)} frames, "
+              f"{config['batch_size']} hand crops", flush=True)
         backend = None
         started = time.monotonic()
         for identity in config['scenes']:
